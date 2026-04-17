@@ -31,6 +31,16 @@
       "clientId": "1493639167526174830",
       "deployedIn": "backend",
       "type": "discord-bot"
+    },
+    "vault": {
+      "name": "Tokens-Vault",
+      "repo": "https://github.com/slothyproject/Tokens-Vault",
+      "path": "E:\\Projects God Tier\\Dissident-Tokens-Vault",
+      "deployUrl": "https://dissidenttokens.mastertibbles.co.uk",
+      "railwayUrl": "https://dissident-tokens-vault-production.up.railway.app",
+      "railwayService": "dissident-tokens-vault",
+      "port": 8080,
+      "type": "static"
     }
   },
   "discord": {
