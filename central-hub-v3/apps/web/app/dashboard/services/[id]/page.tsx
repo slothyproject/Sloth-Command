@@ -283,15 +283,24 @@ function OverviewTab({ service }: { service: { url?: string; repositoryUrl?: str
 }
 
 // Variables Tab
+interface Variable {
+  id: string;
+  name: string;
+  value: string;
+  isSecret: boolean;
+  category?: string;
+  description?: string;
+}
+
 function VariablesTab({ serviceId, variables, isLoading }: { 
   serviceId: string;
-  variables: unknown[] | undefined;
+  variables: Variable[] | undefined;
   isLoading: boolean;
 }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [showSecrets, setShowSecrets] = useState<Set<string>>(new Set());
   
-  const filteredVariables = variables?.filter((v: any) =>
+  const filteredVariables = variables?.filter((v) =>
     v.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
     v.category?.toLowerCase().includes(searchQuery.toLowerCase())
   );
@@ -340,7 +349,7 @@ function VariablesTab({ serviceId, variables, isLoading }: {
       </div>
       
       <div className="space-y-2">
-        {filteredVariables?.map((variable: { id: string; name: string; value: string; isSecret: boolean; category?: string; description?: string }) => (
+        {filteredVariables?.map((variable) => (
           <div
             key={variable.id}
             className="flex items-center justify-between p-4 rounded-lg bg-white/5 hover:bg-white/10 transition-colors"
@@ -426,8 +435,15 @@ function VariablesTab({ serviceId, variables, isLoading }: {
 }
 
 // Deployments Tab
+interface Deployment {
+  id: string;
+  status: string;
+  createdAt: string;
+  url?: string;
+}
+
 function DeploymentsTab({ deployments, isLoading }: { 
-  deployments: unknown[] | undefined;
+  deployments: Deployment[] | undefined;
   isLoading: boolean;
 }) {
   if (isLoading) {
@@ -442,7 +458,7 @@ function DeploymentsTab({ deployments, isLoading }: {
         </div>
       ) : (
         <div className="space-y-3">
-          {deployments?.map((deployment: { id: string; status: string; createdAt: string; url?: string }) => (
+          {deployments?.map((deployment) => (
             <div
               key={deployment.id}
               className="flex items-center justify-between p-4 rounded-lg bg-white/5"
