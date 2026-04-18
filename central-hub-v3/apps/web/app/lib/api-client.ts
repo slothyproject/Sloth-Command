@@ -102,9 +102,10 @@ export const api = {
   // AI
   ai: {
     analyze: (serviceId: string) => apiClient.get(`/ai/analyze/${serviceId}`),
-    predict: (serviceId: string, hours = 24) => 
+    predict: (serviceId: string, hours = 24) =>
       apiClient.get(`/ai/predict/${serviceId}?hours=${hours}`),
     insights: (serviceId: string) => apiClient.get(`/ai/insights/${serviceId}`),
     chat: (message: string) => apiClient.post('/ai/chat', { message }),
+    fix: (insightId: string) => apiClient.post(`/ai/fix/${insightId}`),
   },
 };
