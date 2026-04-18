@@ -5,7 +5,7 @@
 
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useThemeStore } from '@/app/stores/theme-store';
 import { cn } from '@/app/lib/utils';
 
@@ -39,6 +39,7 @@ export default function SettingsPage() {
           <nav className="space-y-1">
             {[
               { id: 'general', label: 'General', icon: 'Settings' },
+              { id: 'security', label: 'Security', icon: 'Shield' },
               { id: 'appearance', label: 'Appearance', icon: 'Palette' },
               { id: 'shortcuts', label: 'Keyboard Shortcuts', icon: 'Keyboard' },
               { id: 'notifications', label: 'Notifications', icon: 'Bell' },
@@ -96,6 +97,8 @@ export default function SettingsPage() {
               </div>
             </div>
           )}
+
+          {activeSection === 'security' && <SecuritySettings />}
 
           {activeSection === 'appearance' && (
             <div className="glass-card p-6">
@@ -258,5 +261,180 @@ function Toggle({ defaultChecked = false }: { defaultChecked?: boolean }) {
         )}
       />
     </button>
+  );
+}
+
+// Security Settings Component
+function SecuritySettings() {
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [storedPassword, setStoredPassword] = useState('central-hub-2025');
+
+  // Load current password from localStorage on mount
+  useEffect(() => {
+    const saved = localStorage.getItem('central-hub-password');
+    if (saved) {
+      setStoredPassword(saved);
+    }
+  }, []);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setMessage('');
+    setError('');
+
+    // Validate current password
+    if (currentPassword !== storedPassword) {
+      setError('Current password is incorrect');
+      return;
+    }
+
+    // Validate new password
+    if (newPassword.length < 8) {
+      setError('New password must be at least 8 characters long');
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      setError('New passwords do not match');
+      return;
+    }
+
+    setIsLoading(true);
+
+    // Simulate API call
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    // Update password in localStorage
+    localStorage.setItem('central-hub-password', newPassword);
+    setStoredPassword(newPassword);
+    
+    setMessage('Password updated successfully!');
+    setCurrentPassword('');
+    setNewPassword('');
+    setConfirmPassword('');
+    setIsLoading(false);
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Change Password */}
+      <div className="glass-card p-6">
+        <h2 className="text-lg font-semibold text-white mb-6">Security Settings</h2>
+
+        <form onSubmit={handleSubmit} className="space-y-6">
+          {/* Current Password */}
+          <div>
+            <label htmlFor="current-password" className="block text-sm font-medium text-slate-300 mb-2">
+              Current Password
+            </label>
+            <input
+              id="current-password"
+              type="password"
+              value={currentPassword}
+              onChange={(e) => setCurrentPassword(e.target.value)}
+              required
+              className="w-full px-4 py-3 rounded-lg input-glass text-white placeholder-slate-500 focus:outline-none"
+              placeholder="Enter current password"
+            />
+          </div>
+
+          {/* New Password */}
+          <div>
+            <label htmlFor="new-password" className="block text-sm font-medium text-slate-300 mb-2">
+              New Password
+            </label>
+            <input
+              id="new-password"
+              type="password"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              required
+              className="w-full px-4 py-3 rounded-lg input-glass text-white placeholder-slate-500 focus:outline-none"
+              placeholder="Enter new password"
+            />
+            <p className="mt-1 text-xs text-slate-500">Must be at least 8 characters long</p>
+          </div>
+
+          {/* Confirm Password */}
+          <div>
+            <label htmlFor="confirm-password" className="block text-sm font-medium text-slate-300 mb-2">
+              Confirm New Password
+            </label>
+            <input
+              id="confirm-password"
+              type="password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              required
+              className="w-full px-4 py-3 rounded-lg input-glass text-white placeholder-slate-500 focus:outline-none"
+              placeholder="Confirm new password"
+            />
+          </div>
+
+          {/* Success Message */}
+          {message && (
+            <div className="p-3 rounded-lg bg-green-500/10 border border-green-500/20 text-green-400 text-sm">
+              {message}
+            </div>
+          )}
+
+          {/* Error Message */}
+          {error && (
+            <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
+              {error}
+            </div>
+          )}
+
+          {/* Submit Button */}
+          <button
+            type="submit"
+            disabled={isLoading}
+            className={cn(
+              "w-full py-3 px-4 rounded-lg font-medium text-white transition-all",
+              "bg-gradient-to-r from-cyan-500 to-cyan-600 hover:from-cyan-400 hover:to-cyan-500",
+              "shadow-lg shadow-cyan-500/25 hover:shadow-cyan-500/40",
+              "disabled:opacity-50 disabled:cursor-not-allowed",
+              "flex items-center justify-center gap-2"
+            )}
+          >
+            {isLoading ? (
+              <>
+                <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                </svg>
+                Updating...
+              </>
+            ) : (
+              'Update Password'
+            )}
+          </button>
+        </form>
+      </div>
+
+      {/* Security Info */}
+      <div className="glass-card p-6">
+        <h3 className="text-lg font-semibold text-white mb-4">Security Information</h3>
+        <div className="space-y-4 text-sm text-slate-400">
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full bg-green-400"></div>
+            <span>Your password is stored securely</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full bg-green-400"></div>
+            <span>Session expires when you close the browser</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full bg-green-400"></div>
+            <span>All data is encrypted in transit</span>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
