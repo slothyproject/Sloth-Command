@@ -1,7 +1,10 @@
 FROM node:20-slim
 
-# Cache-buster: v1.1 - Force rebuild with new start.sh
-LABEL version="1.1"
+# Cache-buster: v1.2 - Prisma binary target fix
+LABEL version="1.2"
+
+# Set Prisma binary target for Debian environment
+ENV PRISMA_CLI_BINARY_TARGETS=debian-openssl-3.0.x
 
 # Install OpenSSL for Prisma compatibility
 RUN apt-get update && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
