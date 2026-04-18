@@ -138,7 +138,7 @@ export function Sidebar() {
         <div className="absolute bottom-4 left-4 right-4">
           <button
             onClick={() => {
-              localStorage.removeItem('central-hub-auth');
+              localStorage.removeItem('central-hub-token');
               window.location.href = '/login';
             }}
             className={cn(
