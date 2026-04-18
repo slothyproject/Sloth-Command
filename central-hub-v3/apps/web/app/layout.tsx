@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "./components/providers/theme-provider";
+import { QueryProvider } from "./components/providers/query-provider";
 import { ErrorBoundary } from "./components/error-boundary";
 
 const inter = Inter({
@@ -39,9 +40,11 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <body className={`${inter.variable} font-sans antialiased`}>
         <ErrorBoundary>
-          <ThemeProvider>
-            {children}
-          </ThemeProvider>
+          <QueryProvider>
+            <ThemeProvider>
+              {children}
+            </ThemeProvider>
+          </QueryProvider>
         </ErrorBoundary>
       </body>
     </html>
