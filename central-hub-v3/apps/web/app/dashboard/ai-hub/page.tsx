@@ -16,6 +16,9 @@ import { cn } from '@/app/lib/utils';
 
 type Tab = 'overview' | 'intelligence' | 'recommendations' | 'predictions' | 'command';
 
+// Force dynamic rendering - requires client-side TanStack Query
+export const dynamic = 'force-dynamic';
+
 export default function AIHubPage() {
   const [activeTab, setActiveTab] = useState<Tab>('overview');
   const { data: services } = useServices();
