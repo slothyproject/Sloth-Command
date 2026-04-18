@@ -22,9 +22,9 @@ export default function DashboardLayout({
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // Check if user is authenticated
-    const auth = localStorage.getItem('central-hub-auth');
-    if (auth !== 'true') {
+    // Check if user has JWT token
+    const token = localStorage.getItem('central-hub-token');
+    if (!token) {
       router.push('/login');
     } else {
       setIsAuthenticated(true);

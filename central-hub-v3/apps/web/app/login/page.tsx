@@ -1,16 +1,15 @@
 /**
  * Login Page
- * Simple password-only authentication
+ * Simple password-only authentication with real API
  */
 
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { cn } from '@/app/lib/utils';
 
-// Default password - can be changed in settings
-const DEFAULT_PASSWORD = 'central-hub-2025';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -19,33 +18,32 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [storedPassword, setStoredPassword] = useState(DEFAULT_PASSWORD);
-
-  // Load stored password on mount
-  useEffect(() => {
-    const saved = localStorage.getItem('central-hub-password');
-    if (saved) {
-      setStoredPassword(saved);
-    } else {
-      // Initialize with default password
-      localStorage.setItem('central-hub-password', DEFAULT_PASSWORD);
-    }
-  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setIsLoading(true);
     
-    // Simulate network delay for security
-    await new Promise(resolve => setTimeout(resolve, 500));
-    
-    if (password === storedPassword) {
-      // Store auth state in localStorage
-      localStorage.setItem('central-hub-auth', 'true');
+    try {
+      const response = await fetch(`${API_URL}/api/auth/login`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ password }),
+      });
+
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.error || 'Login failed');
+      }
+
+      // Store JWT token
+      localStorage.setItem('central-hub-token', data.token);
       router.push('/dashboard');
-    } else {
-      setError('Incorrect password. Please try again.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Login failed');
       setIsLoading(false);
     }
   };

@@ -1,0 +1,63 @@
+// Central Hub Database Schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(uuid())
+  password  String   // Hashed password
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("users")
+}
+
+model Service {
+  id          String   @id @default(uuid())
+  name        String
+  platform    String   // 'railway', 'discord', 'website'
+  externalId  String?  // ID from external platform
+  status      String   @default("unknown")
+  config      Json?    // Platform-specific configuration
+  url         String?
+  repositoryUrl String?
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("services")
+}
+
+model Variable {
+  id        String  @id @default(uuid())
+  serviceId String
+  name      String
+  value     String
+  isSecret  Boolean @default(false)
+  category  String?
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("variables")
+}
+
+model Deployment {
+  id          String   @id @default(uuid())
+  serviceId   String
+  status      String   // 'pending', 'in_progress', 'success', 'failed'
+  url         String?
+  logs        String?
+  error       String?
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("deployments")
+}
