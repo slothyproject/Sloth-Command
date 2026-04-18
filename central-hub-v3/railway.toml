@@ -1,25 +1,16 @@
-# Central Hub - Railway Configuration
-# This is a monorepo with both frontend (web) and backend (api)
+# Central Hub - Railway Configuration with Docker
 
 [build]
-builder = "NIXPACKS"
+builder = "DOCKERFILE"
 
-# Frontend service
+# API service
 [[services]]
-name = "web"
-source = "apps/web"
-buildCommand = "cd apps/web && npm install && npm run build"
-startCommand = "cd apps/web && npm start"
-healthcheckPath = "/"
-
-# Backend API service
-[[services]]
-name = "api"
+name = "central-hub-api"
 source = "apps/api"
-buildCommand = "cd apps/api && npm install && npm run build"
-startCommand = "cd apps/api && npm start"
-healthcheckPath = "/api/health"
+dockerfilePath = "Dockerfile"
 
 [deploy]
+startCommand = "node dist/index.js"
+healthcheckPath = "/api/health"
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 3
