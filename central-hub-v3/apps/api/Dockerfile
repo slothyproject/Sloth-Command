@@ -17,6 +17,9 @@ COPY src/prisma ./prisma
 # Generate Prisma client
 RUN npx prisma generate
 
+# Create database tables (using db push for initial setup)
+RUN npx prisma db push --accept-data-loss
+
 # Copy source code
 COPY . .
 
