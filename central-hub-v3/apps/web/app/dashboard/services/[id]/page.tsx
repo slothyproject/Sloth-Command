@@ -5,7 +5,7 @@
 
 'use client';
 
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { useParams } from 'next/navigation';
 import { useService, useServiceVariables, useServiceDeployments, useDeployService, useRestartService } from '@/app/hooks/use-services';
 import { cn, formatDate, formatTimeAgo, getStatusColor } from '@/app/lib/utils';
@@ -291,8 +291,8 @@ function VariablesTab({ serviceId, variables, isLoading }: {
   const [searchQuery, setSearchQuery] = useState('');
   const [showSecrets, setShowSecrets] = useState<Set<string>>(new Set());
   
-  const filteredVariables = variables?.filter((v: { name: string; category?: string }) =>
-    v.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+  const filteredVariables = variables?.filter((v: any) =>
+    v.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
     v.category?.toLowerCase().includes(searchQuery.toLowerCase())
   );
   
@@ -589,7 +589,7 @@ function LogLine({ level, timestamp, children }: {
 
 // Icon Component
 function Icon({ name, className }: { name: string; className?: string }) {
-  const icons: Record<string, JSX.Element> = {
+  const icons: Record<string, React.ReactNode> = {
     Activity: (
       <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
