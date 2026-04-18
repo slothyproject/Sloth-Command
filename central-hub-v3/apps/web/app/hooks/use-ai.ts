@@ -5,7 +5,27 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/app/lib/api-client';
-import type { AIInsight, AIPrediction, ChatMessage } from '@central-hub/shared-types';
+
+interface AIInsight {
+  id: string;
+  serviceId: string;
+  title: string;
+  severity: 'critical' | 'warning' | 'suggestion' | 'info';
+}
+
+interface AIPrediction {
+  id: string;
+  serviceId: string;
+  metric: string;
+  predictedValue: number;
+  confidence: number;
+}
+
+interface ChatMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+}
 
 // Query keys
 export const aiKeys = {

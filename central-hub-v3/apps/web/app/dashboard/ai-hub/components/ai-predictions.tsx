@@ -17,7 +17,14 @@ import {
   Bar,
 } from 'recharts';
 import { cn } from '@/app/lib/utils';
-import type { Service } from '@central-hub/shared-types';
+
+interface Service {
+  id: string;
+  name: string;
+  healthScore?: number;
+  cpuPercent?: number;
+  memoryPercent?: number;
+}
 
 interface AIPredictionsProps {
   services: Service[] | undefined;

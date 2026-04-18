@@ -9,7 +9,17 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { useServices, useSyncServices } from '@/app/hooks/use-services';
 import { cn, formatTimeAgo, getStatusColor, getStatusIcon } from '@/app/lib/utils';
-import type { Service } from '@central-hub/shared-types';
+
+interface Service {
+  id: string;
+  name: string;
+  description?: string;
+  status: string;
+  cpuPercent?: number;
+  memoryPercent?: number;
+  lastDeploymentAt?: string;
+  url?: string;
+}
 
 export default function ServicesPage() {
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
