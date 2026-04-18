@@ -5,7 +5,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/app/lib/api-client';
-import type { Service, Variable, Deployment } from '@central-hub/shared-types';
+import type { Service, Variable, Deployment } from '@/app/types';
 
 // Query keys
 export const serviceKeys = {
