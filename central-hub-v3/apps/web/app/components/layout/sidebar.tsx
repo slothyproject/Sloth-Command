@@ -140,7 +140,7 @@ export function Sidebar() {
 
 // Simple icon component
 function Icon({ name, className }: { name: string; className?: string }) {
-  const icons: Record<string, JSX.Element> = {
+  const icons: Record<string, React.ReactNode> = {
     LayoutDashboard: (
       <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <rect x="3" y="3" width="7" height="7" rx="1" strokeWidth={2} />
