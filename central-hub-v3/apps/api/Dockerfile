@@ -1,7 +1,7 @@
 FROM node:20-slim
 
-# Cache-buster: v1.2 - Prisma binary target fix
-LABEL version="1.2"
+# Cache-buster: v1.3 - Application-level database migration
+LABEL version="1.3"
 
 # Set Prisma binary target for Debian environment
 ENV PRISMA_CLI_BINARY_TARGETS=debian-openssl-3.0.x
@@ -17,20 +17,18 @@ COPY package*.json ./
 # Install dependencies
 RUN npm install
 
-# Copy Prisma schema
-COPY src/prisma ./prisma
+# Copy Prisma schema and migrations
+COPY src/prisma ./src/prisma
+COPY prisma/migrations ./prisma/migrations
 
-# Verify schema is in place
-RUN ls -la prisma/ && cat prisma/schema.prisma | head -10
+# Verify files are in place
+RUN ls -la src/prisma/ && ls -la prisma/migrations/
 
 # Generate Prisma client
-RUN npx prisma generate
+RUN npx prisma generate --schema=src/prisma/schema.prisma
 
-# Copy source code and startup script
+# Copy source code
 COPY . .
-
-# Make startup script executable
-RUN chmod +x start.sh
 
 # Build TypeScript
 RUN npm run build
@@ -38,5 +36,5 @@ RUN npm run build
 # Expose port
 EXPOSE 3001
 
-# Start server using startup script (handles database setup)
-CMD ["./start.sh"]
+# Start server (database initialization happens in application code)
+CMD ["node", "dist/index.js"]

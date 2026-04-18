@@ -9,6 +9,7 @@ import dotenv from 'dotenv';
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
+import { execSync } from 'child_process';
 
 // Load environment variables
 dotenv.config();
@@ -17,6 +18,59 @@ const app = express();
 const prisma = new PrismaClient();
 const PORT = process.env.PORT || 3001;
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
+
+// Database initialization with retry logic
+async function initializeDatabase(): Promise<boolean> {
+  const maxRetries = 5;
+  let attempt = 0;
+  
+  while (attempt < maxRetries) {
+    try {
+      attempt++;
+      console.log(`📦 Database initialization attempt ${attempt}/${maxRetries}...`);
+      
+      // Wait for database connection
+      await prisma.$connect();
+      console.log('✅ Database connection established');
+      
+      // Run migrations
+      try {
+        execSync('npx prisma migrate deploy --schema=src/prisma/schema.prisma', {
+          stdio: 'inherit',
+          env: process.env,
+          timeout: 60000
+        });
+        console.log('✅ Database migrations applied successfully');
+        return true;
+      } catch (migrateError) {
+        console.log('⚠️  Migration command failed, checking if tables exist...');
+        
+        // Check if tables already exist by querying
+        try {
+          await prisma.$queryRaw`SELECT 1 FROM "users" LIMIT 1`;
+          console.log('✅ Tables already exist, skipping migration');
+          return true;
+        } catch {
+          console.error('❌ Tables do not exist and migration failed');
+          throw migrateError;
+        }
+      }
+      
+    } catch (error) {
+      console.error(`❌ Database initialization attempt ${attempt} failed:`, error);
+      
+      if (attempt < maxRetries) {
+        console.log(`⏳ Waiting 5 seconds before retry...`);
+        await new Promise(resolve => setTimeout(resolve, 5000));
+      } else {
+        console.error('❌ All database initialization attempts failed');
+        return false;
+      }
+    }
+  }
+  
+  return false;
+}
 
 // Middleware
 app.use(cors({
@@ -179,7 +233,19 @@ async function initializeDefaultUser() {
 // Start server
 app.listen(PORT, async () => {
   console.log(`🚀 Central Hub API running on port ${PORT}`);
-  await initializeDefaultUser();
+  
+  // Initialize database first
+  const dbInitialized = await initializeDatabase();
+  
+  if (dbInitialized) {
+    // Then initialize default user
+    await initializeDefaultUser();
+    console.log('✅ Server fully initialized and ready');
+  } else {
+    console.error('⚠️  Server running but database initialization failed');
+    console.error('⚠️  Login will not work until database is properly set up');
+    console.error('⚠️  Check DATABASE_URL and ensure PostgreSQL is accessible');
+  }
 });
 
 // Graceful shutdown
