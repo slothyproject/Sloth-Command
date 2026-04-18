@@ -95,7 +95,7 @@ export function useAutoFixInsight() {
       insightId: string 
     }) => {
       // This would call an API endpoint to auto-fix
-      const response = await apiClient.post(`/ai/fix/${insightId}`);
+      const response = await api.ai.fix(insightId);
       return response.data;
     },
     onSuccess: (_, variables) => {
