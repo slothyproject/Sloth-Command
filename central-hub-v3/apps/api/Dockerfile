@@ -17,6 +17,9 @@ RUN npm install
 # Copy Prisma schema
 COPY src/prisma ./prisma
 
+# Verify schema is in place
+RUN ls -la prisma/ && cat prisma/schema.prisma | head -10
+
 # Generate Prisma client
 RUN npx prisma generate
 
