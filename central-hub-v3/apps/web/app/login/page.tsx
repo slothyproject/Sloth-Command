@@ -9,7 +9,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { cn } from '@/app/lib/utils';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://central-hub-api-production.up.railway.app';
 
 export default function LoginPage() {
   const router = useRouter();
