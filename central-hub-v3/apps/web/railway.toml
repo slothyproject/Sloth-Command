@@ -1,5 +1,5 @@
 [build]
-cmd = "npm run build"
+cmd = "npm install && npm run build"
 
 [deploy]
 startCommand = "npm start"
