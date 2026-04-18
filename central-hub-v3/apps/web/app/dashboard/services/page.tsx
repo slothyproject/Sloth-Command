@@ -251,8 +251,8 @@ export default function ServicesPage() {
                   <input
                     type="checkbox"
                     checked={
-                      filteredServices?.length > 0 && 
-                      selectedServices.size === filteredServices?.length
+                      (filteredServices?.length ?? 0) > 0 && 
+                      selectedServices.size === (filteredServices?.length ?? 0)
                     }
                     onChange={selectAll}
                     className="rounded border-slate-600"
