@@ -7,7 +7,7 @@ import axios from 'axios';
 import { useAuthStore } from '@/app/stores/auth-store';
 
 // API base URL
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://central-hub-api-production.up.railway.app/api';
 
 // Create axios instance
 export const apiClient = axios.create({
