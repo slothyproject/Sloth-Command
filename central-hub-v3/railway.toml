@@ -1,6 +1,6 @@
 [build]
 builder = "DOCKERFILE"
-rootDirectory = "central-hub-v3/apps/api"
+rootDirectory = "apps/api"
 
 [deploy]
 startCommand = "node dist/index.js"
