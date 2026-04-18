@@ -1,7 +1,7 @@
-FROM node:20-alpine
+FROM node:20-slim
 
-# Install OpenSSL for Prisma
-RUN apk add --no-cache openssl
+# Install OpenSSL for Prisma compatibility
+RUN apt-get update && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
@@ -17,11 +17,11 @@ COPY src/prisma ./prisma
 # Generate Prisma client
 RUN npx prisma generate
 
-# Create database tables (using db push for initial setup)
-RUN npx prisma db push --accept-data-loss
-
-# Copy source code
+# Copy source code and startup script
 COPY . .
+
+# Make startup script executable
+RUN chmod +x start.sh
 
 # Build TypeScript
 RUN npm run build
@@ -29,5 +29,5 @@ RUN npm run build
 # Expose port
 EXPOSE 3001
 
-# Start server
-CMD ["node", "dist/index.js"]
+# Start server using startup script (handles database setup)
+CMD ["./start.sh"]
