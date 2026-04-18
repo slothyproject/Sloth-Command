@@ -26,6 +26,18 @@ interface Service {
   memoryPercent?: number;
 }
 
+interface Prediction {
+  id: string;
+  metric: string;
+  service: string;
+  currentValue: string;
+  predictedValue: string;
+  trend: 'increasing' | 'decreasing';
+  confidence: number;
+  timeframe: string;
+  recommendation: string;
+}
+
 interface AIPredictionsProps {
   services: Service[] | undefined;
 }
@@ -64,7 +76,7 @@ export function AIPredictions({ services }: AIPredictionsProps) {
     { month: 'Jun', actual: null, predicted: 295 },
   ];
 
-  const predictions = [
+  const predictions: Prediction[] = [
     {
       id: '1',
       metric: 'CPU Usage',
@@ -186,7 +198,6 @@ export function AIPredictions({ services }: AIPredictionsProps) {
                 stroke="#64748b"
                 fontSize={12}
                 tickLine={false}
-                prefix="$"
               />
               <Tooltip
                 contentStyle={{
@@ -217,16 +228,7 @@ export function AIPredictions({ services }: AIPredictionsProps) {
 function PredictionCard({
   prediction,
 }: {
-  prediction: {
-    metric: string;
-    service: string;
-    currentValue: string;
-    predictedValue: string;
-    trend: 'increasing' | 'decreasing';
-    confidence: number;
-    timeframe: string;
-    recommendation: string;
-  };
+  prediction: Prediction;
 }) {
   return (
     <div className="glass-card p-5">
