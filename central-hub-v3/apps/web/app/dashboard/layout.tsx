@@ -5,6 +5,7 @@
 
 import { Sidebar } from '@/app/components/layout/sidebar';
 import { TopNav } from '@/app/components/layout/top-nav';
+import { CommandPalette } from '@/app/components/layout/command-palette';
 
 export default function DashboardLayout({
   children,
@@ -24,6 +25,9 @@ export default function DashboardLayout({
           {children}
         </main>
       </div>
+      
+      {/* Command Palette - Global Search */}
+      <CommandPalette />
     </div>
   );
 }
