@@ -5,7 +5,7 @@
 
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { User, Tokens } from '@central-hub/shared-types';
+import type { User, Tokens } from '@/app/types';
 
 interface AuthState {
   user: User | null;
