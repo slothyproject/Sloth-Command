@@ -1,5 +1,8 @@
 FROM node:20-slim
 
+# Cache-buster: v1.1 - Force rebuild with new start.sh
+LABEL version="1.1"
+
 # Install OpenSSL for Prisma compatibility
 RUN apt-get update && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
 
