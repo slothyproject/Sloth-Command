@@ -1,33 +1,40 @@
 /**
  * Login Page
- * Authentication with glassmorphism design
+ * Simple password-only authentication
  */
 
 'use client';
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useAuthStore } from '@/app/stores/auth-store';
 import { cn } from '@/app/lib/utils';
+
+// Password is set via environment variable or defaults to a secure hash
+const CORRECT_PASSWORD = process.env.NEXT_PUBLIC_APP_PASSWORD || 'central-hub-2025';
 
 export default function LoginPage() {
   const router = useRouter();
-  const { login, isLoading, error, clearError } = useAuthStore();
   
-  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [rememberMe, setRememberMe] = useState(false);
+  const [error, setError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    clearError();
+    setError('');
+    setIsLoading(true);
     
-    try {
-      await login(email, password);
+    // Simulate network delay for security
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
+    if (password === CORRECT_PASSWORD) {
+      // Store auth state in localStorage
+      localStorage.setItem('central-hub-auth', 'true');
       router.push('/dashboard');
-    } catch {
-      // Error is handled in store
+    } else {
+      setError('Incorrect password. Please try again.');
+      setIsLoading(false);
     }
   };
 
@@ -58,26 +65,10 @@ export default function LoginPage() {
         {/* Login Form */}
         <div className="glass-card p-8">
           <form onSubmit={handleSubmit} className="space-y-6">
-            {/* Email Field */}
-            <div>
-              <label htmlFor="email" className="block text-sm font-medium text-slate-300 mb-2">
-                Email Address
-              </label>
-              <input
-                id="email"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                className="w-full px-4 py-3 rounded-lg input-glass text-white placeholder-slate-500 focus:outline-none"
-                placeholder="you@example.com"
-              />
-            </div>
-
             {/* Password Field */}
             <div>
               <label htmlFor="password" className="block text-sm font-medium text-slate-300 mb-2">
-                Password
+                Enter Password
               </label>
               <div className="relative">
                 <input
@@ -86,8 +77,9 @@ export default function LoginPage() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
+                  autoFocus
                   className="w-full px-4 py-3 pr-12 rounded-lg input-glass text-white placeholder-slate-500 focus:outline-none"
-                  placeholder="••••••••"
+                  placeholder="Enter your password"
                 />
                 <button
                   type="button"
@@ -108,23 +100,6 @@ export default function LoginPage() {
               </div>
             </div>
 
-            {/* Remember Me */}
-            <div className="flex items-center justify-between">
-              <label className="flex items-center">
-                <input
-                  type="checkbox"
-                  checked={rememberMe}
-                  onChange={(e) => setRememberMe(e.target.checked)}
-                  className="w-4 h-4 rounded border-slate-600 bg-slate-700 text-cyan-500 focus:ring-cyan-500"
-                />
-                <span className="ml-2 text-sm text-slate-400">Remember me</span>
-              </label>
-              
-              <a href="#" className="text-sm text-cyan-400 hover:text-cyan-300">
-                Forgot password?
-              </a>
-            </div>
-
             {/* Error Message */}
             {error && (
               <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
@@ -135,7 +110,7 @@ export default function LoginPage() {
             {/* Submit Button */}
             <button
               type="submit"
-              disabled={isLoading}
+              disabled={isLoading || !password}
               className={cn(
                 "w-full py-3 px-4 rounded-lg font-medium text-white transition-all",
                 "bg-gradient-to-r from-cyan-500 to-cyan-600 hover:from-cyan-400 hover:to-cyan-500",
@@ -150,28 +125,13 @@ export default function LoginPage() {
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                   </svg>
-                  Signing in...
+                  Verifying...
                 </>
               ) : (
-                'Sign In'
+                'Enter'
               )}
             </button>
           </form>
-
-          {/* Divider */}
-          <div className="mt-6 flex items-center">
-            <div className="flex-1 border-t border-slate-700" />
-            <span className="mx-4 text-sm text-slate-500">or</span>
-            <div className="flex-1 border-t border-slate-700" />
-          </div>
-
-          {/* Setup Link */}
-          <p className="mt-6 text-center text-sm text-slate-400">
-            First time?{' '}
-            <a href="#" className="text-cyan-400 hover:text-cyan-300 font-medium">
-              Set up your vault
-            </a>
-          </p>
         </div>
 
         {/* Footer */}
