@@ -5,12 +5,12 @@
 
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { cn } from '@/app/lib/utils';
 
-// Password is set via environment variable or defaults to a secure hash
-const CORRECT_PASSWORD = process.env.NEXT_PUBLIC_APP_PASSWORD || 'central-hub-2025';
+// Default password - can be changed in settings
+const DEFAULT_PASSWORD = 'central-hub-2025';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -19,6 +19,18 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [storedPassword, setStoredPassword] = useState(DEFAULT_PASSWORD);
+
+  // Load stored password on mount
+  useEffect(() => {
+    const saved = localStorage.getItem('central-hub-password');
+    if (saved) {
+      setStoredPassword(saved);
+    } else {
+      // Initialize with default password
+      localStorage.setItem('central-hub-password', DEFAULT_PASSWORD);
+    }
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -28,7 +40,7 @@ export default function LoginPage() {
     // Simulate network delay for security
     await new Promise(resolve => setTimeout(resolve, 500));
     
-    if (password === CORRECT_PASSWORD) {
+    if (password === storedPassword) {
       // Store auth state in localStorage
       localStorage.setItem('central-hub-auth', 'true');
       router.push('/dashboard');
