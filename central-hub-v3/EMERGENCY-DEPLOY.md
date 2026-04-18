@@ -4,15 +4,17 @@
 Your backend (`central-hub-api`) build is failing because Railway can't find the files.
 
 ## Root Cause
-The repository structure on GitHub has files nested at:
+The railway.toml files have `rootDirectory = "apps/api"` which conflicts with the Railway dashboard setting of `central-hub-v3/apps/api`. The repository structure on GitHub is:
 ```
-central-hub-v3/central-hub-v3/apps/api/
+repo-root/
+├── central-hub-v3/
+│   ├── apps/
+│   │   └── api/  ← Backend code is HERE
+│   └── ...
+└── ...
 ```
 
-But locally they're at:
-```
-central-hub-v3/apps/api/
-```
+The correct path from repository root is `central-hub-v3/apps/api`, not just `apps/api`.
 
 ## Solution: Update Railway Configuration
 
@@ -27,7 +29,7 @@ https://railway.app/dashboard
 
 | Field | Current Value | **New Value** |
 |-------|---------------|---------------|
-| **Root Directory** | `apps/api` | **`apps/api`** |
+| **Root Directory** | `apps/api` | **`central-hub-v3/apps/api`** |
 | **Builder** | (any) | **`Dockerfile`** |
 | **Dockerfile Path** | `Dockerfile` | **`Dockerfile`** (keep same) |
 
