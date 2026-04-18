@@ -30,6 +30,26 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+// Debug endpoint to check database status
+app.get('/api/debug', async (req, res) => {
+  try {
+    const userCount = await prisma.user.count();
+    res.json({ 
+      status: 'ok', 
+      database: 'connected',
+      userCount,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      status: 'error', 
+      database: 'disconnected',
+      error: error instanceof Error ? error.message : 'Unknown error',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
 // Authentication routes
 app.post('/api/auth/login', async (req, res) => {
   try {
