@@ -9,7 +9,6 @@ import dotenv from 'dotenv';
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
-import { execSync } from 'child_process';
 
 // Load environment variables
 dotenv.config();
@@ -19,57 +18,86 @@ const prisma = new PrismaClient();
 const PORT = process.env.PORT || 3001;
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
 
-// Database initialization with retry logic
+// Database initialization with direct SQL
 async function initializeDatabase(): Promise<boolean> {
-  const maxRetries = 5;
-  let attempt = 0;
-  
-  while (attempt < maxRetries) {
+  try {
+    console.log('📦 Initializing database...');
+    
+    // Test connection
+    await prisma.$connect();
+    console.log('✅ Database connection established');
+    
+    // Check if tables exist by trying to query
     try {
-      attempt++;
-      console.log(`📦 Database initialization attempt ${attempt}/${maxRetries}...`);
-      
-      // Wait for database connection
-      await prisma.$connect();
-      console.log('✅ Database connection established');
-      
-      // Run migrations
-      try {
-        execSync('npx prisma migrate deploy --schema=src/prisma/schema.prisma', {
-          stdio: 'inherit',
-          env: process.env,
-          timeout: 60000
-        });
-        console.log('✅ Database migrations applied successfully');
-        return true;
-      } catch (migrateError) {
-        console.log('⚠️  Migration command failed, checking if tables exist...');
-        
-        // Check if tables already exist by querying
-        try {
-          await prisma.$queryRaw`SELECT 1 FROM "users" LIMIT 1`;
-          console.log('✅ Tables already exist, skipping migration');
-          return true;
-        } catch {
-          console.error('❌ Tables do not exist and migration failed');
-          throw migrateError;
-        }
-      }
-      
-    } catch (error) {
-      console.error(`❌ Database initialization attempt ${attempt} failed:`, error);
-      
-      if (attempt < maxRetries) {
-        console.log(`⏳ Waiting 5 seconds before retry...`);
-        await new Promise(resolve => setTimeout(resolve, 5000));
-      } else {
-        console.error('❌ All database initialization attempts failed');
-        return false;
-      }
+      await prisma.$queryRaw`SELECT 1 FROM "users" LIMIT 1`;
+      console.log('✅ Tables already exist');
+      return true;
+    } catch {
+      console.log('📝 Creating database tables...');
     }
+    
+    // Create tables using raw SQL
+    await prisma.$executeRaw`
+      CREATE TABLE IF NOT EXISTS "users" (
+        "id" TEXT PRIMARY KEY,
+        "password" TEXT NOT NULL,
+        "createdAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `;
+    console.log('✅ Users table created');
+    
+    await prisma.$executeRaw`
+      CREATE TABLE IF NOT EXISTS "services" (
+        "id" TEXT PRIMARY KEY,
+        "name" TEXT NOT NULL,
+        "platform" TEXT NOT NULL,
+        "externalId" TEXT,
+        "status" TEXT DEFAULT 'unknown',
+        "config" JSONB,
+        "url" TEXT,
+        "repositoryUrl" TEXT,
+        "createdAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `;
+    console.log('✅ Services table created');
+    
+    await prisma.$executeRaw`
+      CREATE TABLE IF NOT EXISTS "variables" (
+        "id" TEXT PRIMARY KEY,
+        "serviceId" TEXT NOT NULL,
+        "name" TEXT NOT NULL,
+        "value" TEXT NOT NULL,
+        "isSecret" BOOLEAN DEFAULT false,
+        "category" TEXT,
+        "createdAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `;
+    console.log('✅ Variables table created');
+    
+    await prisma.$executeRaw`
+      CREATE TABLE IF NOT EXISTS "deployments" (
+        "id" TEXT PRIMARY KEY,
+        "serviceId" TEXT NOT NULL,
+        "status" TEXT NOT NULL,
+        "url" TEXT,
+        "logs" TEXT,
+        "error" TEXT,
+        "createdAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `;
+    console.log('✅ Deployments table created');
+    
+    console.log('✅ All tables created successfully');
+    return true;
+    
+  } catch (error) {
+    console.error('❌ Database initialization failed:', error);
+    return false;
   }
-  
-  return false;
 }
 
 // Middleware
