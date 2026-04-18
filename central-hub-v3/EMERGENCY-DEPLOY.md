@@ -27,7 +27,7 @@ https://railway.app/dashboard
 
 | Field | Current Value | **New Value** |
 |-------|---------------|---------------|
-| **Root Directory** | `apps/api` | **`central-hub-v3/apps/api`** |
+| **Root Directory** | `apps/api` | **`apps/api`** |
 | **Builder** | (any) | **`Dockerfile`** |
 | **Dockerfile Path** | `Dockerfile` | **`Dockerfile`** (keep same) |
 

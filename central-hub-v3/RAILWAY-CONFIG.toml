@@ -7,7 +7,7 @@ builder = "DOCKERFILE"
 
 # IMPORTANT: Path to Dockerfile relative to repo root
 # Since your files are in central-hub-v3/apps/api/, use this path:
-rootDirectory = "central-hub-v3/apps/api"
+rootDirectory = "apps/api"
 
 # Dockerfile location (relative to rootDirectory)
 dockerfilePath = "Dockerfile"
