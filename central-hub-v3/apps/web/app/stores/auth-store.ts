@@ -24,7 +24,7 @@ interface AuthState {
 }
 
 // API base URL
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://central-hub-api-production.up.railway.app/api';
 
 export const useAuthStore = create<AuthState>()(
   persist(
