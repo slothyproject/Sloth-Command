@@ -583,6 +583,141 @@ export const api = {
     processAutoResponders: (content: string, guildId: string, channelId: string) => 
       apiClient.post('/discord/advanced/responders/process', { content, guildId, channelId }),
   },
+
+  // ============================================================================
+  // AUTOMATION API
+  // ============================================================================
+  
+  automation: {
+    // Get automation status
+    getStatus: () => apiClient.get('/automation/status'),
+    
+    // Get system health
+    getHealth: () => apiClient.get('/automation/health'),
+    
+    // Toggle automation features
+    toggleAutoHeal: () => apiClient.post('/automation/auto-heal/toggle'),
+    toggleAutoScale: () => apiClient.post('/automation/auto-scale/toggle'),
+    toggleAutoDeploy: () => apiClient.post('/automation/auto-deploy/toggle'),
+    toggleAlerts: () => apiClient.post('/automation/alerts/toggle'),
+    
+    // Run automation actions
+    healAll: () => apiClient.post('/automation/heal-all'),
+    deployAll: (serviceIds?: string[]) => apiClient.post('/automation/deploy-all', { serviceIds }),
+    restartAll: (serviceIds?: string[]) => apiClient.post('/automation/restart-all', { serviceIds }),
+    syncAll: () => apiClient.post('/automation/sync-all'),
+    
+    // Get automation history
+    getHistory: (limit?: number) => apiClient.get('/automation/history', { params: { limit } }),
+    
+    // Get automation rules
+    getRules: () => apiClient.get('/automation/rules'),
+    createRule: (rule: unknown) => apiClient.post('/automation/rules', rule),
+    updateRule: (id: string, rule: unknown) => apiClient.patch(`/automation/rules/${id}`, rule),
+    deleteRule: (id: string) => apiClient.delete(`/automation/rules/${id}`),
+    enableRule: (id: string) => apiClient.post(`/automation/rules/${id}/enable`),
+    disableRule: (id: string) => apiClient.post(`/automation/rules/${id}/disable`),
+  },
+
+  // ============================================================================
+  // SECRETS API
+  // ============================================================================
+  
+  secrets: {
+    // Get all secrets
+    list: () => apiClient.get('/secrets'),
+    
+    // Get single secret
+    get: (id: string) => apiClient.get(`/secrets/${id}`),
+    
+    // Create secret
+    create: (data: unknown) => apiClient.post('/secrets', data),
+    
+    // Update secret
+    update: (id: string, data: unknown) => apiClient.patch(`/secrets/${id}`, data),
+    
+    // Delete secret
+    delete: (id: string) => apiClient.delete(`/secrets/${id}`),
+    
+    // Rotate secret (generate new value)
+    rotate: (id: string) => apiClient.post(`/secrets/${id}/rotate`),
+    
+    // Bulk operations
+    bulkImport: (secrets: unknown[]) => apiClient.post('/secrets/bulk-import', { secrets }),
+    bulkUpdate: (secrets: Record<string, string>) => apiClient.post('/secrets/bulk-update', { secrets }),
+    
+    // Validate secrets for a service
+    validate: (serviceId: string) => apiClient.get(`/secrets/validate/${serviceId}`),
+    
+    // Get secret categories
+    getCategories: () => apiClient.get('/secrets/categories'),
+    
+    // Export secrets (encrypted)
+    export: () => apiClient.get('/secrets/export'),
+    
+    // Import secrets from file
+    import: (file: unknown) => apiClient.post('/secrets/import', file),
+  },
+
+  // ============================================================================
+  // DEPLOYMENTS API
+  // ============================================================================
+  
+  deployments: {
+    // Get deployment configs
+    getConfigs: () => apiClient.get('/deployments/configs'),
+    
+    // Update deployment config
+    updateConfig: (serviceId: string, config: unknown) => 
+      apiClient.patch(`/deployments/configs/${serviceId}`, config),
+    
+    // Trigger deployment
+    trigger: (serviceId: string, branch?: string) => 
+      apiClient.post(`/deployments/trigger`, { serviceId, branch }),
+    
+    // Get deployment pipeline
+    getPipeline: (pipelineId: string) => apiClient.get(`/deployments/pipeline/${pipelineId}`),
+    
+    // Cancel deployment
+    cancel: (pipelineId: string) => apiClient.post(`/deployments/pipeline/${pipelineId}/cancel`),
+    
+    // Get deployment history
+    getHistory: (serviceId: string, limit?: number) => 
+      apiClient.get(`/deployments/history/${serviceId}`, { params: { limit } }),
+    
+    // Get deployment logs
+    getLogs: (pipelineId: string, offset?: number) => 
+      apiClient.get(`/deployments/pipeline/${pipelineId}/logs`, { params: { offset } }),
+    
+    // Webhook for external CI/CD
+    webhook: (serviceId: string, payload: unknown) => 
+      apiClient.post(`/deployments/webhook/${serviceId}`, payload),
+  },
+
+  // ============================================================================
+  // TEMPLATES API
+  // ============================================================================
+  
+  templates: {
+    // Get all templates
+    list: () => apiClient.get('/templates'),
+    
+    // Get template details
+    get: (id: string) => apiClient.get(`/templates/${id}`),
+    
+    // Deploy from template
+    deploy: (templateId: string, config: unknown) => 
+      apiClient.post(`/templates/${templateId}/deploy`, config),
+    
+    // Create custom template
+    create: (template: unknown) => apiClient.post('/templates', template),
+    
+    // Update template
+    update: (id: string, template: unknown) => apiClient.patch(`/templates/${id}`, template),
+    
+    // Delete template
+    delete: (id: string) => apiClient.delete(`/templates/${id}`),
+  },
 };
 
 // Export types for convenience
