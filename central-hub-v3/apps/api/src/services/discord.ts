@@ -8,6 +8,8 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import { writeFile, mkdir, rm } from 'fs/promises';
 import path from 'path';
+import { withDiscordCircuitBreaker } from '../utils/circuit-breaker';
+import { withCache, CACHE_TTL } from './redis';
 
 const prisma = new PrismaClient();
 const execAsync = promisify(exec);
@@ -51,17 +53,19 @@ export async function createBot(
   token: string,
   config: Partial<BotConfiguration> = {}
 ): Promise<DiscordBot> {
-  // Validate token by making a test request to Discord API
+  // Validate token by making a test request to Discord API (with circuit breaker)
   try {
-    const response = await fetch('https://discord.com/api/v10/users/@me', {
-      headers: { 'Authorization': `Bot ${token}` },
+    const botData = await withDiscordCircuitBreaker(async () => {
+      const response = await fetch('https://discord.com/api/v10/users/@me', {
+        headers: { 'Authorization': `Bot ${token}` },
+      });
+
+      if (!response.ok) {
+        throw new Error('Invalid Discord bot token');
+      }
+
+      return await response.json();
     });
-
-    if (!response.ok) {
-      throw new Error('Invalid Discord bot token');
-    }
-
-    const botData = await response.json();
 
     // Create bot record
     const bot = await prisma.discordBot.create({
@@ -619,36 +623,45 @@ export async function updateCommands(
  * Get bot status
  */
 export async function getBotStatus(botId: string): Promise<BotStatus> {
-  const bot = await prisma.discordBot.findUnique({
-    where: { id: botId },
-  });
+  return withCache(
+    async () => {
+      const bot = await prisma.discordBot.findUnique({
+        where: { id: botId },
+      });
 
-  if (!bot) {
-    throw new Error('Bot not found');
-  }
+      if (!bot) {
+        throw new Error('Bot not found');
+      }
 
-  // Try to fetch live status from bot's health endpoint
-  let liveStatus: any = {};
-  try {
-    const response = await fetch(`http://localhost:3000/health`, {
-      // This would need to be routed to the specific bot's port
-      // For now, return cached status
-    });
-    if (response.ok) {
-      liveStatus = await response.json();
-    }
-  } catch {
-    // Bot health endpoint not available
-  }
+      // Try to fetch live status from bot's health endpoint (with circuit breaker)
+      let liveStatus: any = {};
+      try {
+        liveStatus = await withDiscordCircuitBreaker(async () => {
+          const response = await fetch(`http://localhost:3000/health`, {
+            method: 'GET',
+            headers: { 'Content-Type': 'application/json' },
+          });
+          if (response.ok) {
+            return await response.json();
+          }
+          return {};
+        });
+      } catch {
+        // Bot health endpoint not available, use cached data
+      }
 
-  return {
-    status: bot.status as any,
-    messageCount: bot.messageCount,
-    errorCount: bot.errorCount,
-    lastError: bot.lastError || undefined,
-    guilds: [], // Would be populated from live status
-    ...liveStatus,
-  };
+      return {
+        status: bot.status as any,
+        messageCount: bot.messageCount,
+        errorCount: bot.errorCount,
+        lastError: bot.lastError || undefined,
+        guilds: [], // Would be populated from live status
+        ...liveStatus,
+      };
+    },
+    `discord:status:${botId}`,
+    30 // 30 second cache for live status
+  );
 }
 
 /**
