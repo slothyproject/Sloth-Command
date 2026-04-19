@@ -33,6 +33,7 @@ const navigation: NavSection[] = [
       { name: 'Mission Control', href: '/dashboard/mission-control', icon: 'Zap', badge: 'NEW' },
       { name: 'Overview', href: '/dashboard', icon: 'LayoutDashboard' },
       { name: 'Services', href: '/dashboard/services', icon: 'Layers' },
+      { name: 'Templates', href: '/dashboard/templates', icon: 'Template', badge: 'NEW' },
       { name: 'AI Hub', href: '/dashboard/ai-hub', icon: 'Brain' },
     ],
   },
@@ -404,6 +405,11 @@ function Icon({ name, className }: { name: string; className?: string }) {
     Lock: (
       <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+      </svg>
+    ),
+    Template: (
+      <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1v-2zM4 21a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1v-2z" />
       </svg>
     ),
   };
