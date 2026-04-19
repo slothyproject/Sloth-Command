@@ -718,6 +718,120 @@ export const api = {
     // Delete template
     delete: (id: string) => apiClient.delete(`/templates/${id}`),
   },
+
+  // ============================================================================
+  // GIT INTEGRATION API
+  // ============================================================================
+  
+  git: {
+    // List connected repositories
+    listRepositories: () => apiClient.get('/git/repositories'),
+    list: () => apiClient.get('/git/repositories'),
+    
+    // Get repository details
+    getRepository: (id: string) => apiClient.get(`/git/repositories/${id}`),
+    get: (id: string) => apiClient.get(`/git/repositories/${id}`),
+    
+    // Connect repository
+    connectRepository: (data: unknown) => apiClient.post('/git/repositories', data),
+    create: (data: unknown) => apiClient.post('/git/repositories', data),
+    
+    // Disconnect repository
+    disconnectRepository: (id: string) => apiClient.delete(`/git/repositories/${id}`),
+    delete: (id: string) => apiClient.delete(`/git/repositories/${id}`),
+    
+    // List branches
+    listBranches: (repoId: string) => apiClient.get(`/git/repositories/${repoId}/branches`),
+    
+    // Update webhook configuration
+    updateWebhook: (repoId: string, config: unknown) => 
+      apiClient.patch(`/git/repositories/${repoId}/webhook`, config),
+    update: (repoId: string, data: unknown) => 
+      apiClient.patch(`/git/repositories/${repoId}`, data),
+    
+    // Test webhook
+    testWebhook: (repoId: string) => apiClient.post(`/git/repositories/${repoId}/webhook/test`),
+    
+    // Get webhook history
+    getWebhookHistory: (repoId: string, limit?: number) => 
+      apiClient.get(`/git/repositories/${repoId}/webhook/history`, { params: { limit } }),
+  },
+
+  // ============================================================================
+  // PIPELINE / DEPLOYMENT API
+  // ============================================================================
+  
+  pipeline: {
+    // List pipelines
+    list: () => apiClient.get('/pipelines'),
+    listByService: (serviceId: string) => apiClient.get(`/pipelines?serviceId=${serviceId}`),
+    
+    // Get pipeline details
+    get: (id: string) => apiClient.get(`/pipelines/${id}`),
+    
+    // Trigger pipeline
+    trigger: (serviceId: string, config?: unknown) => 
+      apiClient.post('/pipelines', { serviceId, ...config }),
+    
+    // Cancel pipeline
+    cancel: (id: string) => apiClient.post(`/pipelines/${id}/cancel`),
+    
+    // Approve pipeline (for manual approval)
+    approve: (id: string) => apiClient.post(`/pipelines/${id}/approve`),
+    
+    // Reject pipeline
+    reject: (id: string) => apiClient.post(`/pipelines/${id}/reject`),
+    
+    // Rollback to previous deployment
+    rollback: (id: string, config: unknown) => apiClient.post(`/pipelines/${id}/rollback`, config),
+    
+    // Get pipeline logs
+    getLogs: (id: string, offset?: number) => 
+      apiClient.get(`/pipelines/${id}/logs`, { params: { offset } }),
+    
+    // Stream logs (WebSocket alternative - returns SSE stream)
+    streamLogs: (id: string) => apiClient.get(`/pipelines/${id}/logs/stream`),
+  },
+
+  // ============================================================================
+  // WEBHOOK API (Incoming webhooks from Git providers)
+  // ============================================================================
+  
+  webhook: {
+    // Process incoming webhook
+    process: (payload: unknown) => apiClient.post('/webhooks/process', payload),
+    
+    // Get webhook status
+    getStatus: (id: string) => apiClient.get(`/webhooks/${id}/status`),
+    
+    // Validate webhook signature
+    validate: (id: string, signature: string, payload: unknown) => 
+      apiClient.post(`/webhooks/${id}/validate`, { signature, payload }),
+  },
+
+  // ============================================================================
+  // CI/CD CONFIG API
+  // ============================================================================
+  
+  cicd: {
+    // Get CI/CD configuration for service
+    getConfig: (serviceId: string) => apiClient.get(`/cicd/config/${serviceId}`),
+    
+    // Update CI/CD configuration
+    updateConfig: (serviceId: string, config: unknown) => 
+      apiClient.put(`/cicd/config/${serviceId}`, config),
+    
+    // Get CI/CD status
+    getStatus: (serviceId: string) => apiClient.get(`/cicd/status/${serviceId}`),
+    
+    // Trigger CI/CD pipeline
+    trigger: (serviceId: string, config?: unknown) => 
+      apiClient.post(`/cicd/trigger/${serviceId}`, config),
+    
+    // Get build history
+    getHistory: (serviceId: string, limit?: number) => 
+      apiClient.get(`/cicd/history/${serviceId}`, { params: { limit } }),
+  },
 };
 
 // Export types for convenience
