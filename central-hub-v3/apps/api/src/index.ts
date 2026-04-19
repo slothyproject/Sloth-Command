@@ -15,11 +15,14 @@ import jwt from 'jsonwebtoken';
 import aiRoutes from './routes/ai';
 import railwayRoutes from './routes/railway';
 import discordRoutes from './routes/discord';
+import knowledgeRoutes from './routes/knowledge';
+import doraRoutes from './routes/dora';
 
 // Import infrastructure services
 import { initializeRedis, closeRedis } from './services/redis';
 import { initializeQueues, closeQueues } from './services/queue';
 import { getProviderStatus } from './services/llm-router';
+import { initializeNeo4j, closeNeo4j } from './services/knowledge-graph';
 
 // Import scheduler
 import monitoringScheduler from './scheduler/monitoring';
@@ -155,6 +158,8 @@ app.use(express.json());
 app.use('/api/ai', aiRoutes);
 app.use('/api/railway', railwayRoutes);
 app.use('/api/discord', discordRoutes);
+app.use('/api/knowledge', knowledgeRoutes);
+app.use('/api/metrics/dora', doraRoutes);
 
 // Health check endpoint - comprehensive status
 app.get('/api/health', async (req, res) => {
@@ -370,13 +375,23 @@ app.listen(PORT, async () => {
       console.error('⚠️  Queue initialization failed (non-critical):', error);
     }
     
+    // Initialize Neo4j knowledge graph
+    try {
+      initializeNeo4j();
+      console.log('✅ Neo4j knowledge graph connected');
+    } catch (error) {
+      console.error('⚠️  Neo4j initialization failed (non-critical):', error);
+    }
+    
     // Start monitoring scheduler
     monitoringScheduler.startScheduler();
     
     console.log('✅ Server fully initialized and ready');
     console.log('✅ AI-powered monitoring active');
     console.log('✅ Multi-LLM router ready (Ollama → OpenAI → Claude)');
-    console.log('✅ Auto-fix agent running');
+    console.log('✅ Knowledge graph connected (Neo4j)');
+    console.log('✅ DORA metrics tracking enabled');
+    console.log('✅ Auto-fix agent running (async queue)');
   } else {
     console.error('⚠️  Server running but database initialization failed');
     console.error('⚠️  Login will not work until database is properly set up');
@@ -389,6 +404,7 @@ process.on('SIGTERM', async () => {
   console.log('SIGTERM received, shutting down gracefully');
   monitoringScheduler.stopScheduler();
   await closeQueues();
+  await closeNeo4j();
   await closeRedis();
   await prisma.$disconnect();
   process.exit(0);
@@ -399,6 +415,7 @@ process.on('uncaughtException', async (error) => {
   console.error('Uncaught Exception:', error);
   monitoringScheduler.stopScheduler();
   await closeQueues();
+  await closeNeo4j();
   await closeRedis();
   await prisma.$disconnect();
   process.exit(1);
