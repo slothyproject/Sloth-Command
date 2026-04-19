@@ -1,7 +1,7 @@
 FROM node:20-slim
 
-# Cache-buster: v1.3 - Application-level database migration
-LABEL version="1.3"
+# Cache-buster: v1.4 - Enhanced database diagnostics and connection retry
+LABEL version="1.4"
 
 # Set Prisma binary target for Debian environment
 ENV PRISMA_CLI_BINARY_TARGETS=debian-openssl-3.0.x

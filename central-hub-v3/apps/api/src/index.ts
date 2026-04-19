@@ -22,10 +22,36 @@ const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-producti
 async function initializeDatabase(): Promise<boolean> {
   try {
     console.log('📦 Initializing database...');
+    console.log(`🔍 Environment check - DATABASE_URL exists: ${!!process.env.DATABASE_URL}`);
+    console.log(`🔍 Environment check - PORT: ${process.env.PORT || '3001 (default)'}`);
     
-    // Test connection
-    await prisma.$connect();
-    console.log('✅ Database connection established');
+    // Wait for database to be ready
+    console.log('⏳ Waiting 3 seconds for database to be ready...');
+    await new Promise(resolve => setTimeout(resolve, 3000));
+    
+    // Test connection with retry
+    let connected = false;
+    let connectionAttempts = 0;
+    const maxConnectionAttempts = 10;
+    
+    while (!connected && connectionAttempts < maxConnectionAttempts) {
+      connectionAttempts++;
+      try {
+        await prisma.$connect();
+        connected = true;
+        console.log(`✅ Database connection established (attempt ${connectionAttempts})`);
+      } catch (connError) {
+        console.log(`❌ Connection attempt ${connectionAttempts} failed:`, connError instanceof Error ? connError.message : 'Unknown error');
+        if (connectionAttempts < maxConnectionAttempts) {
+          await new Promise(resolve => setTimeout(resolve, 2000));
+        }
+      }
+    }
+    
+    if (!connected) {
+      console.error('❌ Could not establish database connection after', maxConnectionAttempts, 'attempts');
+      return false;
+    }
     
     // Check if tables exist by trying to query
     try {
@@ -95,7 +121,11 @@ async function initializeDatabase(): Promise<boolean> {
     return true;
     
   } catch (error) {
-    console.error('❌ Database initialization failed:', error);
+    console.error('❌ Database initialization failed with error:', error);
+    if (error instanceof Error) {
+      console.error('❌ Error message:', error.message);
+      console.error('❌ Error stack:', error.stack);
+    }
     return false;
   }
 }
