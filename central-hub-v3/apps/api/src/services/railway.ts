@@ -5,6 +5,8 @@
  */
 
 import { PrismaClient, Service, Variable, Deployment } from '@prisma/client';
+import { withRailwayCircuitBreaker } from '../utils/circuit-breaker';
+import { withCache, CACHE_TTL } from './redis';
 
 const prisma = new PrismaClient();
 
@@ -12,38 +14,56 @@ const prisma = new PrismaClient();
 const RAILWAY_API_URL = 'https://backboard.railway.app/graphql';
 const RAILWAY_TOKEN = process.env.RAILWAY_TOKEN;
 
-// GraphQL client for Railway
+// GraphQL client for Railway with circuit breaker
 async function railwayGraphQLQuery(query: string, variables?: Record<string, any>): Promise<any> {
   if (!RAILWAY_TOKEN) {
     throw new Error('RAILWAY_TOKEN not configured');
   }
 
-  const response = await fetch(RAILWAY_API_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${RAILWAY_TOKEN}`,
-    },
-    body: JSON.stringify({ query, variables }),
+  // Use circuit breaker to protect against Railway API failures
+  return withRailwayCircuitBreaker(async () => {
+    const response = await fetch(RAILWAY_API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${RAILWAY_TOKEN}`,
+      },
+      body: JSON.stringify({ query, variables }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Railway API error: ${response.status} ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    
+    if (data.errors) {
+      throw new Error(`Railway GraphQL error: ${data.errors.map((e: any) => e.message).join(', ')}`);
+    }
+
+    return data.data;
   });
-
-  if (!response.ok) {
-    throw new Error(`Railway API error: ${response.status} ${response.statusText}`);
-  }
-
-  const data = await response.json();
-  
-  if (data.errors) {
-    throw new Error(`Railway GraphQL error: ${data.errors.map((e: any) => e.message).join(', ')}`);
-  }
-
-  return data.data;
 }
 
 /**
  * Sync Railway services to Central Hub database
+ * Cached for 2 minutes to avoid rate limiting
  */
 export async function syncServices(): Promise<Service[]> {
+  return withCache(
+    async () => {
+      console.log('🔄 Syncing Railway services (bypassing cache)...');
+      return await doSyncServices();
+    },
+    'railway:sync:services',
+    CACHE_TTL.SYNC
+  );
+}
+
+/**
+ * Internal sync function
+ */
+async function doSyncServices(): Promise<Service[]> {
   try {
     // Query Railway for all services
     const query = `
@@ -147,6 +167,7 @@ export async function syncServices(): Promise<Service[]> {
 
 /**
  * Get detailed service metrics from Railway
+ * Cached for 1 minute to avoid rate limiting
  */
 export async function getServiceMetrics(serviceId: string): Promise<{
   cpu: number;
@@ -154,15 +175,17 @@ export async function getServiceMetrics(serviceId: string): Promise<{
   disk: number;
   network: { in: number; out: number };
 }> {
-  const service = await prisma.service.findUnique({
-    where: { id: serviceId },
-  });
+  return withCache(
+    async () => {
+      const service = await prisma.service.findUnique({
+        where: { id: serviceId },
+      });
 
-  if (!service || !service.externalId) {
-    throw new Error('Service not found or not linked to Railway');
-  }
+      if (!service || !service.externalId) {
+        throw new Error('Service not found or not linked to Railway');
+      }
 
-  try {
+      try {
     const query = `
       query GetMetrics($serviceId: String!) {
         service(id: $serviceId) {
@@ -222,6 +245,10 @@ export async function getServiceMetrics(serviceId: string): Promise<{
     console.error('Failed to get metrics:', error);
     throw error;
   }
+    },
+    `railway:metrics:${serviceId}`,
+    CACHE_TTL.METRICS
+  );
 }
 
 /**

@@ -16,6 +16,11 @@ import aiRoutes from './routes/ai';
 import railwayRoutes from './routes/railway';
 import discordRoutes from './routes/discord';
 
+// Import infrastructure services
+import { initializeRedis, closeRedis } from './services/redis';
+import { initializeQueues, closeQueues } from './services/queue';
+import { getProviderStatus } from './services/llm-router';
+
 // Import scheduler
 import monitoringScheduler from './scheduler/monitoring';
 
@@ -151,9 +156,43 @@ app.use('/api/ai', aiRoutes);
 app.use('/api/railway', railwayRoutes);
 app.use('/api/discord', discordRoutes);
 
-// Health check endpoint
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+// Health check endpoint - comprehensive status
+app.get('/api/health', async (req, res) => {
+  const checks: Record<string, any> = {
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    memory: process.memoryUsage(),
+  };
+  
+  // Database check
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    checks.database = 'connected';
+  } catch (error) {
+    checks.database = 'disconnected';
+    checks.databaseError = error instanceof Error ? error.message : 'Unknown';
+  }
+  
+  // LLM providers check
+  checks.llmProviders = getProviderStatus();
+  
+  // Environment variables check
+  checks.config = {
+    ollamaHost: process.env.OLLAMA_HOST ? 'configured' : 'missing',
+    ollamaKey: process.env.OLLAMA_API_KEY ? 'configured' : 'missing',
+    openaiKey: process.env.OPENAI_API_KEY ? 'configured' : 'missing',
+    anthropicKey: process.env.ANTHROPIC_API_KEY ? 'configured' : 'missing',
+    redisUrl: process.env.REDIS_URL ? 'configured' : 'missing',
+    railwayToken: process.env.RAILWAY_TOKEN ? 'configured' : 'missing',
+  };
+  
+  const allHealthy = checks.database === 'connected' && 
+    checks.llmProviders.some((p: any) => p.healthy);
+  
+  res.status(allHealthy ? 200 : 503).json({
+    status: allHealthy ? 'healthy' : 'degraded',
+    ...checks,
+  });
 });
 
 // Debug endpoint to check database status
@@ -315,11 +354,28 @@ app.listen(PORT, async () => {
     // Then initialize default user
     await initializeDefaultUser();
     
+    // Initialize Redis for caching and sessions
+    try {
+      initializeRedis();
+      console.log('✅ Redis initialized for caching and sessions');
+    } catch (error) {
+      console.error('⚠️  Redis initialization failed (non-critical):', error);
+    }
+    
+    // Initialize job queues for async processing
+    try {
+      initializeQueues();
+      console.log('✅ Job queues initialized for async processing');
+    } catch (error) {
+      console.error('⚠️  Queue initialization failed (non-critical):', error);
+    }
+    
     // Start monitoring scheduler
     monitoringScheduler.startScheduler();
     
     console.log('✅ Server fully initialized and ready');
     console.log('✅ AI-powered monitoring active');
+    console.log('✅ Multi-LLM router ready (Ollama → OpenAI → Claude)');
     console.log('✅ Auto-fix agent running');
   } else {
     console.error('⚠️  Server running but database initialization failed');
@@ -332,15 +388,19 @@ app.listen(PORT, async () => {
 process.on('SIGTERM', async () => {
   console.log('SIGTERM received, shutting down gracefully');
   monitoringScheduler.stopScheduler();
+  await closeQueues();
+  await closeRedis();
   await prisma.$disconnect();
   process.exit(0);
 });
 
 // Handle uncaught errors
-process.on('uncaughtException', (error) => {
+process.on('uncaughtException', async (error) => {
   console.error('Uncaught Exception:', error);
   monitoringScheduler.stopScheduler();
-  prisma.$disconnect();
+  await closeQueues();
+  await closeRedis();
+  await prisma.$disconnect();
   process.exit(1);
 });
 
