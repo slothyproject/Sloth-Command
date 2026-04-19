@@ -28,6 +28,7 @@
     <div class="auth-card__divider"><span>or</span></div>
 
     <form action="{{ url_for('auth.login_post') }}" method="post" class="auth-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <div class="form-field">
         <label for="username" class="form-field__label">Username</label>
         <input type="text" id="username" name="username" class="form-field__input" autocomplete="username" required>
