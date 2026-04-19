@@ -1,6 +1,6 @@
-"""Minimal smoke test — confirms the app factory creates a Flask app."""
+"""Smoke test — confirms the Flask app factory works."""
 import os
-os.environ.setdefault("SECRET_KEY", "test-secret")
+os.environ.setdefault("SECRET_KEY", "test-secret-key-32chars-minimum!!")
 os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
 os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
 os.environ.setdefault("DISCORD_CLIENT_ID", "0")
