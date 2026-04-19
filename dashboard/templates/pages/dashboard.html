@@ -1,11 +1,13 @@
 {% extends "base.html" %}
-
 {% block title %}Dashboard — Dissident Central Hub{% endblock %}
 
 {% block content %}
 <div class="page-header">
   <h1 class="page-header__title">Dashboard</h1>
   <span class="page-header__subtitle">Dissident ecosystem overview</span>
+  {% if bot.stale %}
+  <span class="badge badge--inactive" style="margin-left:8px">Bot data stale</span>
+  {% endif %}
 </div>
 
 <div class="stats-grid">
@@ -21,7 +23,7 @@
   </div>
   <div class="stat-card">
     <div class="stat-card__label">Members</div>
-    <div class="stat-card__value" id="stat-members">{{ bot.member_count }}</div>
+    <div class="stat-card__value" id="stat-members">{{ "{:,}".format(bot.member_count) }}</div>
   </div>
   <div class="stat-card">
     <div class="stat-card__label">Latency</div>
@@ -33,7 +35,15 @@
   </div>
   <div class="stat-card">
     <div class="stat-card__label">Uptime</div>
-    <div class="stat-card__value" id="stat-uptime">{{ bot.uptime }}</div>
+    <div class="stat-card__value" id="stat-uptime" style="font-size:16px">{{ bot.uptime }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-card__label">Cogs loaded</div>
+    <div class="stat-card__value" id="stat-cogs">{{ bot.cog_count }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-card__label">Version</div>
+    <div class="stat-card__value" id="stat-version" style="font-size:14px">{{ bot.version }}</div>
   </div>
 </div>
 
@@ -53,7 +63,7 @@
       </div>
     </a>
     {% else %}
-    <p class="empty-state">No servers found. Make sure the bot is online and the database is synced.</p>
+    <p class="empty-state">No servers synced yet. Make sure the bot is online and writing to Redis.</p>
     {% endfor %}
   </div>
 </div>
@@ -66,10 +76,12 @@ async function refreshStats() {
     const r = await fetch('/api/stats');
     const d = await r.json();
     document.getElementById('stat-guilds').textContent = d.guilds;
-    document.getElementById('stat-members').textContent = d.members;
+    document.getElementById('stat-members').textContent = d.members.toLocaleString();
     document.getElementById('stat-commands').textContent = d.commands_today;
     document.getElementById('stat-uptime').textContent = d.uptime;
     document.getElementById('stat-latency').textContent = d.latency_ms + 'ms';
+    document.getElementById('stat-cogs').textContent = d.cog_count || '—';
+    document.getElementById('stat-version').textContent = d.version || '—';
   } catch {}
 }
 setInterval(refreshStats, 10000);

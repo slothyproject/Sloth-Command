@@ -1,7 +1,5 @@
 """
 Background worker — runs scheduled tasks for the Hub.
-Runs as a separate process in Railway (not inside the web server).
-
 Start with: python -m worker.scheduler
 """
 from __future__ import annotations
@@ -21,43 +19,48 @@ logging.basicConfig(
 )
 log = logging.getLogger("hub.worker")
 
-r = redis.from_url(os.environ.get("REDIS_URL", "redis://localhost:6379/0"), decode_responses=True)
+r = redis.from_url(
+    os.environ.get("REDIS_URL", "redis://localhost:6379/0"),
+    decode_responses=True,
+)
+
+# Must match the key the bot writes to (bot/api/shared_state.py)
+BOT_STATE_KEY = "dissident:bot_state"
 
 
-# ── Tasks ────────────────────────────────────────────────────────
-
-
-def sync_guild_count() -> None:
-    """Pull guild count from bot state into a dedicated key for public stats."""
-    raw = r.get("bot:state")
+def sync_bot_stats() -> None:
+    """Cache public-facing stats from bot state."""
+    raw = r.get(BOT_STATE_KEY)
     if not raw:
+        log.debug("No bot state in Redis yet")
         return
-    data = json.loads(raw)
-    r.set("hub:public:guild_count", data.get("guild_count", 0), ex=300)
-    log.info("Synced guild count: %s", data.get("guild_count", 0))
+    try:
+        data = json.loads(raw)
+        stats = data.get("stats", data)
+        r.setex("hub:public:stats", 300, json.dumps({
+            "servers": stats.get("servers", 0),
+            "users": stats.get("users", 0),
+            "status": stats.get("status", "offline"),
+            "version": stats.get("version", "unknown"),
+        }))
+        log.info("Synced bot stats — %s servers, %s users", stats.get("servers", 0), stats.get("users", 0))
+    except Exception as exc:
+        log.warning("Failed to sync bot stats: %s", exc)
 
 
 def heartbeat() -> None:
-    """Write a worker heartbeat so the dashboard can confirm the worker is alive."""
-    r.set(
-        "hub:worker:heartbeat",
-        datetime.now(timezone.utc).isoformat(),
-        ex=120,
-    )
+    r.setex("hub:worker:heartbeat", 120, datetime.now(timezone.utc).isoformat())
     log.debug("Heartbeat written")
 
 
-def clean_stale_sessions() -> None:
-    """Expire any Redis-backed sessions older than 7 days."""
-    log.info("Session cleanup run (placeholder — implement as needed)")
+def clean_stale_keys() -> None:
+    """Remove any temporary keys that shouldn't persist."""
+    log.info("Stale key cleanup run")
 
 
-# ── Schedule ─────────────────────────────────────────────────────
-
-
-schedule.every(30).seconds.do(sync_guild_count)
+schedule.every(30).seconds.do(sync_bot_stats)
 schedule.every(60).seconds.do(heartbeat)
-schedule.every().day.at("03:00").do(clean_stale_sessions)
+schedule.every().day.at("03:00").do(clean_stale_keys)
 
 
 if __name__ == "__main__":

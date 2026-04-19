@@ -20,7 +20,7 @@ RUN mkdir -p /app/logs
 
 EXPOSE 8080
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
     CMD curl -f http://localhost:8080/health || exit 1
 
 CMD ["gunicorn", \
@@ -30,4 +30,5 @@ CMD ["gunicorn", \
      "--timeout", "120", \
      "--access-logfile", "-", \
      "--error-logfile", "-", \
+     "--log-level", "info", \
      "dashboard.app:app"]

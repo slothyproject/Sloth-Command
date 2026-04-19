@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}{{ guild.name }} — Dissident Central Hub{% endblock %}
+{% block content %}
+<div class="page-header">
+  <a href="{{ url_for('core.servers') }}" class="back-link">← Servers</a>
+  <h1 class="page-header__title">{{ guild.name }}</h1>
+  <span class="page-header__subtitle">{{ guild.member_count }} members · ID: {{ guild.discord_id }}</span>
+</div>
+<div class="stats-grid">
+  <div class="stat-card">
+    <div class="stat-card__label">Members</div>
+    <div class="stat-card__value">{{ guild.member_count }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-card__label">Status</div>
+    <div class="stat-card__value stat-card__value--online">Active</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-card__label">Joined</div>
+    <div class="stat-card__value" style="font-size:14px">{{ guild.joined_at.strftime('%d %b %Y') if guild.joined_at else '—' }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-card__label">Last sync</div>
+    <div class="stat-card__value" style="font-size:14px">{{ guild.last_sync.strftime('%d %b %Y') if guild.last_sync else 'Never' }}</div>
+  </div>
+</div>
+{% endblock %}

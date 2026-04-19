@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Servers — Dissident Central Hub{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1 class="page-header__title">Servers</h1>
+  <span class="page-header__subtitle">All guilds the bot is in</span>
+</div>
+<div class="server-list">
+  {% for guild in guilds %}
+  <a href="{{ url_for('core.server_detail', guild_id=guild.id) }}" class="server-card">
+    {% if guild.icon %}
+      <img src="https://cdn.discordapp.com/icons/{{ guild.discord_id }}/{{ guild.icon }}.png" class="server-card__icon" alt="">
+    {% else %}
+      <div class="server-card__icon server-card__icon--placeholder">{{ guild.name[0] }}</div>
+    {% endif %}
+    <div class="server-card__info">
+      <div class="server-card__name">{{ guild.name }}</div>
+      <div class="server-card__members">{{ guild.member_count }} members</div>
+    </div>
+  </a>
+  {% else %}
+  <p class="empty-state">No servers synced yet. Make sure the bot is online.</p>
+  {% endfor %}
+</div>
+{% endblock %}

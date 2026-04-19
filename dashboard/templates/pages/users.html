@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Users — Dissident Central Hub{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1 class="page-header__title">Users</h1>
+  <span class="page-header__subtitle">Hub access management</span>
+</div>
+<div class="table-wrap">
+  <table class="data-table">
+    <thead>
+      <tr><th>Username</th><th>Discord ID</th><th>Role</th><th>Status</th><th>Last login</th></tr>
+    </thead>
+    <tbody id="users-body">
+      <tr><td colspan="5" class="empty-state">Loading…</td></tr>
+    </tbody>
+  </table>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(async () => {
+  const resp = await fetch('/api/users');
+  const users = await resp.json();
+  const body = document.getElementById('users-body');
+  if (!users.length) { body.innerHTML = '<tr><td colspan="5" class="empty-state">No users yet.</td></tr>'; return; }
+  body.innerHTML = users.map(u => `
+    <tr>
+      <td>${u.username}</td>
+      <td class="td-mono">${u.discord_id || '—'}</td>
+      <td><span class="badge ${u.is_admin ? 'badge--admin' : ''}">${u.is_admin ? 'Admin' : 'User'}</span></td>
+      <td><span class="badge ${u.is_active ? 'badge--active' : 'badge--inactive'}">${u.is_active ? 'Active' : 'Disabled'}</span></td>
+      <td class="td-mono">${u.last_login ? new Date(u.last_login).toLocaleString() : 'Never'}</td>
+    </tr>
+  `).join('');
+})();
+</script>
+{% endblock %}

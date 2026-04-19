@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}Settings — Dissident Central Hub{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1 class="page-header__title">Settings</h1>
+  <span class="page-header__subtitle">Hub configuration</span>
+</div>
+<div class="settings-grid">
+  <div class="settings-card">
+    <h2 class="settings-card__title">Bot connection</h2>
+    <div class="settings-card__row">
+      <span class="settings-card__label">Redis key</span>
+      <code class="settings-card__value">dissident:bot_state</code>
+    </div>
+    <div class="settings-card__row">
+      <span class="settings-card__label">Update interval</span>
+      <code class="settings-card__value">2s (bot-side)</code>
+    </div>
+    <div class="settings-card__row">
+      <span class="settings-card__label">Stale threshold</span>
+      <code class="settings-card__value">30s</code>
+    </div>
+  </div>
+  <div class="settings-card">
+    <h2 class="settings-card__title">Admin actions</h2>
+    {% if current_user.is_admin %}
+    <div class="action-row">
+      <span>Sync guilds from bot</span>
+      <button class="btn btn--sm" onclick="doAction('sync_guilds')">Sync</button>
+    </div>
+    <div class="action-row">
+      <span>Clear Redis cache</span>
+      <button class="btn btn--sm btn--danger" onclick="doAction('clear_cache')">Clear</button>
+    </div>
+    {% else %}
+    <p class="empty-state">Admin access required.</p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+async function doAction(action) {
+  const r = await fetch('/api/actions/' + action, { method: 'POST' });
+  const d = await r.json();
+  alert(d.ok ? 'Done: ' + action : 'Error: ' + (d.error || 'unknown'));
+}
+</script>
+{% endblock %}
