@@ -8,8 +8,13 @@ import { PrismaClient, AIInsight, Service } from '@prisma/client';
 import { railwayService } from '../services/railway';
 import { discordService } from '../services/discord';
 import aiService from '../services/ai';
+import { queueAutoFix, getQueue, QUEUES } from '../services/queue';
+import Queue from 'bull';
 
 const prisma = new PrismaClient();
+
+// Track in-progress fixes to prevent duplicates
+const inProgressFixes: Set<string> = new Set();
 
 // Safety levels for auto-fix actions
 enum SafetyLevel {
@@ -41,18 +46,21 @@ interface FixResult {
 }
 
 /**
- * Main auto-fix processor
- * Checks for pending fixes and executes based on safety level
+ * Main auto-fix processor - QUEUE VERSION
+ * Queues pending fixes for async processing instead of executing synchronously
+ * This prevents blocking the main server thread
  */
-export async function processAutoFixes(): Promise<FixResult[]> {
-  const results: FixResult[] = [];
+export async function processAutoFixes(): Promise<{ queued: number; alreadyQueued: number; errors: number }> {
+  const stats = { queued: 0, alreadyQueued: 0, errors: 0 };
 
   try {
-    // Find all unfixed auto-fixable insights
+    // Find all unfixed auto-fixable insights that aren't already being processed
     const pendingFixes = await prisma.aIInsight.findMany({
       where: {
         autoFixable: true,
         fixed: false,
+        // Only get insights that aren't already in progress
+        id: { notIn: Array.from(inProgressFixes) },
       },
       include: {
         service: true,
@@ -60,30 +68,91 @@ export async function processAutoFixes(): Promise<FixResult[]> {
       orderBy: {
         severity: 'asc', // Critical first
       },
-      take: 10, // Process max 10 at a time
+      take: 20, // Process max 20 at a time
     });
 
-    console.log(`🔧 Found ${pendingFixes.length} pending auto-fixes`);
+    console.log(`🔧 Found ${pendingFixes.length} pending auto-fixes to queue`);
 
     for (const insight of pendingFixes) {
       try {
-        const result = await executeFix(insight);
-        results.push(result);
+        // Check if already queued
+        if (inProgressFixes.has(insight.id)) {
+          stats.alreadyQueued++;
+          continue;
+        }
+
+        // Add to in-progress set
+        inProgressFixes.add(insight.id);
+
+        // Queue the fix job
+        await queueAutoFix(insight.id);
+        stats.queued++;
+
+        console.log(`📋 Queued auto-fix for: ${insight.title} (ID: ${insight.id})`);
       } catch (error) {
-        console.error(`❌ Failed to process fix for ${insight.title}:`, error);
-        results.push({
-          success: false,
-          action: insight.title,
-          details: error instanceof Error ? error.message : 'Unknown error',
-          timestamp: new Date(),
-        });
+        console.error(`❌ Failed to queue fix for ${insight.title}:`, error);
+        inProgressFixes.delete(insight.id); // Remove from in-progress on error
+        stats.errors++;
       }
     }
 
-    return results;
+    console.log(`✅ Auto-fix queue stats: ${stats.queued} queued, ${stats.alreadyQueued} already queued, ${stats.errors} errors`);
+    return stats;
   } catch (error) {
-    console.error('❌ Auto-fix processor failed:', error);
-    return results;
+    console.error('❌ Auto-fix queue processor failed:', error);
+    return stats;
+  }
+}
+
+/**
+ * Execute a single fix - ASYNC JOB PROCESSOR
+ * This is called by the Bull queue worker
+ */
+export async function processFixJob(job: Queue.Job<{ insightId: string }>): Promise<FixResult> {
+  const { insightId } = job.data;
+  
+  try {
+    console.log(`🔧 Processing fix job #${job.id} for insight ${insightId}`);
+    
+    // Get fresh insight data
+    const insight = await prisma.aIInsight.findUnique({
+      where: { id: insightId },
+      include: { service: true },
+    });
+
+    if (!insight) {
+      throw new Error(`Insight ${insightId} not found`);
+    }
+
+    if (insight.fixed) {
+      console.log(`✅ Insight ${insightId} already fixed, skipping`);
+      inProgressFixes.delete(insightId);
+      return {
+        success: true,
+        action: 'skip',
+        details: 'Already fixed',
+        timestamp: new Date(),
+      };
+    }
+
+    // Execute the fix
+    const result = await executeFix(insight);
+    
+    // Remove from in-progress set
+    inProgressFixes.delete(insightId);
+    
+    // Update job progress
+    await job.progress(100);
+    
+    return result;
+  } catch (error) {
+    // Remove from in-progress set on error
+    inProgressFixes.delete(insightId);
+    
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    console.error(`❌ Fix job #${job.id} failed:`, errorMessage);
+    
+    throw error; // Let Bull handle retry logic
   }
 }
 

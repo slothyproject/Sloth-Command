@@ -7,7 +7,8 @@
 import { PrismaClient, Service, Metric } from '@prisma/client';
 import { railwayService } from '../services/railway';
 import aiService from '../services/ai';
-import autoFixAgent from '../agents/auto-fix';
+import autoFixAgent, { processFixJob } from '../agents/auto-fix';
+import { processQueue, QUEUES } from '../services/queue';
 
 const prisma = new PrismaClient();
 
@@ -30,6 +31,14 @@ const intervals: NodeJS.Timeout[] = [];
 export function startScheduler(): void {
   console.log('⏰ Starting monitoring scheduler...');
 
+  // Register job processors for async queues
+  try {
+    processQueue(QUEUES.AUTO_FIX, processFixJob, 2); // Process 2 auto-fix jobs concurrently
+    console.log('✅ Registered auto-fix job processor');
+  } catch (error) {
+    console.error('❌ Failed to register auto-fix job processor:', error);
+  }
+
   // Health check - every 5 minutes
   intervals.push(setInterval(runHealthChecks, SCHEDULE.HEALTH_CHECK));
 
@@ -42,7 +51,7 @@ export function startScheduler(): void {
   // Predictive analysis - every hour
   intervals.push(setInterval(runPredictions, SCHEDULE.PREDICTION));
 
-  // Auto-fix processor - every 5 minutes
+  // Auto-fix processor - every 5 minutes (now just queues jobs, doesn't execute)
   intervals.push(setInterval(runAutoFixes, SCHEDULE.AUTO_FIX));
 
   // Railway sync - every 30 minutes
@@ -301,19 +310,11 @@ async function runPredictions(): Promise<void> {
  */
 async function runAutoFixes(): Promise<void> {
   try {
-    const results = await autoFixAgent.processAutoFixes();
+    const stats = await autoFixAgent.processAutoFixes();
     
-    if (results.length > 0) {
-      const successful = results.filter(r => r.success).length;
-      console.log(`🔧 Auto-fixes: ${successful}/${results.length} successful`);
-      
-      // Log failures
-      results.filter(r => !r.success).forEach(r => {
-        console.error(`   ❌ ${r.action}: ${r.details}`);
-      });
-    }
+    console.log(`📋 Auto-fix queue stats: ${stats.queued} queued, ${stats.alreadyQueued} already queued, ${stats.errors} errors`);
   } catch (error) {
-    console.error('Auto-fix processing failed:', error);
+    console.error('Auto-fix queue processing failed:', error);
   }
 }
 
