@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard — Dissident Central Hub{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1 class="page-header__title">Dashboard</h1>
+  <span class="page-header__subtitle">Dissident ecosystem overview</span>
+</div>
+
+<div class="stats-grid">
+  <div class="stat-card">
+    <div class="stat-card__label">Bot status</div>
+    <div class="stat-card__value {% if bot.online %}stat-card__value--online{% else %}stat-card__value--offline{% endif %}">
+      {{ "Online" if bot.online else "Offline" }}
+    </div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-card__label">Servers</div>
+    <div class="stat-card__value" id="stat-guilds">{{ bot.guild_count }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-card__label">Members</div>
+    <div class="stat-card__value" id="stat-members">{{ bot.member_count }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-card__label">Latency</div>
+    <div class="stat-card__value" id="stat-latency">{{ bot.latency_ms }}ms</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-card__label">Commands today</div>
+    <div class="stat-card__value" id="stat-commands">{{ bot.commands_today }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-card__label">Uptime</div>
+    <div class="stat-card__value" id="stat-uptime">{{ bot.uptime }}</div>
+  </div>
+</div>
+
+<div class="section">
+  <h2 class="section__title">Active servers</h2>
+  <div class="server-list">
+    {% for guild in guilds %}
+    <a href="{{ url_for('core.server_detail', guild_id=guild.id) }}" class="server-card">
+      {% if guild.icon %}
+        <img src="https://cdn.discordapp.com/icons/{{ guild.discord_id }}/{{ guild.icon }}.png" class="server-card__icon" alt="">
+      {% else %}
+        <div class="server-card__icon server-card__icon--placeholder">{{ guild.name[0] }}</div>
+      {% endif %}
+      <div class="server-card__info">
+        <div class="server-card__name">{{ guild.name }}</div>
+        <div class="server-card__members">{{ guild.member_count }} members</div>
+      </div>
+    </a>
+    {% else %}
+    <p class="empty-state">No servers found. Make sure the bot is online and the database is synced.</p>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function refreshStats() {
+  try {
+    const r = await fetch('/api/stats');
+    const d = await r.json();
+    document.getElementById('stat-guilds').textContent = d.guilds;
+    document.getElementById('stat-members').textContent = d.members;
+    document.getElementById('stat-commands').textContent = d.commands_today;
+    document.getElementById('stat-uptime').textContent = d.uptime;
+    document.getElementById('stat-latency').textContent = d.latency_ms + 'ms';
+  } catch {}
+}
+setInterval(refreshStats, 10000);
+</script>
+{% endblock %}
