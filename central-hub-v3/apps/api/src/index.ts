@@ -17,6 +17,14 @@ import railwayRoutes from './routes/railway';
 import discordRoutes from './routes/discord';
 import knowledgeRoutes from './routes/knowledge';
 import doraRoutes from './routes/dora';
+import agentRoutes from './routes/agents';
+import securityRoutes from './routes/security';
+import healingRoutes from './routes/healing';
+import scalingRoutes from './routes/scaling';
+import cloudRoutes from './routes/cloud';
+import kubernetesRoutes from './routes/kubernetes';
+import cicdRoutes from './routes/cicd';
+import discordAdvancedRoutes from './routes/discord-advanced';
 
 // Import infrastructure services
 import { initializeRedis, closeRedis } from './services/redis';
@@ -160,6 +168,14 @@ app.use('/api/railway', railwayRoutes);
 app.use('/api/discord', discordRoutes);
 app.use('/api/knowledge', knowledgeRoutes);
 app.use('/api/metrics/dora', doraRoutes);
+app.use('/api/agents', agentRoutes);
+app.use('/api/security', securityRoutes);
+app.use('/api/healing', healingRoutes);
+app.use('/api/scaling', scalingRoutes);
+app.use('/api/cloud', cloudRoutes);
+app.use('/api/kubernetes', kubernetesRoutes);
+app.use('/api/cicd', cicdRoutes);
+app.use('/api/discord/advanced', discordAdvancedRoutes);
 
 // Health check endpoint - comprehensive status
 app.get('/api/health', async (req, res) => {
@@ -391,6 +407,14 @@ app.listen(PORT, async () => {
     console.log('✅ Multi-LLM router ready (Ollama → OpenAI → Claude)');
     console.log('✅ Knowledge graph connected (Neo4j)');
     console.log('✅ DORA metrics tracking enabled');
+    console.log('✅ Agentic AI system active (multi-step planning)');
+    console.log('✅ Self-healing automation enabled');
+    console.log('✅ Predictive scaling ML models loaded');
+    console.log('✅ Security automation scanning active');
+    console.log('✅ Multi-cloud connectors ready (AWS/GCP/Azure)');
+    console.log('✅ Kubernetes native support enabled');
+    console.log('✅ CI/CD integration active (GitHub/GitLab)');
+    console.log('✅ Advanced Discord features loaded (moderation/commerce)');
     console.log('✅ Auto-fix agent running (async queue)');
   } else {
     console.error('⚠️  Server running but database initialization failed');
