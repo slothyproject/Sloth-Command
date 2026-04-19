@@ -1,6 +1,7 @@
 /**
  * Central Hub API Server
  * Express.js backend for Railway/Discord/Website management
+ * AI-Powered Mission Control
  */
 
 import express from 'express';
@@ -9,6 +10,14 @@ import dotenv from 'dotenv';
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
+
+// Import routes
+import aiRoutes from './routes/ai';
+import railwayRoutes from './routes/railway';
+import discordRoutes from './routes/discord';
+
+// Import scheduler
+import monitoringScheduler from './scheduler/monitoring';
 
 // Load environment variables
 dotenv.config();
@@ -136,6 +145,11 @@ app.use(cors({
   credentials: true
 }));
 app.use(express.json());
+
+// API Routes
+app.use('/api/ai', aiRoutes);
+app.use('/api/railway', railwayRoutes);
+app.use('/api/discord', discordRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
@@ -291,6 +305,8 @@ async function initializeDefaultUser() {
 // Start server
 app.listen(PORT, async () => {
   console.log(`🚀 Central Hub API running on port ${PORT}`);
+  console.log(`🤖 AI Service: ${process.env.OLLAMA_HOST || 'http://localhost:11434'}`);
+  console.log(`🛤️  Railway Integration: ${process.env.RAILWAY_TOKEN ? '✅ Configured' : '❌ Missing RAILWAY_TOKEN'}`);
   
   // Initialize database first
   const dbInitialized = await initializeDatabase();
@@ -298,7 +314,13 @@ app.listen(PORT, async () => {
   if (dbInitialized) {
     // Then initialize default user
     await initializeDefaultUser();
+    
+    // Start monitoring scheduler
+    monitoringScheduler.startScheduler();
+    
     console.log('✅ Server fully initialized and ready');
+    console.log('✅ AI-powered monitoring active');
+    console.log('✅ Auto-fix agent running');
   } else {
     console.error('⚠️  Server running but database initialization failed');
     console.error('⚠️  Login will not work until database is properly set up');
@@ -309,8 +331,17 @@ app.listen(PORT, async () => {
 // Graceful shutdown
 process.on('SIGTERM', async () => {
   console.log('SIGTERM received, shutting down gracefully');
+  monitoringScheduler.stopScheduler();
   await prisma.$disconnect();
   process.exit(0);
+});
+
+// Handle uncaught errors
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught Exception:', error);
+  monitoringScheduler.stopScheduler();
+  prisma.$disconnect();
+  process.exit(1);
 });
 
 export default app;
