@@ -102,3 +102,7 @@ def _ensure_admin_user(app: Flask) -> None:
         db.session.add(user)
         db.session.commit()
         log.info("Admin user '%s' created", admin_user)
+
+
+# Gunicorn entry point — must exist at module level
+app = create_app()
