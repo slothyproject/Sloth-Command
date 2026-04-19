@@ -76,3 +76,10 @@ def users():
     if not current_user.is_admin:
         return redirect(url_for("core.dashboard"))
     return render_template("pages/users.html", active="users")
+
+
+@core_bp.get("/login")
+def login_redirect():
+    """Redirect /login → /auth/login for convenience."""
+    from flask import redirect, url_for
+    return redirect(url_for("auth.login"))
