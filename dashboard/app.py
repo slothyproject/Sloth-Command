@@ -12,7 +12,7 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from flask_socketio import SocketIO
 
-from dashboard.extensions import db, redis_client
+from dashboard.extensions import db
 from dashboard.routes.core import core_bp
 from dashboard.routes.api import api_bp
 from dashboard.routes.auth import auth_bp
