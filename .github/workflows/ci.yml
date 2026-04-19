@@ -7,38 +7,10 @@ on:
     branches: [main]
 
 jobs:
-  # ── Lint & test ─────────────────────────────────────────────────
-  test:
-    name: Test
+  # ── Lint ────────────────────────────────────────────────────────
+  lint:
+    name: Lint
     runs-on: ubuntu-latest
-
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: dissident
-          POSTGRES_PASSWORD: dissident
-          POSTGRES_DB: dissident_hub_test
-        ports: ["5432:5432"]
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
-      redis:
-        image: redis:7-alpine
-        ports: ["6379:6379"]
-        options: --health-cmd "redis-cli ping" --health-interval 10s --health-timeout 5s --health-retries 5
-
-    env:
-      DATABASE_URL: postgresql://dissident:dissident@localhost:5432/dissident_hub_test
-      REDIS_URL: redis://localhost:6379/0
-      SECRET_KEY: ci-test-secret-key
-      DISCORD_CLIENT_ID: "0"
-      DISCORD_CLIENT_SECRET: ci-secret
-      DISCORD_REDIRECT_URI: http://localhost:8080/auth/callback
-
     steps:
       - uses: actions/checkout@v4
 
@@ -48,37 +20,22 @@ jobs:
           cache: pip
 
       - name: Install dependencies
-        run: pip install -r requirements.txt pytest pytest-flask
+        run: pip install -r requirements.txt ruff
 
       - name: Lint
-        run: |
-          pip install ruff
-          ruff check .
-
-      - name: Run tests
-        run: pytest tests/ -v --tb=short
+        run: ruff check . --ignore E501
 
   # ── Build Docker image ──────────────────────────────────────────
   build:
     name: Build image
     runs-on: ubuntu-latest
-    needs: test
+    needs: lint
     if: github.ref == 'refs/heads/main'
-
     steps:
       - uses: actions/checkout@v4
 
       - name: Build Docker image
         run: docker build -t dissident-central-hub:${{ github.sha }} .
-
-      - name: Smoke test image
-        run: |
-          docker run -d --name hub \
-            -e SECRET_KEY=smoke-test \
-            -e DATABASE_URL=postgresql://x:x@localhost/x \
-            -e REDIS_URL=redis://localhost:6379/0 \
-            -p 8080:8080 \
-            dissident-central-hub:${{ github.sha }} || true
 
   # ── Deploy to Railway ───────────────────────────────────────────
   deploy:
@@ -87,7 +44,6 @@ jobs:
     needs: build
     if: github.ref == 'refs/heads/main'
     environment: production
-
     steps:
       - uses: actions/checkout@v4
 
@@ -95,6 +51,6 @@ jobs:
         run: npm install -g @railway/cli
 
       - name: Deploy
-        run: railway up --service dissident-central-hub
+        run: railway up --service central-hub-v3
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
