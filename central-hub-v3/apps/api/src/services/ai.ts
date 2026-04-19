@@ -1,34 +1,40 @@
 /**
  * AI Service
- * Integrates with Ollama for local AI processing
+ * Multi-LLM AI Service with automatic failover
+ * Uses Ollama (primary), OpenAI (fallback), Anthropic (backup)
  * Provides analysis, predictions, chat, and automation
  */
 
 import { PrismaClient, Service, AIInsight } from '@prisma/client';
+import llmRouter, { TaskComplexity, GenerateResult } from './llm-router';
 
 const prisma = new PrismaClient();
 
-// Ollama configuration
-const OLLAMA_HOST = process.env.OLLAMA_HOST || 'http://localhost:11434';
+// Re-export types for backward compatibility
+interface AnalysisResult {
+  insights: Array<{
+    title: string;
+    description: string;
+    severity: 'critical' | 'warning' | 'suggestion' | 'info';
+    category: 'performance' | 'security' | 'cost' | 'reliability';
+    autoFixable: boolean;
+    fixAction?: {
+      type: string;
+      parameters: Record<string, any>;
+    };
+  }>;
+  summary: string;
+  confidence: number;
+  provider?: string; // Which LLM provider was used
+  latency?: number; // Response time in ms
+}
 
-// Model selection based on task complexity
-const MODELS = {
-  fast: 'llama3.1:8b',      // Quick responses, simple commands
-  balanced: 'mistral:7b',    // General purpose
-  complex: 'mixtral:8x7b',   // Complex analysis (if available)
-  code: 'codellama:7b',      // Code analysis
-};
-
-interface OllamaResponse {
-  model: string;
-  created_at: string;
-  response: string;
-  done: boolean;
-  context?: number[];
-  total_duration?: number;
-  load_duration?: number;
-  prompt_eval_count?: number;
-  eval_count?: number;
+interface ParsedCommand {
+  intent: string;
+  action: string;
+  service?: string;
+  parameters: Record<string, any>;
+  confidence: number;
 }
 
 interface AnalysisResult {
@@ -56,30 +62,23 @@ interface ParsedCommand {
 }
 
 /**
- * Generate text using Ollama
+ * Generate text using multi-LLM router with automatic failover
+ * Primary: Ollama Cloud → OpenAI → Anthropic
  */
-async function generateWithOllama(
+async function generateWithFallback(
   prompt: string,
-  model: string = MODELS.balanced,
+  complexity: TaskComplexity = TaskComplexity.MODERATE,
   systemPrompt?: string,
   temperature: number = 0.7
-): Promise<string> {
-  try {
-    const response = await fetch(`${OLLAMA_HOST}/api/generate`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model,
-        prompt,
-        system: systemPrompt,
-        temperature,
-        stream: false,
-      }),
-    };
-
-    if (!response.ok) {
-      throw new Error(`Ollama error: ${response.status} ${response.statusText}`);
-    }
+): Promise<GenerateResult> {
+  return llmRouter.generate(prompt, {
+    complexity,
+    systemPrompt,
+    temperature,
+    fallbackEnabled: true,
+    trackUsage: true,
+  });
+}
 
     const data: OllamaResponse = await response.json();
     return data.response.trim();
@@ -167,20 +166,31 @@ Provide actionable insights in JSON format with the following structure:
 Be thorough but practical. Only suggest auto-fixes for safe operations.`;
 
   try {
-    const response = await generateWithOllama(
+    // Use structured JSON generation via LLM router
+    const schema = `{
+      "insights": [
+        {
+          "title": "string",
+          "description": "string",
+          "severity": "critical|warning|suggestion|info",
+          "category": "performance|security|cost|reliability",
+          "autoFixable": "boolean",
+          "fixAction": { "type": "string", "parameters": {} }
+        }
+      ],
+      "summary": "string",
+      "confidence": "number 0.0-1.0"
+    }`;
+    
+    const result = await llmRouter.generateJSON<AnalysisResult>(
       `Analyze this service and provide insights:\n\n${context}`,
-      MODELS.balanced,
-      systemPrompt,
-      0.3 // Lower temperature for consistent JSON
+      schema,
+      {
+        complexity: TaskComplexity.COMPLEX,
+        systemPrompt,
+        temperature: 0.3,
+      }
     );
-
-    // Extract JSON from response
-    const jsonMatch = response.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      throw new Error('AI response did not contain valid JSON');
-    }
-
-    const result: AnalysisResult = JSON.parse(jsonMatch[0]);
 
     // Store insights in database
     for (const insight of result.insights) {
@@ -194,7 +204,7 @@ Be thorough but practical. Only suggest auto-fixes for safe operations.`;
           autoFixable: insight.autoFixable,
           fixAction: insight.fixAction || null,
           confidence: result.confidence,
-          modelUsed: MODELS.balanced,
+          modelUsed: 'multi-llm-router', // Track that we used the router
         },
       });
     }
@@ -276,19 +286,30 @@ Return JSON with predictions and their likelihood:
 }`;
 
   try {
-    const response = await generateWithOllama(
+    const schema = `{
+      "insights": [
+        {
+          "title": "string",
+          "description": "string",
+          "severity": "warning|suggestion",
+          "category": "performance|reliability",
+          "autoFixable": "boolean",
+          "fixAction": { "type": "string", "parameters": {} }
+        }
+      ],
+      "summary": "string",
+      "confidence": "number 0.0-1.0"
+    }`;
+    
+    return await llmRouter.generateJSON<AnalysisResult>(
       `Historical metrics for prediction:\n${JSON.stringify(metricsData.slice(-50), null, 2)}`,
-      MODELS.complex,
-      systemPrompt,
-      0.4
+      schema,
+      {
+        complexity: TaskComplexity.COMPLEX,
+        systemPrompt,
+        temperature: 0.4,
+      }
     );
-
-    const jsonMatch = response.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      throw new Error('No JSON in prediction response');
-    }
-
-    return JSON.parse(jsonMatch[0]);
   } catch (error) {
     console.error('Prediction failed:', error);
     return {
@@ -343,12 +364,16 @@ Respond conversationally but professionally. If the user wants to perform an act
   const fullPrompt = `${history.join('\n')}${serviceContext}\nUser: ${message}\nAssistant:`;
 
   try {
-    const response = await generateWithOllama(
+    const result = await llmRouter.generate(
       fullPrompt,
-      MODELS.fast,
-      systemPrompt,
-      0.8
+      {
+        complexity: TaskComplexity.SIMPLE,
+        systemPrompt,
+        temperature: 0.8,
+      }
     );
+    
+    const response = result.response;
 
     // Store conversation
     if (context?.sessionId) {
@@ -410,19 +435,23 @@ Examples:
 - "deploy token vault" → {"intent": "deploy", "action": "deploy", "service": "token-vault", "parameters": {}, "confidence": 0.9}`;
 
   try {
-    const response = await generateWithOllama(
+    const schema = `{
+      "intent": "restart|deploy|scale|update|analyze|status|help|unknown",
+      "action": "string",
+      "service": "string or null",
+      "parameters": {},
+      "confidence": "number 0.0-1.0"
+    }`;
+    
+    return await llmRouter.generateJSON<ParsedCommand>(
       `Parse this command: "${naturalCommand}"`,
-      MODELS.fast,
-      systemPrompt,
-      0.2
+      schema,
+      {
+        complexity: TaskComplexity.SIMPLE,
+        systemPrompt,
+        temperature: 0.2,
+      }
     );
-
-    const jsonMatch = response.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      throw new Error('No JSON in command parsing');
-    }
-
-    return JSON.parse(jsonMatch[0]);
   } catch (error) {
     console.error('Command parsing failed:', error);
     return {
@@ -471,19 +500,21 @@ A fix is SAFE if it's a restart, environment variable update, or scaling operati
 A fix is UNSAFE if it involves data deletion, major config changes, or downtime.`;
 
   try {
-    const response = await generateWithOllama(
+    const schema = `{
+      "fix": "string",
+      "action": { "type": "string", "parameters": {} },
+      "safe": "boolean"
+    }`;
+    
+    return await llmRouter.generateJSON<{ fix: string; action: any; safe: boolean }>(
       `Generate fix for:\n${context}`,
-      MODELS.balanced,
-      systemPrompt,
-      0.3
+      schema,
+      {
+        complexity: TaskComplexity.MODERATE,
+        systemPrompt,
+        temperature: 0.3,
+      }
     );
-
-    const jsonMatch = response.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      throw new Error('No JSON in fix generation');
-    }
-
-    return JSON.parse(jsonMatch[0]);
   } catch (error) {
     console.error('Fix generation failed:', error);
     return {
@@ -540,7 +571,10 @@ export const aiService = {
   generateFix,
   getInsights,
   executeFix,
-  generateWithOllama, // Exposed for testing
 };
+
+// Re-export LLM router utilities for external use
+export { llmRouter, TaskComplexity };
+export type { GenerateResult as LLMGenerateResult } from './llm-router';
 
 export default aiService;
