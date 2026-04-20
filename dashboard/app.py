@@ -152,21 +152,36 @@ def _run_migrations(app: Flask) -> None:
 
 
 def _ensure_admin_user(app: Flask) -> None:
-    """Create the initial admin user from env vars if it doesn't exist."""
+    """Create the initial admin user and promote any Discord owner accounts."""
     from dashboard.models import User
 
+    # 1. Create/maintain the local admin account
     admin_user = os.environ.get("ADMIN_USER")
     admin_pass = os.environ.get("ADMIN_PASS")
-    if not admin_user or not admin_pass:
-        return
+    if admin_user and admin_pass:
+        existing = User.query.filter_by(username=admin_user).first()
+        if not existing:
+            user = User(username=admin_user, is_admin=True)
+            user.set_password(admin_pass)
+            db.session.add(user)
+            db.session.commit()
+            log.info("Admin user '%s' created", admin_user)
+        elif not existing.is_admin:
+            existing.is_admin = True
+            db.session.commit()
 
-    existing = User.query.filter_by(username=admin_user).first()
-    if not existing:
-        user = User(username=admin_user, is_admin=True)
-        user.set_password(admin_pass)
-        db.session.add(user)
-        db.session.commit()
-        log.info("Admin user '%s' created", admin_user)
+    # 2. Grant admin to any Discord accounts listed in DISCORD_ADMIN_IDS
+    # Format: comma-separated Discord user IDs
+    admin_ids_raw = os.environ.get("DISCORD_ADMIN_IDS", "")
+    if admin_ids_raw:
+        admin_ids = [i.strip() for i in admin_ids_raw.split(",") if i.strip()]
+        updated = User.query.filter(
+            User.discord_id.in_(admin_ids),
+            User.is_admin == False  # noqa: E712
+        ).update({"is_admin": True}, synchronize_session=False)
+        if updated:
+            db.session.commit()
+            log.info("Granted admin to %d Discord user(s) via DISCORD_ADMIN_IDS", updated)
 
 
 # Gunicorn entry point — must exist at module level
