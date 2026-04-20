@@ -36,8 +36,11 @@ def status():
 @api_bp.get("/public/stats")
 def public_stats():
     bot = get_bot_state()
+    # Guild count from DB (synced by worker) — fall back to bot state
+    db_guild_count = Guild.query.filter_by(is_active=True).count()
+    guild_count = db_guild_count if db_guild_count > 0 else bot["guild_count"]
     return jsonify({
-        "guilds": bot["guild_count"],
+        "guilds": guild_count,
         "members": bot["member_count"],
         "bot_online": bot["online"],
         "command_count": bot["command_count"],
@@ -58,8 +61,9 @@ def bot_state():
 @login_required
 def stats():
     bot = get_bot_state()
+    db_guild_count = Guild.query.filter_by(is_active=True).count()
     return jsonify({
-        "guilds": bot["guild_count"],
+        "guilds": db_guild_count if db_guild_count > 0 else bot["guild_count"],
         "members": bot["member_count"],
         "channels": bot["channel_count"],
         "commands_today": bot["commands_today"],
@@ -80,6 +84,19 @@ def stats():
 @login_required
 def guilds():
     qs = Guild.query.filter_by(is_active=True).order_by(Guild.name).all()
+    # If DB has no guilds yet, pull from Redis directly
+    if not qs:
+        bot = get_bot_state()
+        raw_guilds = bot.get("guilds", [])
+        return jsonify([{
+            "id": None,
+            "discord_id": g.get("id"),
+            "name": g.get("name"),
+            "icon": g.get("icon"),
+            "member_count": g.get("member_count", 0),
+            "last_sync": None,
+        } for g in raw_guilds])
+
     return jsonify([{
         "id": g.id,
         "discord_id": g.discord_id,

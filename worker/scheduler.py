@@ -7,15 +7,11 @@ from __future__ import annotations
 import json
 import logging
 import os
-import sys
 import time
 from datetime import datetime, timezone
 
 import redis
 import schedule
-
-# Add project root to path so we can import dashboard models
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 logging.basicConfig(
     level=logging.INFO,
@@ -35,25 +31,27 @@ BOT_STATE_KEY = "dissident:bot_state"
 
 
 def sync_guilds() -> None:
-    """Read guild list from bot Redis state and upsert into hub_guilds table."""
+    """
+    Read guild list from bot Redis state and upsert into hub_guilds table.
+    This is how the Hub learns which servers the bot is in.
+    """
     raw = r.get(BOT_STATE_KEY)
     if not raw:
-        log.debug("No bot state in Redis yet")
+        log.debug("No bot state in Redis — skipping guild sync")
         return
 
     try:
         data = json.loads(raw)
-    except Exception as exc:
-        log.warning("Could not parse bot state: %s", exc)
+    except Exception as e:
+        log.warning("Failed to parse bot state: %s", e)
         return
 
     guilds = data.get("guilds", [])
-    stats = data.get("stats", {})
     if not guilds:
-        log.debug("No guilds in bot state")
+        log.debug("Bot state has no guild list yet")
         return
 
-    # Import Flask app context for DB access
+    # Import Flask app to get DB context
     try:
         from dashboard.app import create_app
         from dashboard.extensions import db
@@ -62,61 +60,58 @@ def sync_guilds() -> None:
         app = create_app()
         with app.app_context():
             now = datetime.now(timezone.utc)
-            synced = 0
+            updated = 0
             for g in guilds:
                 discord_id = str(g.get("id", ""))
-                name = g.get("name", "")
-                if not discord_id or not name:
+                if not discord_id:
                     continue
 
                 existing = Guild.query.filter_by(discord_id=discord_id).first()
                 if existing:
-                    existing.name = name
+                    existing.name = g.get("name", existing.name)
                     existing.icon = g.get("icon")
                     existing.member_count = g.get("member_count", 0)
-                    existing.last_sync = now
                     existing.is_active = True
+                    existing.last_sync = now
                 else:
-                    new_guild = Guild(
+                    guild = Guild(
                         discord_id=discord_id,
-                        name=name,
+                        name=g.get("name", "Unknown"),
                         icon=g.get("icon"),
                         member_count=g.get("member_count", 0),
-                        last_sync=now,
                         is_active=True,
+                        last_sync=now,
                     )
-                    db.session.add(new_guild)
-                synced += 1
-
-            # Mark guilds no longer in bot list as inactive
-            current_ids = {str(g.get("id", "")) for g in guilds}
-            for stale in Guild.query.filter_by(is_active=True).all():
-                if stale.discord_id not in current_ids:
-                    stale.is_active = False
+                    db.session.add(guild)
+                updated += 1
 
             db.session.commit()
-            log.info("Guild sync: %d guilds upserted", synced)
-    except Exception as exc:
-        log.error("Guild sync failed: %s", exc, exc_info=True)
+            log.info("Guild sync complete — %d guilds upserted", updated)
+
+            # Cache public guild count
+            r.setex("hub:public:guild_count", 300, updated)
+
+    except Exception as e:
+        log.error("Guild sync failed: %s", e)
 
 
-def cache_public_stats() -> None:
-    """Cache public-facing bot stats for the homepage widget."""
+def sync_bot_stats() -> None:
+    """Cache key bot stats for fast public API access."""
     raw = r.get(BOT_STATE_KEY)
     if not raw:
         return
     try:
         data = json.loads(raw)
         stats = data.get("stats", data)
-        r.setex("hub:public:stats", 300, json.dumps({
+        r.setex("hub:public:stats", 60, json.dumps({
             "servers": stats.get("servers", 0),
             "users": stats.get("users", 0),
             "status": stats.get("status", "offline"),
             "version": stats.get("version", "unknown"),
             "latency_ms": stats.get("latency_ms", 0),
         }))
-    except Exception as exc:
-        log.warning("Failed to cache public stats: %s", exc)
+    except Exception as e:
+        log.warning("Failed to sync bot stats: %s", e)
 
 
 def heartbeat() -> None:
@@ -124,19 +119,10 @@ def heartbeat() -> None:
     log.debug("Heartbeat written")
 
 
-def listen_for_commands() -> None:
-    """
-    Non-blocking check for any hub admin commands that need handling.
-    Commands from the hub that the worker processes directly
-    (bot-side command forwarding is handled by the bot's hub_sync cog).
-    """
-    pass
-
-
 # ── Schedule ─────────────────────────────────────────────────────
 
 schedule.every(30).seconds.do(sync_guilds)
-schedule.every(30).seconds.do(cache_public_stats)
+schedule.every(15).seconds.do(sync_bot_stats)
 schedule.every(60).seconds.do(heartbeat)
 
 
@@ -145,7 +131,7 @@ if __name__ == "__main__":
     heartbeat()
     # Run immediately on startup
     sync_guilds()
-    cache_public_stats()
+    sync_bot_stats()
     while True:
         schedule.run_pending()
         time.sleep(5)

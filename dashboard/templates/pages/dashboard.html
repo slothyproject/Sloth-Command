@@ -49,7 +49,7 @@
 
 <div class="section">
   <h2 class="section__title">Active servers</h2>
-  <div class="server-list">
+  <div class="server-list" id="server-list">
     {% for guild in guilds %}
     <a href="{{ url_for('core.server_detail', guild_id=guild.id) }}" class="server-card">
       {% if guild.icon %}
@@ -63,7 +63,7 @@
       </div>
     </a>
     {% else %}
-    <p class="empty-state">No servers synced yet. Make sure the bot is online and writing to Redis.</p>
+    <p class="empty-state" id="no-guilds-msg">Loading servers from bot...</p>
     {% endfor %}
   </div>
 </div>
@@ -84,6 +84,28 @@ async function refreshStats() {
     document.getElementById('stat-version').textContent = d.version || '—';
   } catch {}
 }
+
+async function refreshGuilds() {
+  const list = document.getElementById('server-list');
+  if (!list) return;
+  try {
+    const r = await fetch('/api/guilds');
+    const guilds = await r.json();
+    if (!guilds.length) return;
+    list.innerHTML = guilds.map(g => {
+      const icon = g.icon
+        ? `<img src="https://cdn.discordapp.com/icons/${g.discord_id}/${g.icon}.png" class="server-card__icon" alt="">`
+        : `<div class="server-card__icon server-card__icon--placeholder">${g.name[0]}</div>`;
+      const href = g.id ? `/servers/${g.id}` : '#';
+      return `<a href="${href}" class="server-card">${icon}<div class="server-card__info"><div class="server-card__name">${g.name}</div><div class="server-card__members">${(g.member_count||0).toLocaleString()} members</div></div></a>`;
+    }).join('');
+  } catch {}
+}
+
+// Refresh stats every 10s, guilds every 30s
 setInterval(refreshStats, 10000);
+setInterval(refreshGuilds, 30000);
+refreshStats();
+refreshGuilds();
 </script>
 {% endblock %}
