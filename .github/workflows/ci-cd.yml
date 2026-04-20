@@ -119,7 +119,7 @@ jobs:
     
     - name: Test Docker image
       run: |
-        docker run --rm central-hub:${{ github.sha }} node --version
+        docker run --rm central-hub:${{ github.sha }} python --version
 
   deploy:
     runs-on: ubuntu-latest
