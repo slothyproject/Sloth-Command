@@ -1,0 +1,87 @@
+name: Auto Deploy All Components
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      component:
+        description: 'Component to deploy'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - frontend
+          - backend
+          - bot
+
+jobs:
+  deploy-backend:
+    if: github.event.inputs.component == 'all' || github.event.inputs.component == 'backend' || github.event.inputs.component == 'bot'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Backend
+        uses: actions/checkout@v4
+        with:
+          repository: slothyproject/Dissident-api-backend
+          token: ${{ secrets.GH_PAT }}
+          
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+        
+      - name: Deploy Backend
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          railway up --service dissident-api-backend
+          
+      - name: Health Check
+        run: |
+          sleep 30
+          curl -s https://dissident-api-backend-production.up.railway.app/api/health || echo "Health check pending"
+
+  deploy-frontend:
+    if: github.event.inputs.component == 'all' || github.event.inputs.component == 'frontend'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Frontend
+        uses: actions/checkout@v4
+        with:
+          repository: slothyproject/Dissident-Website
+          token: ${{ secrets.GH_PAT }}
+          
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+        
+      - name: Deploy Frontend
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          railway up --service Dissident-Website
+          
+      - name: Verify Deployment
+        run: |
+          sleep 30
+          curl -s https://dissident.mastertibbles.co.uk | head -20 || echo "Frontend check pending"
+
+  notify:
+    needs: [deploy-backend, deploy-frontend]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Notify Status
+        run: |
+          echo "Deployment Status:"
+          echo "Backend: ${{ needs.deploy-backend.result }}"
+          echo "Frontend: ${{ needs.deploy-frontend.result }}"

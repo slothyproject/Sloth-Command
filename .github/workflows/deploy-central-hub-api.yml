@@ -1,0 +1,54 @@
+name: Build & Deploy Central Hub API
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'central-hub-v3/apps/api/**'
+      - '.github/workflows/deploy-central-hub-api.yml'
+
+jobs:
+  deploy-api:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    env:
+      IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/central-hub-api
+      SERVICE_ID: 7244987c-80b0-4498-82a6-067744cc42c5
+      ENV_ID: 051adcae-806b-4604-b9ef-defef8ec81a6
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── Build & push Docker image ──────────────────────────────────────────
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v5
+        with:
+          context: central-hub-v3/apps/api
+          push: true
+          tags: ${{ env.IMAGE_NAME }}:latest
+
+      # ── Trigger Railway redeploy from :latest ──────────────────────────────
+      - name: Trigger Railway redeploy
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          echo "Triggering Railway redeploy with new :latest image..."
+
+          RESULT=$(curl -sf -X POST https://backboard.railway.app/graphql/v2 \
+            -H "Authorization: Bearer $RAILWAY_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "query": "mutation { serviceInstanceDeploy(serviceId: \"${{ env.SERVICE_ID }}\", environmentId: \"${{ env.ENV_ID }}\") }"
+            }')
+
+          echo "Result: $RESULT"
