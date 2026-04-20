@@ -51,6 +51,22 @@
     <div class="stat-card__label">LAST SYNC</div>
     <div class="stat-card__val stat-card__val--mono stat-card__val--sm">{{ guild.last_sync.strftime('%H:%M:%S') if guild.last_sync else 'never' }}</div>
   </div>
+  <div class="stat-card">
+    <div class="stat-card__label">WARNING POLICY</div>
+    <div class="stat-card__val stat-card__val--mono stat-card__val--sm">
+      {{ guild.settings.max_warns if guild.settings else 3 }} warns → {{ (guild.settings.warn_action if guild.settings else 'mute')|upper }}
+    </div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-card__label">LEVELING</div>
+    <div class="stat-card__val stat-card__val--mono stat-card__val--sm">
+      {% if guild.settings and guild.settings.leveling_enabled %}
+        ON ×{{ '%.1f'|format(guild.settings.xp_multiplier or 1.0) }}
+      {% else %}
+        OFF
+      {% endif %}
+    </div>
+  </div>
 </div>
 
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
@@ -96,6 +112,24 @@
     {% else %}
     <div class="empty" style="padding:24px"><p>No open tickets.</p></div>
     {% endif %}
+  </div>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px">
+  <div class="card">
+    <div class="card__title">MODERATION POLICY</div>
+    <div class="card__row"><span class="card__label">AutoMod</span><span class="card__value">{{ 'Enabled' if guild.settings and guild.settings.automod_enabled else 'Disabled' }}</span></div>
+    <div class="card__row"><span class="card__label">Warn Threshold</span><span class="card__value">{{ guild.settings.max_warns if guild.settings else 3 }}</span></div>
+    <div class="card__row"><span class="card__label">Escalation</span><span class="card__value">{{ (guild.settings.warn_action if guild.settings else 'mute')|upper }}</span></div>
+    <div class="card__row"><span class="card__label">Log Channel</span><span class="card__value">{{ guild.settings.mod_log_channel if guild.settings and guild.settings.mod_log_channel else 'Not configured' }}</span></div>
+  </div>
+
+  <div class="card">
+    <div class="card__title">LEVELING POLICY</div>
+    <div class="card__row"><span class="card__label">Status</span><span class="card__value">{{ 'Enabled' if guild.settings and guild.settings.leveling_enabled else 'Disabled' }}</span></div>
+    <div class="card__row"><span class="card__label">XP Multiplier</span><span class="card__value">{{ '%.1f'|format(guild.settings.xp_multiplier or 1.0) if guild.settings else '1.0' }}</span></div>
+    <div class="card__row"><span class="card__label">Level Channel</span><span class="card__value">{{ guild.settings.level_channel if guild.settings and guild.settings.level_channel else 'Current channel / default' }}</span></div>
+    <div class="card__row"><span class="card__label">Live Rank Data</span><span class="card__value">Available in bot/API runtime</span></div>
   </div>
 </div>
 {% endblock %}
