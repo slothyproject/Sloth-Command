@@ -16,6 +16,62 @@ const axios = require('axios');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+function getActiveDiscordClient() {
+  return app.locals.bot?.getClient?.() || discordClient;
+}
+
+function getActiveCommandCount() {
+  const stats = app.locals.bot?.getStats?.();
+  if (!stats?.commands) return 0;
+  return Object.values(stats.commands).reduce((acc, val) => acc + Number(val || 0), 0);
+}
+
+function makeError(status, message) {
+  const err = new Error(message);
+  err.status = status;
+  return err;
+}
+
+function isValidSnowflake(value) {
+  return /^\d{17,20}$/.test(String(value || ''));
+}
+
+function normalizeReason(reason, fallback = 'No reason provided') {
+  const text = typeof reason === 'string' ? reason.trim() : '';
+  return (text || fallback).slice(0, 500);
+}
+
+function createCaseId() {
+  const stamp = Date.now().toString(36).toUpperCase();
+  const suffix = Math.floor(Math.random() * 1296).toString(36).padStart(2, '0').toUpperCase();
+  return `CASE-${stamp}-${suffix}`;
+}
+
+function formatAuditReason(reason, caseId) {
+  return `[CASE:${caseId}] ${normalizeReason(reason)}`;
+}
+
+function getHierarchyBlockReason(guild, moderator, target, botMember) {
+  if (!moderator) return 'Moderator must be a member of this guild.';
+  if (!target) return 'Target user is not a member of this guild.';
+  if (!botMember) return 'Bot member is unavailable in this guild.';
+  if (target.id === moderator.id) return 'You cannot moderate yourself.';
+  if (target.id === botMember.id) return 'Bot cannot moderate itself.';
+
+  if (
+    guild.ownerId !== moderator.id &&
+    target.roles.highest.position >= moderator.roles.highest.position
+  ) {
+    return 'You cannot moderate someone with an equal or higher role.';
+  }
+
+  if (target.roles.highest.position >= botMember.roles.highest.position) {
+    return 'Bot role is not high enough to moderate this user.';
+  }
+
+  return null;
+}
+
 // Test endpoint to verify deployment
 app.get('/api/version', (req, res) => {
   res.json({ version: '2.1.0-OAUTH-DEBUG', timestamp: Date.now() });
@@ -426,9 +482,10 @@ app.get('/api/discord/guilds', authenticateToken, async (req, res) => {
 app.get('/api/discord/guilds/:guildId', authenticateToken, async (req, res) => {
   try {
     const { guildId } = req.params;
+    const client = getActiveDiscordClient();
     
     // Check if bot is in this guild
-    const guild = await discordClient.guilds.fetch(guildId).catch(() => null);
+    const guild = await client.guilds.fetch(guildId).catch(() => null);
     
     if (!guild) {
       return res.json({
@@ -477,87 +534,233 @@ app.get('/api/moderation/logs/:guildId', authenticateToken, async (req, res) => 
 app.post('/api/moderation/ban', authenticateToken, async (req, res) => {
   try {
     const { guildId, userId, reason, deleteMessages } = req.body;
+    if (!isValidSnowflake(guildId) || !isValidSnowflake(userId)) {
+      throw makeError(400, 'Invalid guildId or userId.');
+    }
+
+    const auditReason = normalizeReason(reason);
+    const caseId = createCaseId();
+    const client = getActiveDiscordClient();
     
-    const guild = await discordClient.guilds.fetch(guildId);
-    const member = await guild.members.fetch(userId);
+    const guild = await client.guilds.fetch(guildId).catch(() => null);
+    if (!guild) throw makeError(404, 'Guild not found.');
+
+    const member = await guild.members.fetch(userId).catch(() => null);
+    if (!member) throw makeError(404, 'Target user not found in guild.');
+
+    const moderator = await guild.members.fetch(req.user.userId).catch(() => null);
+    const botMember = guild.members.me;
+    const block = getHierarchyBlockReason(guild, moderator, member, botMember);
+    if (block) throw makeError(403, block);
+
+    if (!member.bannable) throw makeError(403, 'Bot cannot ban this user.');
     
     await member.ban({ 
-      reason,
+      reason: auditReason,
       deleteMessageSeconds: deleteMessages ? 604800 : 0 // 7 days
     });
     
     await pool.query(`
       INSERT INTO audit_logs (server_id, user_id, target_id, action, reason)
       VALUES ($1, $2, $3, 'BAN', $4)
-    `, [guildId, req.user.userId, userId, reason]);
+    `, [guildId, req.user.userId, userId, formatAuditReason(auditReason, caseId)]);
     
-    res.json({ success: true, message: 'User banned successfully' });
+    res.json({ success: true, message: 'User banned successfully', caseId });
   } catch (error) {
     console.error('Ban error:', error);
-    res.status(500).json({ error: 'Failed to ban user' });
+    res.status(error.status || 500).json({ error: error.message || 'Failed to ban user' });
   }
 });
 
 app.post('/api/moderation/kick', authenticateToken, async (req, res) => {
   try {
     const { guildId, userId, reason } = req.body;
+    if (!isValidSnowflake(guildId) || !isValidSnowflake(userId)) {
+      throw makeError(400, 'Invalid guildId or userId.');
+    }
+
+    const auditReason = normalizeReason(reason);
+    const caseId = createCaseId();
+    const client = getActiveDiscordClient();
     
-    const guild = await discordClient.guilds.fetch(guildId);
-    const member = await guild.members.fetch(userId);
+    const guild = await client.guilds.fetch(guildId).catch(() => null);
+    if (!guild) throw makeError(404, 'Guild not found.');
+
+    const member = await guild.members.fetch(userId).catch(() => null);
+    if (!member) throw makeError(404, 'Target user not found in guild.');
+
+    const moderator = await guild.members.fetch(req.user.userId).catch(() => null);
+    const botMember = guild.members.me;
+    const block = getHierarchyBlockReason(guild, moderator, member, botMember);
+    if (block) throw makeError(403, block);
+
+    if (!member.kickable) throw makeError(403, 'Bot cannot kick this user.');
     
-    await member.kick(reason);
+    await member.kick(auditReason);
     
     await pool.query(`
       INSERT INTO audit_logs (server_id, user_id, target_id, action, reason)
       VALUES ($1, $2, $3, 'KICK', $4)
-    `, [guildId, req.user.userId, userId, reason]);
+    `, [guildId, req.user.userId, userId, formatAuditReason(auditReason, caseId)]);
     
-    res.json({ success: true, message: 'User kicked successfully' });
+    res.json({ success: true, message: 'User kicked successfully', caseId });
   } catch (error) {
     console.error('Kick error:', error);
-    res.status(500).json({ error: 'Failed to kick user' });
+    res.status(error.status || 500).json({ error: error.message || 'Failed to kick user' });
   }
 });
 
 app.post('/api/moderation/mute', authenticateToken, async (req, res) => {
   try {
     const { guildId, userId, duration, reason } = req.body;
+    if (!isValidSnowflake(guildId) || !isValidSnowflake(userId)) {
+      throw makeError(400, 'Invalid guildId or userId.');
+    }
+
+    const durationSeconds = Number(duration);
+    if (!Number.isFinite(durationSeconds) || durationSeconds < 1 || durationSeconds > 2419200) {
+      throw makeError(400, 'Duration must be between 1 and 2419200 seconds.');
+    }
+
+    const auditReason = normalizeReason(reason);
+    const caseId = createCaseId();
+    const client = getActiveDiscordClient();
     
-    const guild = await discordClient.guilds.fetch(guildId);
-    const member = await guild.members.fetch(userId);
+    const guild = await client.guilds.fetch(guildId).catch(() => null);
+    if (!guild) throw makeError(404, 'Guild not found.');
+
+    const member = await guild.members.fetch(userId).catch(() => null);
+    if (!member) throw makeError(404, 'Target user not found in guild.');
+
+    const moderator = await guild.members.fetch(req.user.userId).catch(() => null);
+    const botMember = guild.members.me;
+    const block = getHierarchyBlockReason(guild, moderator, member, botMember);
+    if (block) throw makeError(403, block);
+
+    if (!member.moderatable) throw makeError(403, 'Bot cannot mute this user.');
     
-    await member.timeout(duration * 1000, reason);
+    await member.timeout(durationSeconds * 1000, auditReason);
     
     await pool.query(`
       INSERT INTO audit_logs (server_id, user_id, target_id, action, reason)
       VALUES ($1, $2, $3, 'MUTE', $4)
-    `, [guildId, req.user.userId, userId, `${reason} (${duration}s)`]);
+    `, [guildId, req.user.userId, userId, formatAuditReason(`${auditReason} (${durationSeconds}s)`, caseId)]);
     
-    res.json({ success: true, message: 'User muted successfully' });
+    res.json({ success: true, message: 'User muted successfully', caseId });
   } catch (error) {
     console.error('Mute error:', error);
-    res.status(500).json({ error: 'Failed to mute user' });
+    res.status(error.status || 500).json({ error: error.message || 'Failed to mute user' });
+  }
+});
+
+app.post('/api/moderation/unmute', authenticateToken, async (req, res) => {
+  try {
+    const { guildId, userId, reason } = req.body;
+    if (!isValidSnowflake(guildId) || !isValidSnowflake(userId)) {
+      throw makeError(400, 'Invalid guildId or userId.');
+    }
+
+    const auditReason = normalizeReason(reason);
+    const caseId = createCaseId();
+    const client = getActiveDiscordClient();
+
+    const guild = await client.guilds.fetch(guildId).catch(() => null);
+    if (!guild) throw makeError(404, 'Guild not found.');
+
+    const member = await guild.members.fetch(userId).catch(() => null);
+    if (!member) throw makeError(404, 'Target user not found in guild.');
+
+    const moderator = await guild.members.fetch(req.user.userId).catch(() => null);
+    const botMember = guild.members.me;
+    const block = getHierarchyBlockReason(guild, moderator, member, botMember);
+    if (block) throw makeError(403, block);
+
+    if (!member.moderatable) throw makeError(403, 'Bot cannot unmute this user.');
+
+    await member.timeout(null, auditReason);
+
+    await pool.query(`
+      INSERT INTO audit_logs (server_id, user_id, target_id, action, reason)
+      VALUES ($1, $2, $3, 'UNMUTE', $4)
+    `, [guildId, req.user.userId, userId, formatAuditReason(auditReason, caseId)]);
+
+    res.json({ success: true, message: 'User unmuted successfully', caseId });
+  } catch (error) {
+    console.error('Unmute error:', error);
+    res.status(error.status || 500).json({ error: error.message || 'Failed to unmute user' });
+  }
+});
+
+app.post('/api/moderation/unban', authenticateToken, async (req, res) => {
+  try {
+    const { guildId, userId, reason } = req.body;
+    if (!isValidSnowflake(guildId) || !isValidSnowflake(userId)) {
+      throw makeError(400, 'Invalid guildId or userId.');
+    }
+
+    const auditReason = normalizeReason(reason);
+    const caseId = createCaseId();
+    const client = getActiveDiscordClient();
+
+    const guild = await client.guilds.fetch(guildId).catch(() => null);
+    if (!guild) throw makeError(404, 'Guild not found.');
+
+    const moderator = await guild.members.fetch(req.user.userId).catch(() => null);
+    if (!moderator) throw makeError(403, 'Moderator must be a member of this guild.');
+
+    const ban = await guild.bans.fetch(userId).catch(() => null);
+    if (!ban) throw makeError(404, 'User is not currently banned.');
+
+    await guild.members.unban(userId, auditReason);
+
+    await pool.query(`
+      INSERT INTO audit_logs (server_id, user_id, target_id, action, reason)
+      VALUES ($1, $2, $3, 'UNBAN', $4)
+    `, [guildId, req.user.userId, userId, formatAuditReason(auditReason, caseId)]);
+
+    res.json({ success: true, message: 'User unbanned successfully', caseId });
+  } catch (error) {
+    console.error('Unban error:', error);
+    res.status(error.status || 500).json({ error: error.message || 'Failed to unban user' });
   }
 });
 
 app.post('/api/moderation/warn', authenticateToken, async (req, res) => {
   try {
     const { guildId, userId, reason } = req.body;
+    if (!isValidSnowflake(guildId) || !isValidSnowflake(userId)) {
+      throw makeError(400, 'Invalid guildId or userId.');
+    }
+
+    const warningReason = normalizeReason(reason, 'No reason provided');
+    const caseId = createCaseId();
+    const client = getActiveDiscordClient();
+
+    const guild = await client.guilds.fetch(guildId).catch(() => null);
+    if (!guild) throw makeError(404, 'Guild not found.');
+
+    const member = await guild.members.fetch(userId).catch(() => null);
+    if (!member) throw makeError(404, 'Target user not found in guild.');
+
+    const moderator = await guild.members.fetch(req.user.userId).catch(() => null);
+    const botMember = guild.members.me;
+    const block = getHierarchyBlockReason(guild, moderator, member, botMember);
+    if (block) throw makeError(403, block);
     
     await pool.query(`
       INSERT INTO user_warnings (user_id, guild_id, moderator_id, reason)
       VALUES ($1, $2, $3, $4)
-    `, [userId, guildId, req.user.userId, reason]);
+    `, [userId, guildId, req.user.userId, warningReason]);
     
     await pool.query(`
       INSERT INTO audit_logs (server_id, user_id, target_id, action, reason)
       VALUES ($1, $2, $3, 'WARN', $4)
-    `, [guildId, req.user.userId, userId, reason]);
+    `, [guildId, req.user.userId, userId, formatAuditReason(warningReason, caseId)]);
     
-    res.json({ success: true, message: 'User warned successfully' });
+    res.json({ success: true, message: 'User warned successfully', caseId });
   } catch (error) {
     console.error('Warn error:', error);
-    res.status(500).json({ error: 'Failed to warn user' });
+    res.status(error.status || 500).json({ error: error.message || 'Failed to warn user' });
   }
 });
 
@@ -628,16 +831,17 @@ app.get('/api/economy/balance/:guildId/:userId', async (req, res) => {
 // Dashboard Statistics - NOW WITH REAL DATA
 app.get('/api/dashboard/stats', authenticateToken, async (req, res) => {
   try {
+    const client = getActiveDiscordClient();
+
     // Get real stats from Discord bot
     const stats = {
-      memberCount: discordClient.guilds.cache.reduce((acc, guild) => acc + guild.memberCount, 0),
-      onlineCount: discordClient.guilds.cache.reduce((acc, guild) => {
+      memberCount: client.guilds.cache.reduce((acc, guild) => acc + guild.memberCount, 0),
+      onlineCount: client.guilds.cache.reduce((acc, guild) => {
         return acc + guild.members.cache.filter(m => m.presence?.status === 'online').size;
       }, 0),
-      commandCount: discordClient.commandStats ? 
-        Array.from(discordClient.commandStats.values()).reduce((a, b) => a + b, 0) : 0,
+      commandCount: getActiveCommandCount(),
       messageCount: 0, // Would need message tracking
-      activeServers: discordClient.guilds.cache.size,
+      activeServers: client.guilds.cache.size,
       recentActivity: await getRecentActivity()
     };
     
@@ -652,7 +856,8 @@ app.get('/api/dashboard/stats', authenticateToken, async (req, res) => {
 app.get('/api/guilds/:guildId/stats', authenticateToken, async (req, res) => {
   try {
     const { guildId } = req.params;
-    const guild = await discordClient.guilds.fetch(guildId).catch(() => null);
+    const client = getActiveDiscordClient();
+    const guild = await client.guilds.fetch(guildId).catch(() => null);
     
     if (!guild) {
       return res.status(404).json({ error: 'Guild not found' });
@@ -795,8 +1000,9 @@ app.get('/api/guilds/:guildId/members/search', authenticateToken, async (req, re
   try {
     const { guildId } = req.params;
     const { query, limit = 10 } = req.query;
+    const client = getActiveDiscordClient();
     
-    const guild = await discordClient.guilds.fetch(guildId).catch(() => null);
+    const guild = await client.guilds.fetch(guildId).catch(() => null);
     if (!guild) return res.status(404).json({ error: 'Guild not found' });
     
     await guild.members.fetch();
@@ -883,10 +1089,11 @@ async function getRecentActivity() {
 
 // Health check
 app.get('/api/health', (req, res) => {
+  const client = getActiveDiscordClient();
   res.json({ 
     status: 'ok', 
     timestamp: new Date().toISOString(),
-    discordConnected: discordClient.isReady(),
+    discordConnected: client.isReady(),
     deploymentVersion: '2.0.0'  // Force new deployment
   });
 });
