@@ -787,20 +787,20 @@ export async function processRequest(
   if (isResumeRequest(request)) {
     // getActivePlans() returns plans sorted by priority (highest first), then by recency.
     const activePlans = await getActivePlans();
-    const resumePlan = activePlans[0];
+    const candidatePlan = activePlans[0];
 
-    if (resumePlan) {
-      const completedSteps = resumePlan.steps.filter((step) => step.status === TaskStatus.COMPLETED).length;
+    if (candidatePlan) {
+      const completedSteps = candidatePlan.steps.filter((step) => step.status === TaskStatus.COMPLETED).length;
 
-      if (resumePlan.status === TaskStatus.PENDING) {
-        await queuePlanExecution(resumePlan.id);
+      if (candidatePlan.status === TaskStatus.PENDING) {
+        await queuePlanExecution(candidatePlan.id);
       }
 
       return {
-        planId: resumePlan.id,
-        agentType: resumePlan.agentType,
-        status: resumePlan.status,
-        summary: `Resuming "${resumePlan.goal}" (${completedSteps}/${resumePlan.steps.length} steps completed).`,
+        planId: candidatePlan.id,
+        agentType: candidatePlan.agentType,
+        status: candidatePlan.status,
+        summary: `Resuming "${candidatePlan.goal}" (${completedSteps}/${candidatePlan.steps.length} steps completed).`,
       };
     }
 
