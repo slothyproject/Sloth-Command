@@ -16,6 +16,7 @@ import jwt from 'jsonwebtoken';
 import aiRoutes from './routes/ai';
 import railwayRoutes from './routes/railway';
 import discordRoutes from './routes/discord';
+import discordSetupRoutes from './routes/discord-setup';
 import knowledgeRoutes from './routes/knowledge';
 import doraRoutes from './routes/dora';
 import agentRoutes from './routes/agents';
@@ -193,6 +194,58 @@ async function initializeDatabase(): Promise<boolean> {
         ON "audit_logs" ("resourceType", "resourceId")
     `;
     console.log('✅ Audit logs table created');
+
+    await prisma.$executeRaw`
+      CREATE TABLE IF NOT EXISTS "setup_runs" (
+        "id"            TEXT PRIMARY KEY,
+        "guildId"       TEXT NOT NULL,
+        "setupTemplate" TEXT NOT NULL,
+        "userPrompt"    TEXT NOT NULL,
+        "status"        TEXT DEFAULT 'planning',
+        "currentStep"   INTEGER DEFAULT 0,
+        "totalSteps"    INTEGER DEFAULT 0,
+        "progress"      INTEGER DEFAULT 0,
+        "plan"          JSONB,
+        "planApproved"  BOOLEAN DEFAULT false,
+        "approvedAt"    TIMESTAMP,
+        "approvedBy"    TEXT,
+        "executedSteps" INTEGER DEFAULT 0,
+        "failedStep"    INTEGER,
+        "error"         TEXT,
+        "rollbackMetadata" JSONB,
+        "createdAt"     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt"     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        "completedAt"   TIMESTAMP
+      )
+    `;
+    await prisma.$executeRaw`
+      CREATE INDEX IF NOT EXISTS "setup_runs_guild_status"
+        ON "setup_runs" ("guildId", "status", "createdAt" DESC)
+    `;
+    console.log('✅ Setup runs table created');
+
+    await prisma.$executeRaw`
+      CREATE TABLE IF NOT EXISTS "setup_steps" (
+        "id"           TEXT PRIMARY KEY,
+        "setupRunId"   TEXT NOT NULL,
+        "order"        INTEGER NOT NULL,
+        "type"         TEXT NOT NULL,
+        "description"  TEXT NOT NULL,
+        "config"       JSONB NOT NULL,
+        "status"       TEXT DEFAULT 'pending',
+        "result"       JSONB,
+        "error"        TEXT,
+        "rollbackData" JSONB,
+        "executedAt"   TIMESTAMP,
+        "createdAt"    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY ("setupRunId") REFERENCES "setup_runs"("id") ON DELETE CASCADE
+      )
+    `;
+    await prisma.$executeRaw`
+      CREATE INDEX IF NOT EXISTS "setup_steps_run_order"
+        ON "setup_steps" ("setupRunId", "order")
+    `;
+    console.log('✅ Setup steps table created');
     
     console.log('✅ All tables created successfully');
     return true;
@@ -218,6 +271,7 @@ app.use(express.json());
 app.use('/api/ai', aiRoutes);
 app.use('/api/railway', railwayRoutes);
 app.use('/api/discord', discordRoutes);
+app.use('/api/discord/setup', discordSetupRoutes);
 app.use('/api/knowledge', knowledgeRoutes);
 app.use('/api/metrics/dora', doraRoutes);
 app.use('/api/agents', agentRoutes);
