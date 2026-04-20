@@ -60,13 +60,10 @@ jobs:
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
         run: |
-          echo "🚀 Deploying Dissident Bot to Railway..."
-          
-          # Link to project
-          railway link --project e64047e5-e5fd-453b-99da-4771d6b533ca --environment production
-          
-          # Deploy
-          railway up --detach
+          echo "🚀 Deploying service to Railway..."
+
+          # Deploy directly to the configured service to avoid interactive/project-link issues.
+          railway up --service central-hub-v3 --detach
           
           echo "✅ Deployment initiated!"
 
