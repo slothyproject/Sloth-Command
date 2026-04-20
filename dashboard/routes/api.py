@@ -717,7 +717,7 @@ def audit():
     if guild_filter:
         q = q.filter_by(guild_id=int(guild_filter))
     logs = q.order_by(AuditLog.created_at.desc()).limit(limit).all()
-    return jsonify([l.to_dict() for l in logs])
+    return jsonify([entry.to_dict() for entry in logs])
 
 
 # ── Legacy admin actions ─────────────────────────────────────────
