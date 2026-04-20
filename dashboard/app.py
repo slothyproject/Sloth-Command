@@ -78,17 +78,17 @@ def create_app(config: dict | None = None) -> Flask:
         return {"status": "ok", "service": "dissident-central-hub", "version": "1.0.0"}
 
     # ── DB init ─────────────────────────────────────────────────
+    # Run migrations first (ALTER TABLE for new columns on existing tables)
+    _run_migrations(app)
     with app.app_context():
         db.create_all()
         _ensure_admin_user(app)
-
-    _run_migrations(app)
     log.info("Dissident Central Hub started")
     return app
 
 def _run_migrations(app: Flask) -> None:
     """Add missing columns to existing tables — safe for repeated runs."""
-    from sqlalchemy import inspect, text
+    from sqlalchemy import inspect
     with app.app_context():
         inspector = inspect(db.engine)
         existing_tables = inspector.get_table_names()
@@ -133,14 +133,21 @@ def _run_migrations(app: Flask) -> None:
             log.info("Schema up to date — no migrations needed")
             return
 
-        with db.engine.connect() as conn:
+        # Use autocommit for DDL so changes are immediately visible
+        raw_conn = db.engine.raw_connection()
+        try:
+            raw_conn.set_isolation_level(0)  # ISOLATION_LEVEL_AUTOCOMMIT
+            cur = raw_conn.cursor()
             for sql in migrations:
                 try:
-                    conn.execute(text(sql))
+                    cur.execute(sql)
                     log.info("Migration OK: %s", sql[:60])
                 except Exception as e:
                     log.warning("Migration skipped: %s — %s", sql[:60], e)
-            conn.commit()
+            cur.close()
+        finally:
+            raw_conn.set_isolation_level(1)  # restore READ_COMMITTED
+            raw_conn.close()
         log.info("Schema migrations complete (%d applied)", len(migrations))
 
 

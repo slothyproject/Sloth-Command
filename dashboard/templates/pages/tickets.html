@@ -9,7 +9,7 @@
 {% if tickets %}
 <div class="ticket-list">
   {% for ticket in tickets %}
-  <a href="{{ url_for('core.server_tickets', guild_id=ticket.guild.id) }}" class="ticket-item">
+  <a href="{{ url_for('core.ticket_detail', ticket_id=ticket.id) }}" class="ticket-item">
     <span class="ticket-num">#{{ ticket.ticket_number }}</span>
     <span class="ticket-subject">{{ ticket.subject or 'Ticket #' ~ ticket.ticket_number }}</span>
     <span class="ticket-opener">{{ ticket.guild.name }}</span>

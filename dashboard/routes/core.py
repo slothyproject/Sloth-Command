@@ -154,6 +154,18 @@ def moderation():
     return render_template("pages/moderation.html", cases=recent, active="moderation")
 
 
+
+
+@core_bp.get("/tickets/<int:ticket_id>")
+@login_required
+def ticket_detail(ticket_id: int):
+    from dashboard.models import Ticket
+    ticket = Ticket.query.get_or_404(ticket_id)
+    guild = Guild.query.get(ticket.guild_id)
+    if guild and not current_user.can_manage(guild):
+        abort(403)
+    return render_template("pages/ticket_detail.html", ticket=ticket, active="tickets")
+
 @core_bp.get("/tickets")
 @login_required
 def tickets():

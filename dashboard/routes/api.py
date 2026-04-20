@@ -450,6 +450,23 @@ def ticket_messages(ticket_id: int):
     } for m in msgs])
 
 
+
+
+@api_bp.post("/tickets/<int:ticket_id>/close")
+@login_required
+def ticket_close(ticket_id: int):
+    ticket = Ticket.query.get_or_404(ticket_id)
+    guild = Guild.query.get(ticket.guild_id)
+    if guild and not current_user.can_manage(guild):
+        return jsonify({"error": "Forbidden"}), 403
+    from datetime import datetime, timezone
+    ticket.status = "closed"
+    ticket.closed_by = current_user.username
+    ticket.closed_at = datetime.now(timezone.utc)
+    db.session.commit()
+    _audit("ticket_close", guild_id=ticket.guild_id, target_type="ticket", target_id=str(ticket_id))
+    return jsonify({"ok": True})
+
 # ── Webhook (bot → hub) ──────────────────────────────────────────
 
 @api_bp.post("/webhook/bot")
