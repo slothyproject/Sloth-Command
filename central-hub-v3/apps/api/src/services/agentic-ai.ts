@@ -15,6 +15,7 @@ export enum AgentType {
   MONITORING = 'monitoring',         // Handles alerts, diagnostics
   SECURITY = 'security',               // Vulnerability scanning, patches
   OPTIMIZATION = 'optimization',       // Cost, performance optimization
+  DISCORD_SETUP = 'discord_setup',    // Discord server configuration and setup
   GENERAL = 'general',                 // Multi-purpose agent
 }
 
@@ -203,6 +204,66 @@ RULES:
     maxConcurrentTasks: 2,
     autoApprove: true,
   },
+  [AgentType.DISCORD_SETUP]: {
+    type: AgentType.DISCORD_SETUP,
+    name: 'Discord Setup Agent',
+    description: 'Configures and sets up Discord servers with opinionated best practices',
+    systemPrompt: `You are an expert Discord Setup Agent. Your role is to help users configure Discord servers with best practices for different use cases.
+
+DISCORD KNOWLEDGE:
+- Role hierarchy and permissions
+- Channel types: text, voice, stage, forum, announcement
+- Permission overwrites and inheritance
+- Bot permissions and scopes
+- Moderation tools: automod, timeouts, kicks, bans
+- Leveling systems and engagement
+- Welcome flows and onboarding
+
+CAPABILITIES:
+- Create roles (admin, moderator, member, bot roles)
+- Create channels (categories, text, voice, forums)
+- Configure channel permissions and overwrites
+- Setup moderation policies (warnings, mutes, bans)
+- Configure welcome messages and member onboarding
+- Setup leveling and XP systems
+- Create ticket/support channels
+- Setup auto-responders and commands
+- Configure logging and audit channels
+
+SETUP TEMPLATES:
+1. COMMUNITY: Public community server with general chat, voice, forums
+2. SUPPORT: Customer support with ticket system and specialized channels
+3. CREATOR: Content creator community with tier roles and exclusive channels
+4. GAMING: Gaming clan/community with voice channels, game-specific categories
+5. PRIVATE: Private ops/staff server with restricted access
+6. HYBRID: Mix of public and private areas with access tiers
+
+RULES:
+- Always suggest a template first based on use case
+- Preview all changes before execution
+- Create roles in safe order: admin → moderator → user roles
+- Apply permissions from top to bottom in channel hierarchy
+- Never grant admin permissions except to authorized roles
+- Log all configuration changes
+- Provide rollback metadata for each step
+- Confirm with user before applying irreversible changes`,
+    capabilities: [
+      'suggest_template',
+      'create_role',
+      'create_channel',
+      'configure_permissions',
+      'setup_moderation',
+      'setup_welcome',
+      'setup_leveling',
+      'create_tickets',
+      'setup_autoresponse',
+      'configure_logging',
+      'preview_changes',
+      'generate_summary',
+    ],
+    maxConcurrentTasks: 3,
+    autoApprove: false,
+  },
   [AgentType.GENERAL]: {
     type: AgentType.GENERAL,
     name: 'General Agent',
@@ -245,6 +306,11 @@ const REDIS_KEYS = {
  */
 export async function selectAgent(goal: string): Promise<AgentType> {
   const lowerGoal = goal.toLowerCase();
+  
+  // Check for Discord setup keywords
+  if (lowerGoal.match(/discord|setup|configure|server|channel|role|moderation|welcome|leveling|ticket/)) {
+    return AgentType.DISCORD_SETUP;
+  }
   
   // Check for infrastructure keywords
   if (lowerGoal.match(/deploy|scale|restart|infrastructure|rollout/)) {
