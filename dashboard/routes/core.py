@@ -127,6 +127,16 @@ def server_tickets(guild_id: int):
     return render_template("pages/server_tickets.html", guild=guild, active="tickets")
 
 
+
+
+@core_bp.get("/servers/<int:guild_id>/commands")
+@login_required
+def server_commands(guild_id: int):
+    guild = Guild.query.get_or_404(guild_id)
+    if not current_user.can_manage(guild):
+        abort(403)
+    return render_template("pages/server_commands.html", guild=guild, active="servers")
+
 @core_bp.get("/moderation")
 @login_required
 def moderation():
