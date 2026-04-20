@@ -785,6 +785,7 @@ export async function processRequest(
   summary: string;
 }> {
   if (isResumeRequest(request)) {
+    // getActivePlans() returns plans sorted by priority (highest first), then by recency.
     const activePlans = await getActivePlans();
     const resumePlan = activePlans[0];
 
@@ -802,6 +803,8 @@ export async function processRequest(
         summary: `Resuming "${resumePlan.goal}" (${completedSteps}/${resumePlan.steps.length} steps completed).`,
       };
     }
+
+    // No active plan to resume, so continue with normal request planning below.
   }
 
   // Select appropriate agent
