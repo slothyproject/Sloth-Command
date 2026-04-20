@@ -129,6 +129,15 @@ class DissidentBot {
           option.setName('duration').setDescription('Duration in minutes').setRequired(true))
         .addStringOption(option => 
           option.setName('reason').setDescription('Reason for mute')),
+
+      new SlashCommandBuilder()
+        .setName('unmute')
+        .setDescription('Remove timeout from a user')
+        .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
+        .addUserOption(option =>
+          option.setName('user').setDescription('User to unmute').setRequired(true))
+        .addStringOption(option =>
+          option.setName('reason').setDescription('Reason for unmute')),
       
       new SlashCommandBuilder()
         .setName('warn')
@@ -138,6 +147,24 @@ class DissidentBot {
           option.setName('user').setDescription('User to warn').setRequired(true))
         .addStringOption(option => 
           option.setName('reason').setDescription('Reason for warning').setRequired(true)),
+
+      new SlashCommandBuilder()
+        .setName('warnings')
+        .setDescription('View warning history for a user')
+        .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
+        .addUserOption(option =>
+          option.setName('user').setDescription('User to inspect').setRequired(true))
+        .addIntegerOption(option =>
+          option.setName('page').setDescription('Page number').setMinValue(1)),
+
+      new SlashCommandBuilder()
+        .setName('unban')
+        .setDescription('Unban a user by Discord ID')
+        .setDefaultMemberPermissions(PermissionFlagsBits.BanMembers)
+        .addStringOption(option =>
+          option.setName('user_id').setDescription('Discord user ID to unban').setRequired(true))
+        .addStringOption(option =>
+          option.setName('reason').setDescription('Reason for unban')),
       
       new SlashCommandBuilder()
         .setName('clear')
@@ -166,7 +193,11 @@ class DissidentBot {
       
       new SlashCommandBuilder()
         .setName('leaderboard')
-        .setDescription('View XP leaderboard')
+        .setDescription('View XP leaderboard'),
+
+      new SlashCommandBuilder()
+        .setName('help')
+        .setDescription('Show available commands and categories')
     ];
     
     try {
@@ -185,7 +216,7 @@ class DissidentBot {
   
   // Handle slash commands
   async handleSlashCommand(interaction) {
-    const { commandName, options, guild, member } = interaction;
+    const { commandName, options, guild } = interaction;
     
     // Track command usage
     this.trackCommand(commandName);
@@ -201,8 +232,17 @@ class DissidentBot {
         case 'mute':
           await this.cmdMute(interaction, options);
           break;
+        case 'unmute':
+          await this.cmdUnmute(interaction, options);
+          break;
         case 'warn':
           await this.cmdWarn(interaction, options);
+          break;
+        case 'warnings':
+          await this.cmdWarnings(interaction, options);
+          break;
+        case 'unban':
+          await this.cmdUnban(interaction, options);
           break;
         case 'clear':
           await this.cmdClear(interaction, options);
@@ -222,81 +262,167 @@ class DissidentBot {
         case 'leaderboard':
           await this.cmdLeaderboard(interaction, guild);
           break;
+        case 'help':
+          await this.cmdHelp(interaction);
+          break;
       }
     } catch (err) {
       console.error(`Command error (${commandName}):`, err);
-      await interaction.reply({ content: '❌ An error occurred!', ephemeral: true });
+      const payload = { content: '❌ An error occurred!', ephemeral: true };
+      if (interaction.replied || interaction.deferred) {
+        await interaction.followUp(payload);
+      } else {
+        await interaction.reply(payload);
+      }
     }
+  }
+
+  async resolveTargetMember(interaction, options) {
+    const targetUser = options.getUser('user');
+    if (!targetUser) return null;
+    return interaction.guild.members.fetch(targetUser.id).catch(() => null);
+  }
+
+  getModerationBlockReason(interaction, target) {
+    const actor = interaction.member;
+    const botMember = interaction.guild.members.me;
+
+    if (!actor || !botMember) {
+      return '❌ Unable to verify permissions right now. Try again in a few seconds.';
+    }
+
+    if (target.id === interaction.user.id) {
+      return '❌ You cannot moderate yourself.';
+    }
+
+    if (target.id === botMember.id) {
+      return '❌ I cannot moderate myself.';
+    }
+
+    if (
+      interaction.guild.ownerId !== interaction.user.id &&
+      target.roles.highest.position >= actor.roles.highest.position
+    ) {
+      return '❌ You cannot moderate someone with an equal or higher role.';
+    }
+
+    if (target.roles.highest.position >= botMember.roles.highest.position) {
+      return '❌ I cannot moderate this user due to role hierarchy.';
+    }
+
+    return null;
+  }
+
+  createCaseId() {
+    const stamp = Date.now().toString(36).toUpperCase();
+    const suffix = Math.floor(Math.random() * 1296).toString(36).padStart(2, '0').toUpperCase();
+    return `CASE-${stamp}-${suffix}`;
+  }
+
+  formatAuditReason(reason, caseId) {
+    const safeReason = String(reason || 'No reason provided').trim() || 'No reason provided';
+    return `[CASE:${caseId}] ${safeReason}`;
   }
   
   // Ban command
   async cmdBan(interaction, options) {
-    const target = options.getMember('user');
+    const target = await this.resolveTargetMember(interaction, options);
     const reason = options.getString('reason') || 'No reason provided';
+    const caseId = this.createCaseId();
     
     if (!target) {
       return await interaction.reply({ content: '❌ User not found!', ephemeral: true });
     }
     
+    const blockReason = this.getModerationBlockReason(interaction, target);
+    if (blockReason) {
+      return await interaction.reply({ content: blockReason, ephemeral: true });
+    }
+
     if (!target.bannable) {
       return await interaction.reply({ content: '❌ I cannot ban this user!', ephemeral: true });
     }
     
     await target.ban({ reason });
-    await this.logAction(interaction.guild, 'BAN', target.user, interaction.user, reason);
+    await this.logAction(interaction.guild, 'BAN', target.user, interaction.user, reason, caseId);
     
-    await interaction.reply(`🔨 **${target.user.tag}** has been banned.\nReason: ${reason}`);
+    await interaction.reply(`🔨 **${target.user.tag}** has been banned.\nReason: ${reason}\nCase ID: ${caseId}`);
   }
   
   // Kick command
   async cmdKick(interaction, options) {
-    const target = options.getMember('user');
+    const target = await this.resolveTargetMember(interaction, options);
     const reason = options.getString('reason') || 'No reason provided';
+    const caseId = this.createCaseId();
     
     if (!target) {
       return await interaction.reply({ content: '❌ User not found!', ephemeral: true });
     }
     
+    const blockReason = this.getModerationBlockReason(interaction, target);
+    if (blockReason) {
+      return await interaction.reply({ content: blockReason, ephemeral: true });
+    }
+
     if (!target.kickable) {
       return await interaction.reply({ content: '❌ I cannot kick this user!', ephemeral: true });
     }
     
     await target.kick(reason);
-    await this.logAction(interaction.guild, 'KICK', target.user, interaction.user, reason);
+    await this.logAction(interaction.guild, 'KICK', target.user, interaction.user, reason, caseId);
     
-    await interaction.reply(`👢 **${target.user.tag}** has been kicked.\nReason: ${reason}`);
+    await interaction.reply(`👢 **${target.user.tag}** has been kicked.\nReason: ${reason}\nCase ID: ${caseId}`);
   }
   
   // Mute/Timeout command
   async cmdMute(interaction, options) {
-    const target = options.getMember('user');
+    const target = await this.resolveTargetMember(interaction, options);
     const duration = options.getInteger('duration');
     const reason = options.getString('reason') || 'No reason provided';
+    const caseId = this.createCaseId();
     
     if (!target) {
       return await interaction.reply({ content: '❌ User not found!', ephemeral: true });
     }
     
+    if (!duration || duration < 1 || duration > 40320) {
+      return await interaction.reply({
+        content: '❌ Duration must be between 1 and 40320 minutes (28 days).',
+        ephemeral: true
+      });
+    }
+
+    const blockReason = this.getModerationBlockReason(interaction, target);
+    if (blockReason) {
+      return await interaction.reply({ content: blockReason, ephemeral: true });
+    }
+
     if (!target.moderatable) {
       return await interaction.reply({ content: '❌ I cannot mute this user!', ephemeral: true });
     }
     
     const timeoutDuration = duration * 60 * 1000; // Convert to ms
     await target.timeout(timeoutDuration, reason);
-    await this.logAction(interaction.guild, 'MUTE', target.user, interaction.user, `${reason} (${duration}m)`);
+    await this.logAction(interaction.guild, 'MUTE', target.user, interaction.user, `${reason} (${duration}m)`, caseId);
     
-    await interaction.reply(`🔇 **${target.user.tag}** has been muted for ${duration} minutes.\nReason: ${reason}`);
+    await interaction.reply(`🔇 **${target.user.tag}** has been muted for ${duration} minutes.\nReason: ${reason}\nCase ID: ${caseId}`);
   }
   
   // Warn command
   async cmdWarn(interaction, options) {
-    const target = options.getMember('user');
+    const target = await this.resolveTargetMember(interaction, options);
     const reason = options.getString('reason');
+    const caseId = this.createCaseId();
     
     if (!target) {
       return await interaction.reply({ content: '❌ User not found!', ephemeral: true });
     }
     
+    const blockReason = this.getModerationBlockReason(interaction, target);
+    if (blockReason) {
+      return await interaction.reply({ content: blockReason, ephemeral: true });
+    }
+
     // Store warning in database
     if (this.pool) {
       await this.pool.query(`
@@ -305,14 +431,140 @@ class DissidentBot {
       `, [target.id, interaction.guild.id, interaction.user.id, reason]);
     }
     
-    await this.logAction(interaction.guild, 'WARN', target.user, interaction.user, reason);
+    await this.logAction(interaction.guild, 'WARN', target.user, interaction.user, reason, caseId);
     
-    await interaction.reply(`⚠️ **${target.user.tag}** has been warned.\nReason: ${reason}`);
+    await interaction.reply(`⚠️ **${target.user.tag}** has been warned.\nReason: ${reason}\nCase ID: ${caseId}`);
+  }
+
+  // Warnings command
+  async cmdWarnings(interaction, options) {
+    const target = await this.resolveTargetMember(interaction, options);
+    const page = options.getInteger('page') || 1;
+    const pageSize = 5;
+
+    if (!target) {
+      return await interaction.reply({ content: '❌ User not found!', ephemeral: true });
+    }
+
+    if (!this.pool) {
+      return await interaction.reply({
+        content: '❌ Database is unavailable right now.',
+        ephemeral: true
+      });
+    }
+
+    const countResult = await this.pool.query(
+      `SELECT COUNT(*) AS total
+       FROM user_warnings
+       WHERE user_id = $1 AND guild_id = $2`,
+      [target.id, interaction.guild.id]
+    );
+
+    const total = Number(countResult.rows[0]?.total || 0);
+    const pageCount = Math.max(1, Math.ceil(total / pageSize));
+    const normalizedPage = Math.min(page, pageCount);
+    const offset = (normalizedPage - 1) * pageSize;
+
+    const result = await this.pool.query(
+      `SELECT reason, moderator_id, created_at
+       FROM user_warnings
+       WHERE user_id = $1 AND guild_id = $2
+       ORDER BY created_at DESC
+       LIMIT $3 OFFSET $4`,
+      [target.id, interaction.guild.id, pageSize, offset]
+    );
+
+    if (result.rows.length === 0) {
+      return await interaction.reply({
+        content: `✅ **${target.user.tag}** has no warnings.`,
+        ephemeral: true
+      });
+    }
+
+    const lines = result.rows.map((row, i) => {
+      const date = new Date(row.created_at).toLocaleString();
+      return `${offset + i + 1}. ${row.reason} (by <@${row.moderator_id}> on ${date})`;
+    });
+
+    const embed = {
+      title: `Warnings for ${target.user.tag}`,
+      description: lines.join('\n'),
+      color: 0xF1C40F,
+      footer: {
+        text: `Page ${normalizedPage}/${pageCount} • ${total} total warnings`
+      },
+      timestamp: new Date().toISOString()
+    };
+
+    await interaction.reply({
+      embeds: [embed],
+      ephemeral: true
+    });
+  }
+
+  // Unmute command
+  async cmdUnmute(interaction, options) {
+    const target = await this.resolveTargetMember(interaction, options);
+    const reason = options.getString('reason') || 'No reason provided';
+    const caseId = this.createCaseId();
+
+    if (!target) {
+      return await interaction.reply({ content: '❌ User not found!', ephemeral: true });
+    }
+
+    const blockReason = this.getModerationBlockReason(interaction, target);
+    if (blockReason) {
+      return await interaction.reply({ content: blockReason, ephemeral: true });
+    }
+
+    if (!target.moderatable) {
+      return await interaction.reply({ content: '❌ I cannot unmute this user!', ephemeral: true });
+    }
+
+    await target.timeout(null, reason);
+    await this.logAction(interaction.guild, 'UNMUTE', target.user, interaction.user, reason, caseId);
+
+    await interaction.reply(`🔊 **${target.user.tag}** has been unmuted.\nReason: ${reason}\nCase ID: ${caseId}`);
+  }
+
+  // Unban command
+  async cmdUnban(interaction, options) {
+    const userId = options.getString('user_id');
+    const reason = options.getString('reason') || 'No reason provided';
+    const caseId = this.createCaseId();
+
+    if (!/^\d{17,20}$/.test(userId || '')) {
+      return await interaction.reply({
+        content: '❌ Please provide a valid Discord user ID.',
+        ephemeral: true
+      });
+    }
+
+    const ban = await interaction.guild.bans.fetch(userId).catch(() => null);
+    if (!ban) {
+      return await interaction.reply({
+        content: '❌ This user is not currently banned.',
+        ephemeral: true
+      });
+    }
+
+    await interaction.guild.members.unban(userId, reason);
+    await this.logAction(interaction.guild, 'UNBAN', ban.user, interaction.user, reason, caseId);
+
+    await interaction.reply(`🔓 **${ban.user.tag}** has been unbanned.\nReason: ${reason}\nCase ID: ${caseId}`);
   }
   
   // Clear command
   async cmdClear(interaction, options) {
-    const amount = Math.min(options.getInteger('amount'), 100);
+    const requested = options.getInteger('amount');
+    if (!requested || requested < 1) {
+      return await interaction.reply({
+        content: '❌ Amount must be at least 1.',
+        ephemeral: true
+      });
+    }
+
+    const amount = Math.min(requested, 100);
     
     await interaction.channel.bulkDelete(amount, true);
     await interaction.reply({ content: `🗑️ Deleted ${amount} messages.`, ephemeral: true });
@@ -408,8 +660,7 @@ class DissidentBot {
         if (!settings.autoMod.allowInvites) {
           await message.delete();
           await message.channel.send({
-            content: `🚫 **${message.author.tag}**, invite links are not allowed!`,
-            ephemeral: true
+            content: `🚫 **${message.author.tag}**, invite links are not allowed!`
           });
         }
       }
@@ -481,14 +732,18 @@ class DissidentBot {
   }
   
   // Logging
-  async logAction(guild, action, target, moderator, reason) {
+  async logAction(guild, action, target, moderator, reason, caseId = null) {
     try {
       if (!this.pool) return;
+
+      const auditReason = caseId
+        ? this.formatAuditReason(reason, caseId)
+        : (String(reason || 'No reason provided').trim() || 'No reason provided');
       
       await this.pool.query(`
         INSERT INTO audit_logs (server_id, user_id, target_id, action, reason, created_at)
         VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
-      `, [guild.id, moderator.id, target.id, action, reason]);
+      `, [guild.id, moderator.id, target.id, action, auditReason]);
       
     } catch (err) {
       console.error('Logging error:', err);
@@ -582,6 +837,23 @@ class DissidentBot {
     ).join('\n');
     
     await interaction.reply(`🏆 **XP Leaderboard**\n\n${leaderboard}`);
+  }
+
+  async cmdHelp(interaction) {
+    const text = [
+      '**Dissident Commands**',
+      '',
+      '**Moderation**',
+      '`/ban` `/kick` `/mute` `/unmute` `/warn` `/warnings` `/unban` `/clear`',
+      '',
+      '**Info**',
+      '`/serverinfo` `/userinfo` `/help`',
+      '',
+      '**Progression**',
+      '`/balance` `/daily` `/leaderboard`'
+    ].join('\n');
+
+    await interaction.reply({ content: text, ephemeral: true });
   }
   
   // Login method
