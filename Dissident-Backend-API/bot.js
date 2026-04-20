@@ -4,6 +4,12 @@
  */
 
 const { Client, GatewayIntentBits, Events, PermissionFlagsBits, SlashCommandBuilder, Routes, REST } = require('discord.js');
+const {
+  DEFAULT_SETTINGS,
+  normalizeServerSettings,
+  calculateLevelFromXP,
+  getXPForLevel
+} = require('./lib/bot-config');
 
 class DissidentBot {
   constructor() {
@@ -21,6 +27,7 @@ class DissidentBot {
     this.pool = null;
     this.commandStats = new Map();
     this.messageCache = new Map();
+    this.xpCooldowns = new Map();
     
     this.init();
   }
@@ -84,12 +91,7 @@ class DissidentBot {
         guild.id,
         guild.name,
         guild.ownerId,
-        JSON.stringify({
-          welcomeMessage: true,
-          autoMod: { enabled: true, spamThreshold: 5 },
-          xp: { enabled: true, min: 15, max: 25 },
-          economy: { enabled: false }
-        })
+        JSON.stringify(normalizeServerSettings(DEFAULT_SETTINGS))
       ]);
       
       console.log(`✅ Initialized guild: ${guild.name}`);
@@ -158,6 +160,24 @@ class DissidentBot {
           option.setName('page').setDescription('Page number').setMinValue(1)),
 
       new SlashCommandBuilder()
+        .setName('unwarn')
+        .setDescription('Remove a specific warning by ID')
+        .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
+        .addIntegerOption(option =>
+          option.setName('warning_id').setDescription('Warning ID to remove').setRequired(true))
+        .addStringOption(option =>
+          option.setName('reason').setDescription('Reason for removing the warning')),
+
+      new SlashCommandBuilder()
+        .setName('clearwarnings')
+        .setDescription('Remove all warnings for a user')
+        .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
+        .addUserOption(option =>
+          option.setName('user').setDescription('User to clear warnings for').setRequired(true))
+        .addStringOption(option =>
+          option.setName('reason').setDescription('Reason for clearing warnings')),
+
+      new SlashCommandBuilder()
         .setName('unban')
         .setDescription('Unban a user by Discord ID')
         .setDefaultMemberPermissions(PermissionFlagsBits.BanMembers)
@@ -194,6 +214,12 @@ class DissidentBot {
       new SlashCommandBuilder()
         .setName('leaderboard')
         .setDescription('View XP leaderboard'),
+
+      new SlashCommandBuilder()
+        .setName('rank')
+        .setDescription('View your XP rank or another member\'s rank')
+        .addUserOption(option =>
+          option.setName('user').setDescription('User to inspect')),
 
       new SlashCommandBuilder()
         .setName('help')
@@ -241,6 +267,12 @@ class DissidentBot {
         case 'warnings':
           await this.cmdWarnings(interaction, options);
           break;
+        case 'unwarn':
+          await this.cmdUnwarn(interaction, options);
+          break;
+        case 'clearwarnings':
+          await this.cmdClearWarnings(interaction, options);
+          break;
         case 'unban':
           await this.cmdUnban(interaction, options);
           break;
@@ -261,6 +293,9 @@ class DissidentBot {
           break;
         case 'leaderboard':
           await this.cmdLeaderboard(interaction, guild);
+          break;
+        case 'rank':
+          await this.cmdRank(interaction, options);
           break;
         case 'help':
           await this.cmdHelp(interaction);
@@ -323,6 +358,77 @@ class DissidentBot {
     const safeReason = String(reason || 'No reason provided').trim() || 'No reason provided';
     return `[CASE:${caseId}] ${safeReason}`;
   }
+
+  async getGuildSettings(guildId) {
+    if (!this.pool) {
+      return normalizeServerSettings(DEFAULT_SETTINGS);
+    }
+
+    const settingsResult = await this.pool.query(
+      'SELECT settings FROM server_settings WHERE server_id = $1',
+      [guildId]
+    );
+
+    return normalizeServerSettings(settingsResult.rows[0]?.settings);
+  }
+
+  async getWarningThresholdResult(guildId, userId) {
+    if (!this.pool) return null;
+
+    const settings = await this.getGuildSettings(guildId);
+    const countResult = await this.pool.query(
+      `SELECT COUNT(*) AS total
+       FROM user_warnings
+       WHERE guild_id = $1 AND user_id = $2`,
+      [guildId, userId]
+    );
+
+    const totalWarnings = Number(countResult.rows[0]?.total || 0);
+    if (totalWarnings < settings.warnings.maxWarnings) {
+      return null;
+    }
+
+    return {
+      settings,
+      totalWarnings,
+      action: settings.warnings.action,
+      muteDurationMinutes: settings.warnings.muteDurationMinutes
+    };
+  }
+
+  async applyWarningThresholdAction(guild, target, moderator, triggerReason) {
+    const threshold = await this.getWarningThresholdResult(guild.id, target.id);
+    if (!threshold) return null;
+
+    const caseId = this.createCaseId();
+    const escalationReason = `${triggerReason} | Auto action after ${threshold.totalWarnings} warnings`;
+
+    switch (threshold.action) {
+      case 'ban':
+        if (!target.bannable) return null;
+        await target.ban({ reason: escalationReason });
+        await this.logAction(guild, 'AUTO_BAN', target.user, moderator, escalationReason, caseId);
+        return `Automatic action: banned after ${threshold.totalWarnings} warnings.`;
+      case 'kick':
+        if (!target.kickable) return null;
+        await target.kick(escalationReason);
+        await this.logAction(guild, 'AUTO_KICK', target.user, moderator, escalationReason, caseId);
+        return `Automatic action: kicked after ${threshold.totalWarnings} warnings.`;
+      case 'mute':
+      default:
+        if (!target.moderatable) return null;
+        await target.timeout(threshold.muteDurationMinutes * 60 * 1000, escalationReason);
+        await this.logAction(
+          guild,
+          'AUTO_MUTE',
+          target.user,
+          moderator,
+          `${escalationReason} (${threshold.muteDurationMinutes}m)`,
+          caseId
+        );
+        return `Automatic action: muted for ${threshold.muteDurationMinutes} minutes after ${threshold.totalWarnings} warnings.`;
+    }
+  }
   
   // Ban command
   async cmdBan(interaction, options) {
@@ -343,7 +449,7 @@ class DissidentBot {
       return await interaction.reply({ content: '❌ I cannot ban this user!', ephemeral: true });
     }
     
-    await target.ban({ reason });
+      await target.ban({ reason });
     await this.logAction(interaction.guild, 'BAN', target.user, interaction.user, reason, caseId);
     
     await interaction.reply(`🔨 **${target.user.tag}** has been banned.\nReason: ${reason}\nCase ID: ${caseId}`);
@@ -425,14 +531,27 @@ class DissidentBot {
 
     // Store warning in database
     if (this.pool) {
-      await this.pool.query(`
+      const warningResult = await this.pool.query(`
         INSERT INTO user_warnings (user_id, guild_id, moderator_id, reason, created_at)
         VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
+        RETURNING id
       `, [target.id, interaction.guild.id, interaction.user.id, reason]);
+
+      const autoActionMessage = await this.applyWarningThresholdAction(
+        interaction.guild,
+        target,
+        interaction.user,
+        reason
+      );
+
+      await this.logAction(interaction.guild, 'WARN', target.user, interaction.user, reason, caseId);
+
+      const warningId = warningResult.rows[0]?.id;
+      const suffix = autoActionMessage ? `\n${autoActionMessage}` : '';
+      return await interaction.reply(`⚠️ **${target.user.tag}** has been warned.\nReason: ${reason}\nWarning ID: ${warningId}\nCase ID: ${caseId}${suffix}`);
     }
-    
+
     await this.logAction(interaction.guild, 'WARN', target.user, interaction.user, reason, caseId);
-    
     await interaction.reply(`⚠️ **${target.user.tag}** has been warned.\nReason: ${reason}\nCase ID: ${caseId}`);
   }
 
@@ -466,7 +585,7 @@ class DissidentBot {
     const offset = (normalizedPage - 1) * pageSize;
 
     const result = await this.pool.query(
-      `SELECT reason, moderator_id, created_at
+      `SELECT id, reason, moderator_id, created_at
        FROM user_warnings
        WHERE user_id = $1 AND guild_id = $2
        ORDER BY created_at DESC
@@ -483,7 +602,7 @@ class DissidentBot {
 
     const lines = result.rows.map((row, i) => {
       const date = new Date(row.created_at).toLocaleString();
-      return `${offset + i + 1}. ${row.reason} (by <@${row.moderator_id}> on ${date})`;
+      return `${offset + i + 1}. [#${row.id}] ${row.reason} (by <@${row.moderator_id}> on ${date})`;
     });
 
     const embed = {
@@ -500,6 +619,74 @@ class DissidentBot {
       embeds: [embed],
       ephemeral: true
     });
+  }
+
+  async cmdUnwarn(interaction, options) {
+    const warningId = options.getInteger('warning_id');
+    const reason = options.getString('reason') || 'No reason provided';
+    const caseId = this.createCaseId();
+
+    if (!this.pool) {
+      return await interaction.reply({ content: '❌ Database is unavailable right now.', ephemeral: true });
+    }
+
+    const result = await this.pool.query(
+      `DELETE FROM user_warnings
+       WHERE id = $1 AND guild_id = $2
+       RETURNING user_id`,
+      [warningId, interaction.guild.id]
+    );
+
+    if (result.rows.length === 0) {
+      return await interaction.reply({ content: '❌ Warning not found for this server.', ephemeral: true });
+    }
+
+    await this.logAction(
+      interaction.guild,
+      'UNWARN',
+      { id: result.rows[0].user_id },
+      interaction.user,
+      `Removed warning #${warningId}: ${reason}`,
+      caseId
+    );
+
+    await interaction.reply(`✅ Removed warning #${warningId}.\nReason: ${reason}\nCase ID: ${caseId}`);
+  }
+
+  async cmdClearWarnings(interaction, options) {
+    const target = await this.resolveTargetMember(interaction, options);
+    const reason = options.getString('reason') || 'No reason provided';
+    const caseId = this.createCaseId();
+
+    if (!target) {
+      return await interaction.reply({ content: '❌ User not found!', ephemeral: true });
+    }
+
+    if (!this.pool) {
+      return await interaction.reply({ content: '❌ Database is unavailable right now.', ephemeral: true });
+    }
+
+    const result = await this.pool.query(
+      `DELETE FROM user_warnings
+       WHERE guild_id = $1 AND user_id = $2
+       RETURNING id`,
+      [interaction.guild.id, target.id]
+    );
+
+    if (result.rows.length === 0) {
+      return await interaction.reply({ content: `✅ **${target.user.tag}** has no warnings to clear.`, ephemeral: true });
+    }
+
+    await this.logAction(
+      interaction.guild,
+      'CLEAR_WARNINGS',
+      target.user,
+      interaction.user,
+      `Cleared ${result.rows.length} warnings: ${reason}`,
+      caseId
+    );
+
+    await interaction.reply(`✅ Cleared ${result.rows.length} warnings for **${target.user.tag}**.\nReason: ${reason}\nCase ID: ${caseId}`);
   }
 
   // Unmute command
@@ -613,16 +800,8 @@ class DissidentBot {
   async handleAutoMod(message) {
     try {
       if (!this.pool) return;
-      
-      // Get guild settings
-      const settingsResult = await this.pool.query(
-        'SELECT settings FROM server_settings WHERE server_id = $1',
-        [message.guild.id]
-      );
-      
-      if (settingsResult.rows.length === 0) return;
-      
-      const settings = settingsResult.rows[0].settings;
+
+      const settings = await this.getGuildSettings(message.guild.id);
       if (!settings.autoMod?.enabled) return;
       
       // Check for spam
@@ -673,29 +852,46 @@ class DissidentBot {
   async handleXP(message) {
     try {
       if (!this.pool) return;
-      
-      const settingsResult = await this.pool.query(
-        'SELECT settings FROM server_settings WHERE server_id = $1',
-        [message.guild.id]
-      );
-      
-      if (settingsResult.rows.length === 0) return;
-      
-      const settings = settingsResult.rows[0].settings;
+
+      const settings = await this.getGuildSettings(message.guild.id);
       if (!settings.xp?.enabled) return;
-      
+
       const xpKey = `${message.guild.id}-${message.author.id}`;
-      const xpGain = Math.floor(Math.random() * (settings.xp.max - settings.xp.min + 1)) + settings.xp.min;
-      
-      // Update XP in database
-      await this.pool.query(`
+      const cooldownUntil = this.xpCooldowns.get(xpKey) || 0;
+      if (Date.now() < cooldownUntil) return;
+      this.xpCooldowns.set(xpKey, Date.now() + 60 * 1000);
+
+      const baseGain = Math.floor(Math.random() * (settings.xp.max - settings.xp.min + 1)) + settings.xp.min;
+      const xpGain = Math.max(1, Math.round(baseGain * settings.xp.multiplier));
+
+      const result = await this.pool.query(`
         INSERT INTO user_xp (user_id, guild_id, xp, level, messages, last_message)
         VALUES ($1, $2, $3, 1, 1, CURRENT_TIMESTAMP)
         ON CONFLICT (user_id, guild_id) DO UPDATE SET
           xp = user_xp.xp + $3,
           messages = user_xp.messages + 1,
           last_message = CURRENT_TIMESTAMP
+        RETURNING xp, level, messages
       `, [message.author.id, message.guild.id, xpGain]);
+
+      const record = result.rows[0];
+      const nextLevel = calculateLevelFromXP(record.xp);
+      if (nextLevel !== record.level) {
+        await this.pool.query(
+          'UPDATE user_xp SET level = $3 WHERE user_id = $1 AND guild_id = $2',
+          [message.author.id, message.guild.id, nextLevel]
+        );
+
+        const levelChannel = settings.xp.levelChannel
+          ? message.guild.channels.cache.get(settings.xp.levelChannel)
+          : message.channel;
+
+        if (levelChannel?.send) {
+          await levelChannel.send(
+            `🎉 ${message.author}, you reached **Level ${nextLevel}** with **${record.xp} XP**!`
+          ).catch(() => null);
+        }
+      }
       
     } catch (err) {
       console.error('XP error:', err);
@@ -706,20 +902,13 @@ class DissidentBot {
   async handleWelcome(member) {
     try {
       if (!this.pool) return;
-      
-      const settingsResult = await this.pool.query(
-        'SELECT settings FROM server_settings WHERE server_id = $1',
-        [member.guild.id]
-      );
-      
-      if (settingsResult.rows.length === 0) return;
-      
-      const settings = settingsResult.rows[0].settings;
+
+      const settings = await this.getGuildSettings(member.guild.id);
       if (!settings.welcomeMessage) return;
-      
-      // Find system channel or first text channel
-      const channel = member.guild.systemChannel || 
-        member.guild.channels.cache.find(ch => ch.type === 0);
+
+      const channel = (settings.welcomeChannel
+        ? member.guild.channels.cache.get(settings.welcomeChannel)
+        : null) || member.guild.systemChannel || member.guild.channels.cache.find(ch => ch.type === 0);
       
       if (channel) {
         await channel.send({
@@ -771,6 +960,11 @@ class DissidentBot {
   // Economy commands
   async cmdBalance(interaction) {
     if (!this.pool) return;
+
+    const settings = await this.getGuildSettings(interaction.guild.id);
+    if (!settings.economy.enabled) {
+      return await interaction.reply({ content: '❌ Economy is disabled for this server.', ephemeral: true });
+    }
     
     const result = await this.pool.query(
       'SELECT balance FROM user_economy WHERE user_id = $1 AND guild_id = $2',
@@ -783,6 +977,11 @@ class DissidentBot {
   
   async cmdDaily(interaction) {
     if (!this.pool) return;
+
+    const settings = await this.getGuildSettings(interaction.guild.id);
+    if (!settings.economy.enabled) {
+      return await interaction.reply({ content: '❌ Economy is disabled for this server.', ephemeral: true });
+    }
     
     // Check if already claimed today
     const result = await this.pool.query(
@@ -819,6 +1018,11 @@ class DissidentBot {
   
   async cmdLeaderboard(interaction, guild) {
     if (!this.pool) return;
+
+    const settings = await this.getGuildSettings(guild.id);
+    if (!settings.xp.enabled) {
+      return await interaction.reply({ content: '❌ Leveling is disabled for this server.', ephemeral: true });
+    }
     
     const result = await this.pool.query(`
       SELECT user_id, xp, level
@@ -833,10 +1037,35 @@ class DissidentBot {
     }
     
     const leaderboard = result.rows.map((row, index) => 
-      `${index + 1}. <@${row.user_id}> - Level ${row.level} (${row.xp} XP)`
+      `${index + 1}. <@${row.user_id}> - Level ${row.level} (${row.xp}/${getXPForLevel(row.level)} XP)`
     ).join('\n');
     
     await interaction.reply(`🏆 **XP Leaderboard**\n\n${leaderboard}`);
+  }
+
+  async cmdRank(interaction, options) {
+    if (!this.pool) return;
+
+    const settings = await this.getGuildSettings(interaction.guild.id);
+    if (!settings.xp.enabled) {
+      return await interaction.reply({ content: '❌ Leveling is disabled for this server.', ephemeral: true });
+    }
+
+    const target = options.getUser('user') || interaction.user;
+    const result = await this.pool.query(
+      `SELECT xp, level, messages
+       FROM user_xp
+       WHERE user_id = $1 AND guild_id = $2`,
+      [target.id, interaction.guild.id]
+    );
+
+    const row = result.rows[0] || { xp: 0, level: 1, messages: 0 };
+    const nextLevelXp = getXPForLevel(Number(row.level) || 1);
+
+    await interaction.reply({
+      content: `📈 **${target.tag}**\nLevel: **${row.level}**\nXP: **${row.xp}/${nextLevelXp}**\nMessages: **${row.messages}**`,
+      ephemeral: target.id !== interaction.user.id
+    });
   }
 
   async cmdHelp(interaction) {
@@ -844,13 +1073,13 @@ class DissidentBot {
       '**Dissident Commands**',
       '',
       '**Moderation**',
-      '`/ban` `/kick` `/mute` `/unmute` `/warn` `/warnings` `/unban` `/clear`',
+      '`/ban` `/kick` `/mute` `/unmute` `/warn` `/warnings` `/unwarn` `/clearwarnings` `/unban` `/clear`',
       '',
       '**Info**',
       '`/serverinfo` `/userinfo` `/help`',
       '',
       '**Progression**',
-      '`/balance` `/daily` `/leaderboard`'
+      '`/balance` `/daily` `/leaderboard` `/rank`'
     ].join('\n');
 
     await interaction.reply({ content: text, ephemeral: true });

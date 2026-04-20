@@ -12,6 +12,13 @@ const path = require('path');
 const { Pool } = require('pg');
 const { Client, GatewayIntentBits } = require('discord.js');
 const axios = require('axios');
+const {
+  DEFAULT_SETTINGS,
+  normalizeServerSettings,
+  calculateLevelFromXP,
+  getXPForLevel,
+  formatRelativeTime
+} = require('./lib/bot-config');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -70,6 +77,85 @@ function getHierarchyBlockReason(guild, moderator, target, botMember) {
   }
 
   return null;
+}
+
+async function fetchGuildSettings(guildId) {
+  const result = await pool.query(
+    'SELECT settings FROM server_settings WHERE server_id = $1',
+    [guildId]
+  );
+
+  return normalizeServerSettings(result.rows[0]?.settings);
+}
+
+async function persistGuildSettings(guildId, settings) {
+  const normalized = normalizeServerSettings(settings);
+  await pool.query(
+    `INSERT INTO server_settings (server_id, settings, updated_at)
+     VALUES ($1, $2, CURRENT_TIMESTAMP)
+     ON CONFLICT (server_id) DO UPDATE SET settings = $2, updated_at = CURRENT_TIMESTAMP`,
+    [guildId, JSON.stringify(normalized)]
+  );
+  return normalized;
+}
+
+async function applyWarningThresholdAction(guild, member, moderatorId, reason) {
+  const settings = await fetchGuildSettings(guild.id);
+  const countResult = await pool.query(
+    `SELECT COUNT(*) AS total
+     FROM user_warnings
+     WHERE guild_id = $1 AND user_id = $2`,
+    [guild.id, member.id]
+  );
+
+  const totalWarnings = Number(countResult.rows[0]?.total || 0);
+  if (totalWarnings < settings.warnings.maxWarnings) {
+    return null;
+  }
+
+  const moderator = await guild.members.fetch(moderatorId).catch(() => null);
+  const botMember = guild.members.me;
+  const block = getHierarchyBlockReason(guild, moderator, member, botMember);
+  if (block) {
+    return `Warning threshold reached but automatic action was blocked: ${block}`;
+  }
+
+  const caseId = createCaseId();
+  const escalationReason = `${normalizeReason(reason)} | Auto action after ${totalWarnings} warnings`;
+
+  if (settings.warnings.action === 'ban') {
+    if (!member.bannable) return 'Warning threshold reached but bot cannot ban this user.';
+    await member.ban({ reason: escalationReason });
+    await pool.query(
+      `INSERT INTO audit_logs (server_id, user_id, target_id, action, reason)
+       VALUES ($1, $2, $3, 'AUTO_BAN', $4)`,
+      [guild.id, moderatorId, member.id, formatAuditReason(escalationReason, caseId)]
+    );
+    return `Automatic action applied: banned after ${totalWarnings} warnings.`;
+  }
+
+  if (settings.warnings.action === 'kick') {
+    if (!member.kickable) return 'Warning threshold reached but bot cannot kick this user.';
+    await member.kick(escalationReason);
+    await pool.query(
+      `INSERT INTO audit_logs (server_id, user_id, target_id, action, reason)
+       VALUES ($1, $2, $3, 'AUTO_KICK', $4)`,
+      [guild.id, moderatorId, member.id, formatAuditReason(escalationReason, caseId)]
+    );
+    return `Automatic action applied: kicked after ${totalWarnings} warnings.`;
+  }
+
+  const muteMinutes = settings.warnings.muteDurationMinutes;
+  if (!member.moderatable) return 'Warning threshold reached but bot cannot mute this user.';
+
+  await member.timeout(muteMinutes * 60 * 1000, escalationReason);
+  await pool.query(
+    `INSERT INTO audit_logs (server_id, user_id, target_id, action, reason)
+     VALUES ($1, $2, $3, 'AUTO_MUTE', $4)`,
+    [guild.id, moderatorId, member.id, formatAuditReason(`${escalationReason} (${muteMinutes}m)`, caseId)]
+  );
+
+  return `Automatic action applied: muted for ${muteMinutes} minutes after ${totalWarnings} warnings.`;
 }
 
 // Test endpoint to verify deployment
@@ -747,17 +833,31 @@ app.post('/api/moderation/warn', authenticateToken, async (req, res) => {
     const block = getHierarchyBlockReason(guild, moderator, member, botMember);
     if (block) throw makeError(403, block);
     
-    await pool.query(`
+    const warningResult = await pool.query(`
       INSERT INTO user_warnings (user_id, guild_id, moderator_id, reason)
       VALUES ($1, $2, $3, $4)
+      RETURNING id
     `, [userId, guildId, req.user.userId, warningReason]);
     
     await pool.query(`
       INSERT INTO audit_logs (server_id, user_id, target_id, action, reason)
       VALUES ($1, $2, $3, 'WARN', $4)
     `, [guildId, req.user.userId, userId, formatAuditReason(warningReason, caseId)]);
+
+    const autoActionMessage = await applyWarningThresholdAction(
+      guild,
+      member,
+      req.user.userId,
+      warningReason
+    );
     
-    res.json({ success: true, message: 'User warned successfully', caseId });
+    res.json({
+      success: true,
+      message: 'User warned successfully',
+      caseId,
+      warningId: warningResult.rows[0]?.id,
+      autoAction: autoActionMessage
+    });
   } catch (error) {
     console.error('Warn error:', error);
     res.status(error.status || 500).json({ error: error.message || 'Failed to warn user' });
@@ -778,7 +878,10 @@ app.get('/api/xp/leaderboard/:guildId', async (req, res) => {
       LIMIT $2
     `, [guildId, limit]);
     
-    res.json(result.rows);
+    res.json(result.rows.map(row => ({
+      ...row,
+      nextLevelXp: getXPForLevel(row.level)
+    })));
   } catch (error) {
     console.error('Leaderboard error:', error);
     res.status(500).json({ error: 'Failed to fetch leaderboard' });
@@ -796,10 +899,15 @@ app.get('/api/xp/user/:guildId/:userId', async (req, res) => {
     `, [guildId, userId]);
     
     if (result.rows.length === 0) {
-      return res.json({ xp: 0, level: 1, messages: 0 });
+      return res.json({ xp: 0, level: 1, messages: 0, nextLevelXp: getXPForLevel(1) });
     }
-    
-    res.json(result.rows[0]);
+
+    const row = result.rows[0];
+    res.json({
+      ...row,
+      level: calculateLevelFromXP(row.xp),
+      nextLevelXp: getXPForLevel(calculateLevelFromXP(row.xp))
+    });
   } catch (error) {
     console.error('User XP error:', error);
     res.status(500).json({ error: 'Failed to fetch user XP' });
@@ -894,20 +1002,9 @@ app.get('/api/guilds/:guildId/stats', authenticateToken, async (req, res) => {
 app.get('/api/settings/:guildId', authenticateToken, async (req, res) => {
   try {
     const { guildId } = req.params;
-    
-    let result = await pool.query(
-      'SELECT settings FROM server_settings WHERE server_id = $1',
-      [guildId]
-    );
-    
-    if (result.rows.length === 0) {
-      // Return default settings
-      return res.json({
-        modules: { autoMod: false, economy: false, tickets: false, xp: true }
-      });
-    }
-    
-    res.json(result.rows[0].settings);
+
+    const settings = await fetchGuildSettings(guildId);
+    res.json(settings);
   } catch (error) {
     console.error('Settings fetch error:', error);
     res.status(500).json({ error: 'Failed to fetch settings' });
@@ -918,15 +1015,9 @@ app.post('/api/settings/:guildId', authenticateToken, async (req, res) => {
   try {
     const { guildId } = req.params;
     const { settings } = req.body;
-    
-    await pool.query(
-      `INSERT INTO server_settings (server_id, settings, updated_at) 
-       VALUES ($1, $2, CURRENT_TIMESTAMP)
-       ON CONFLICT (server_id) DO UPDATE SET settings = $2, updated_at = CURRENT_TIMESTAMP`,
-      [guildId, JSON.stringify(settings)]
-    );
-    
-    res.json({ success: true });
+
+    const normalized = await persistGuildSettings(guildId, settings || DEFAULT_SETTINGS);
+    res.json({ success: true, settings: normalized });
   } catch (error) {
     console.error('Settings update error:', error);
     res.status(500).json({ error: 'Failed to update settings' });
@@ -937,22 +1028,13 @@ app.post('/api/settings/:guildId', authenticateToken, async (req, res) => {
 app.get('/api/modules/:guildId', authenticateToken, async (req, res) => {
   try {
     const { guildId } = req.params;
-    
-    const result = await pool.query(
-      'SELECT settings FROM server_settings WHERE server_id = $1',
-      [guildId]
-    );
-    
-    if (result.rows.length === 0) {
-      return res.json({ autoMod: false, economy: false, tickets: false, xp: true });
-    }
-    
-    const settings = result.rows[0].settings;
+
+    const settings = await fetchGuildSettings(guildId);
     res.json({
-      autoMod: settings.modules?.autoMod || false,
-      economy: settings.modules?.economy || false,
-      tickets: settings.modules?.tickets || false,
-      xp: settings.modules?.xp !== false
+      autoMod: settings.modules.autoMod,
+      economy: settings.modules.economy,
+      tickets: settings.modules.tickets,
+      xp: settings.modules.xp
     });
   } catch (error) {
     console.error('Modules fetch error:', error);
@@ -964,23 +1046,20 @@ app.post('/api/modules/:guildId/:module', authenticateToken, async (req, res) =>
   try {
     const { guildId, module: moduleName } = req.params;
     const { enabled } = req.body;
-    
-    // Get current settings
-    let result = await pool.query(
-      'SELECT settings FROM server_settings WHERE server_id = $1',
-      [guildId]
-    );
-    
-    let settings = result.rows[0]?.settings || {};
-    if (!settings.modules) settings.modules = {};
-    settings.modules[moduleName] = enabled;
-    
-    await pool.query(
-      `INSERT INTO server_settings (server_id, settings, updated_at) 
-       VALUES ($1, $2, CURRENT_TIMESTAMP)
-       ON CONFLICT (server_id) DO UPDATE SET settings = $2, updated_at = CURRENT_TIMESTAMP`,
-      [guildId, JSON.stringify(settings)]
-    );
+
+    if (!['autoMod', 'economy', 'tickets', 'xp'].includes(moduleName)) {
+      throw makeError(400, 'Unsupported module name.');
+    }
+
+    const settings = await fetchGuildSettings(guildId);
+    settings.modules[moduleName] = Boolean(enabled);
+
+    if (moduleName === 'autoMod') settings.autoMod.enabled = Boolean(enabled);
+    if (moduleName === 'xp') settings.xp.enabled = Boolean(enabled);
+    if (moduleName === 'economy') settings.economy.enabled = Boolean(enabled);
+    if (moduleName === 'tickets') settings.tickets.enabled = Boolean(enabled);
+
+    await persistGuildSettings(guildId, settings);
     
     await pool.query(
       `INSERT INTO audit_logs (server_id, user_id, action, reason) 
@@ -1000,6 +1079,12 @@ app.get('/api/guilds/:guildId/members/search', authenticateToken, async (req, re
   try {
     const { guildId } = req.params;
     const { query, limit = 10 } = req.query;
+    const searchQuery = String(query || '').trim().toLowerCase();
+
+    if (!searchQuery) {
+      throw makeError(400, 'Query is required.');
+    }
+
     const client = getActiveDiscordClient();
     
     const guild = await client.guilds.fetch(guildId).catch(() => null);
@@ -1009,8 +1094,9 @@ app.get('/api/guilds/:guildId/members/search', authenticateToken, async (req, re
     
     const members = guild.members.cache
       .filter(m => 
-        m.user.username.toLowerCase().includes(query.toLowerCase()) ||
-        m.user.id === query
+        m.user.username.toLowerCase().includes(searchQuery) ||
+        (m.nickname || '').toLowerCase().includes(searchQuery) ||
+        m.user.id === String(query)
       )
       .first(parseInt(limit))
       .map(m => ({
@@ -1022,7 +1108,7 @@ app.get('/api/guilds/:guildId/members/search', authenticateToken, async (req, re
     res.json(members);
   } catch (error) {
     console.error('Member search error:', error);
-    res.status(500).json({ error: 'Failed to search members' });
+    res.status(error.status || 500).json({ error: error.message || 'Failed to search members' });
   }
 });
 
@@ -1042,6 +1128,64 @@ app.get('/api/moderation/warnings/:guildId/:userId', authenticateToken, async (r
   } catch (error) {
     console.error('Warnings fetch error:', error);
     res.status(500).json({ error: 'Failed to fetch warnings' });
+  }
+});
+
+app.delete('/api/moderation/warnings/:guildId/:warningId', authenticateToken, async (req, res) => {
+  try {
+    const { guildId, warningId } = req.params;
+    const reason = normalizeReason(req.body?.reason, 'No reason provided');
+
+    const result = await pool.query(
+      `DELETE FROM user_warnings
+       WHERE guild_id = $1 AND id = $2
+       RETURNING user_id`,
+      [guildId, warningId]
+    );
+
+    if (result.rows.length === 0) {
+      throw makeError(404, 'Warning not found.');
+    }
+
+    await pool.query(
+      `INSERT INTO audit_logs (server_id, user_id, target_id, action, reason)
+       VALUES ($1, $2, $3, 'UNWARN', $4)`,
+      [guildId, req.user.userId, result.rows[0].user_id, formatAuditReason(`Removed warning #${warningId}: ${reason}`, createCaseId())]
+    );
+
+    res.json({ success: true, warningId: Number(warningId) });
+  } catch (error) {
+    console.error('Warning delete error:', error);
+    res.status(error.status || 500).json({ error: error.message || 'Failed to delete warning' });
+  }
+});
+
+app.delete('/api/moderation/warnings/:guildId/user/:userId', authenticateToken, async (req, res) => {
+  try {
+    const { guildId, userId } = req.params;
+    const reason = normalizeReason(req.body?.reason, 'No reason provided');
+
+    const result = await pool.query(
+      `DELETE FROM user_warnings
+       WHERE guild_id = $1 AND user_id = $2
+       RETURNING id`,
+      [guildId, userId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.json({ success: true, cleared: 0 });
+    }
+
+    await pool.query(
+      `INSERT INTO audit_logs (server_id, user_id, target_id, action, reason)
+       VALUES ($1, $2, $3, 'CLEAR_WARNINGS', $4)`,
+      [guildId, req.user.userId, userId, formatAuditReason(`Cleared ${result.rows.length} warnings: ${reason}`, createCaseId())]
+    );
+
+    res.json({ success: true, cleared: result.rows.length });
+  } catch (error) {
+    console.error('Warnings clear error:', error);
+    res.status(error.status || 500).json({ error: error.message || 'Failed to clear warnings' });
   }
 });
 
@@ -1078,7 +1222,7 @@ async function getRecentActivity() {
     return result.rows.map(row => ({
       action: row.action,
       user: 'Moderator', // Could fetch actual username
-      time: new Date(row.created_at).toRelativeTime || 'recent',
+      time: formatRelativeTime(row.created_at),
       reason: row.reason
     }));
   } catch (err) {

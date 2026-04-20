@@ -11,9 +11,26 @@
 <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
   <button class="btn btn--ghost btn--sm active-filter" data-filter="" onclick="filterCases('')">All</button>
   <button class="btn btn--ghost btn--sm" data-filter="warn"  onclick="filterCases('warn')">Warns</button>
+  <button class="btn btn--ghost btn--sm" data-filter="unwarn" onclick="filterCases('unwarn')">Unwarns</button>
+  <button class="btn btn--ghost btn--sm" data-filter="clear_warnings" onclick="filterCases('clear_warnings')">Clears</button>
   <button class="btn btn--ghost btn--sm" data-filter="mute"  onclick="filterCases('mute')">Mutes</button>
+  <button class="btn btn--ghost btn--sm" data-filter="auto_mute"  onclick="filterCases('auto_mute')">Auto Mutes</button>
   <button class="btn btn--ghost btn--sm" data-filter="kick"  onclick="filterCases('kick')">Kicks</button>
+  <button class="btn btn--ghost btn--sm" data-filter="auto_kick"  onclick="filterCases('auto_kick')">Auto Kicks</button>
   <button class="btn btn--ghost btn--sm" data-filter="ban"   onclick="filterCases('ban')">Bans</button>
+  <button class="btn btn--ghost btn--sm" data-filter="auto_ban"   onclick="filterCases('auto_ban')">Auto Bans</button>
+  <button class="btn btn--ghost btn--sm" data-filter="unmute" onclick="filterCases('unmute')">Unmutes</button>
+  <button class="btn btn--ghost btn--sm" data-filter="unban" onclick="filterCases('unban')">Unbans</button>
+</div>
+
+<div class="card" style="margin-bottom:16px;padding:14px 16px">
+  <div style="display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap">
+    <div>
+      <div class="card__title" style="margin-bottom:6px">SEARCH CASES</div>
+      <div class="t1">Filter by target, moderator, reason, or case number.</div>
+    </div>
+    <input id="case-search" class="field__input--inline" type="search" placeholder="Search moderation history" style="min-width:260px;max-width:360px;width:100%">
+  </div>
 </div>
 
 <div class="table-wrap">
@@ -30,38 +47,73 @@
 <script>
 const GUILD_ID = {{ guild.id }};
 let currentAction = '', currentPage = 1;
+let cachedCases = [];
+
+function renderCases(items, append=false) {
+  const body = document.getElementById('cases-body');
+  const rows = items.map(c => `
+    <tr>
+      <td class="td-mono">#${c.case_number}</td>
+      <td><span class="case-action case-action--${(c.action || '').toLowerCase()}">${c.action}</span></td>
+      <td><strong>${c.target_name || c.target_id}</strong></td>
+      <td class="t1">${c.moderator_name || '—'}</td>
+      <td class="t1" style="max-width:300px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${c.reason || ''}">${c.reason || '—'}</td>
+      <td class="td-mono">${new Date(c.created_at).toLocaleDateString()}</td>
+    </tr>`).join('');
+
+  if (!rows && !append) {
+    body.innerHTML = '<tr><td colspan="6" class="empty-inline">No cases found</td></tr>';
+    return;
+  }
+
+  body.innerHTML = append ? (body.innerHTML + rows) : rows;
+}
+
+function applySearch() {
+  const query = document.getElementById('case-search').value.trim().toLowerCase();
+  if (!query) {
+    renderCases(cachedCases, false);
+    return;
+  }
+
+  const filtered = cachedCases.filter(c => {
+    const haystack = [
+      c.case_number,
+      c.action,
+      c.target_name,
+      c.target_id,
+      c.moderator_name,
+      c.reason,
+    ].join(' ').toLowerCase();
+    return haystack.includes(query);
+  });
+
+  renderCases(filtered, false);
+}
 
 async function loadCases(reset=false) {
   if (reset) { currentPage = 1; }
   const params = new URLSearchParams({ page: currentPage, per_page: 25 });
   if (currentAction) params.append('action', currentAction);
   const d = await fetch(`/api/guilds/${GUILD_ID}/moderation?${params}`).then(r => r.json()).catch(() => ({cases:[],total:0}));
-  const body = document.getElementById('cases-body');
-  const rows = d.cases.map(c => `
-    <tr>
-      <td class="td-mono">#${c.case_number}</td>
-      <td><span class="case-action case-action--${c.action}">${c.action}</span></td>
-      <td><strong>${c.target_name || c.target_id}</strong></td>
-      <td class="t1">${c.moderator_name || '—'}</td>
-      <td class="t1" style="max-width:300px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${c.reason || '—'}</td>
-      <td class="td-mono">${new Date(c.created_at).toLocaleDateString()}</td>
-    </tr>`).join('');
   if (reset) {
-    body.innerHTML = rows || '<tr><td colspan="6" class="empty-inline">No cases found</td></tr>';
+    cachedCases = d.cases || [];
   } else {
-    body.innerHTML += rows;
+    cachedCases = cachedCases.concat(d.cases || []);
   }
+  applySearch();
   document.getElementById('load-more-wrap').style.display = (d.total > currentPage * 25) ? '' : 'none';
 }
 
 function filterCases(action) {
   currentAction = action;
-  document.querySelectorAll('.active-filter').forEach(b => b.classList.remove('active-filter'));
-  event.target.classList.add('active-filter');
+  document.querySelectorAll('[data-filter]').forEach(b => b.classList.remove('active-filter'));
+  document.querySelector(`[data-filter="${action}"]`)?.classList.add('active-filter');
   loadCases(true);
 }
 
 function loadMore() { currentPage++; loadCases(false); }
+document.getElementById('case-search').addEventListener('input', applySearch);
 loadCases(true);
 </script>
 {% endblock %}
