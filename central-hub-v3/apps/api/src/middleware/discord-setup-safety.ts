@@ -212,7 +212,7 @@ export async function auditDiscordSetupOperation(
             userAgent: req.get('user-agent'),
           },
         })
-        .catch((error) => console.error('Failed to log audit entry:', error));
+        .catch((error: unknown) => console.error('Failed to log audit entry:', error));
     }
 
     return originalJson.call(this, body);

@@ -539,7 +539,7 @@ export async function generateGuildAnalytics(
 
     // Get channel data
     const channelData = await redis.hgetall(`${key}:byChannel`);
-    for (const [channelId, count] of Object.entries(channelData)) {
+    for (const [channelId, count] of Object.entries(channelData as Record<string, string>)) {
       const numCount = parseInt(count);
       byChannel[channelId] = (byChannel[channelId] || 0) + numCount;
       totalMessages += numCount;
@@ -547,13 +547,13 @@ export async function generateGuildAnalytics(
 
     // Get hour data
     const hourData = await redis.hgetall(`${key}:byHour`);
-    for (const [hour, count] of Object.entries(hourData)) {
+    for (const [hour, count] of Object.entries(hourData as Record<string, string>)) {
       byHour[parseInt(hour)] = (byHour[parseInt(hour)] || 0) + parseInt(count);
     }
 
     // Get user data
     const userData = await redis.hgetall(`${key}:byUser`);
-    for (const [userId, count] of Object.entries(userData)) {
+    for (const [userId, count] of Object.entries(userData as Record<string, string>)) {
       userMessages[userId] = (userMessages[userId] || 0) + parseInt(count);
     }
   }
@@ -576,7 +576,7 @@ export async function generateGuildAnalytics(
     [ContentViolation.HARASSMENT]: 0,
     [ContentViolation.HATE_SPEECH]: 0,
     [ContentViolation.NSFW]: 0,
-    [ContentViolation.SCARM]: 0,
+    [ContentViolation.SCAM]: 0,
     [ContentViolation.TOS_VIOLATION]: 0,
     [ContentViolation.ADVERTISING]: 0,
     [ContentViolation.OFF_TOPIC]: 0,
@@ -949,19 +949,6 @@ export async function processAutoResponders(
 
   return matches.length > 0 ? matches : null;
 }
-
-// Export types and functions
-export {
-  ModerationRule,
-  ModerationLog,
-  GuildAnalytics,
-  Product,
-  Order,
-  UserPoints,
-  AutoResponder,
-  ContentViolation,
-  ModerationAction,
-};
 
 export default {
   // Moderation

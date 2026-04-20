@@ -858,16 +858,6 @@ export async function getProviderHealth(): Promise<Record<CloudProvider, {
   return health;
 }
 
-// Export types and functions
-export {
-  CloudConnection,
-  CloudResource,
-  CostData,
-  MultiCloudDeployment,
-  ResourceType,
-  ConnectionStatus,
-};
-
 export default {
   addConnection,
   getConnections,

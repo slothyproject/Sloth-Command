@@ -485,11 +485,13 @@ export async function generateScalingRecommendation(
   const service = await prisma.service.findUnique({ where: { id: serviceId } });
   if (!service) return null;
 
+  const serviceConfig = (service.config as any) || {};
+
   // Get current capacity (mock data - would come from Railway/K8s API)
   const currentCapacity = {
-    replicas: service.config?.replicas || 1,
-    cpuPerReplica: service.config?.resources?.cpu || 0.5,
-    memoryPerReplica: service.config?.resources?.memory || 512,
+    replicas: serviceConfig.replicas || 1,
+    cpuPerReplica: serviceConfig.resources?.cpu || 0.5,
+    memoryPerReplica: serviceConfig.resources?.memory || 512,
   };
 
   // Get forecast
@@ -626,7 +628,9 @@ export async function executeScaling(
   const service = await prisma.service.findUnique({ where: { id: serviceId } });
   if (!service) throw new Error(`Service not found: ${serviceId}`);
 
-  const currentReplicas = service.config?.replicas || 1;
+  const serviceConfig = (service.config as any) || {};
+
+  const currentReplicas = serviceConfig.replicas || 1;
   
   console.log(`🔄 Scaling ${serviceId}: ${currentReplicas} → ${targetReplicas} replicas`);
 
@@ -676,7 +680,7 @@ export async function executeScaling(
     where: { id: serviceId },
     data: {
       config: {
-        ...service.config,
+        ...serviceConfig,
         replicas: targetReplicas,
       },
     },

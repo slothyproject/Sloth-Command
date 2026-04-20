@@ -104,6 +104,7 @@ interface K8sWorkload {
       maxUnavailable: string;
     };
   };
+  updatedAt?: Date;
 }
 
 // Kubernetes pod
@@ -374,7 +375,7 @@ export async function syncCluster(clusterId: string): Promise<{
         { type: 'DiskPressure', status: 'False' },
       ],
       labels: {
-        'node-role.kubernetes.io/control-plane': isMaster ? '' : undefined,
+        ...(isMaster ? { 'node-role.kubernetes.io/control-plane': '' } : {}),
         'kubernetes.io/os': 'linux',
       },
       age: `${Math.floor(Math.random() * 30) + 1}d`,

@@ -3,7 +3,7 @@
  * Manages Discord bot lifecycle, commands, and integration with Central Hub
  */
 
-import { PrismaClient, DiscordBot, Service } from '@prisma/client';
+import { PrismaClient, DiscordBot } from '@prisma/client';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { writeFile, mkdir, rm } from 'fs/promises';
@@ -65,7 +65,7 @@ export async function createBot(
       }
 
       return await response.json();
-    });
+    }) as any;
 
     // Create bot record
     const bot = await prisma.discordBot.create({
@@ -659,9 +659,9 @@ export async function getBotStatus(botId: string): Promise<BotStatus> {
         ...liveStatus,
       };
     },
-    `discord:status:${botId}`,
+    () => `discord:status:${botId}`,
     30 // 30 second cache for live status
-  );
+  )();
 }
 
 /**
