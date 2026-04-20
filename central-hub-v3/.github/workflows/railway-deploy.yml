@@ -1,34 +1,83 @@
-name: Deploy to Railway
+name: Build & Deploy API
 
 on:
   push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
+    branches: [main]
+    paths:
+      - 'apps/api/**'
+      - '.github/workflows/railway-deploy.yml'
 
 jobs:
   deploy-api:
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      
-      - name: Install Railway CLI
-        run: npm install -g @railway/cli
-      
-      - name: Deploy API to Railway
-        run: railway up --service central-hub-api
-        env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+    permissions:
+      contents: read
+      packages: write
 
-  deploy-web:
-    runs-on: ubuntu-latest
+    env:
+      IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/central-hub-api
+      SERVICE_ID: 7244987c-80b0-4498-82a6-067744cc42c5
+      ENV_ID: 051adcae-806b-4604-b9ef-defef8ec81a6
+
     steps:
-      - uses: actions/checkout@v3
-      
-      - name: Install Railway CLI
-        run: npm install -g @railway/cli
-      
-      - name: Deploy Web to Railway
-        run: railway up --service central-hub-web
+      - uses: actions/checkout@v4
+
+      # ── Build & push Docker image ──────────────────────────────────────────
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v5
+        with:
+          context: apps/api
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAME }}:latest
+            ${{ env.IMAGE_NAME }}:${{ github.sha }}
+
+      # ── Update Railway to use the new image ────────────────────────────────
+      - name: Update Railway image source
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          IMAGE="${{ env.IMAGE_NAME }}:${{ github.sha }}"
+          echo "Setting Railway source image: $IMAGE"
+
+          BODY=$(jq -cn \
+            --arg img "$IMAGE" \
+            --arg sid "${{ env.SERVICE_ID }}" \
+            --arg eid "${{ env.ENV_ID }}" \
+            '{query: "mutation($img:String!,$sid:String!,$eid:String!) { serviceInstanceUpdate(serviceId: $sid, environmentId: $eid, input: { source: { image: $img }, startCommand: \"node dist/index.js\" }) }",
+              variables: {img: $img, sid: $sid, eid: $eid}}')
+
+          curl -sf -X POST https://backboard.railway.app/graphql/v2 \
+            -H "Authorization: Bearer $RAILWAY_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "$BODY" | jq '{updated: .data.serviceInstanceUpdate, errors: .errors}'
+
+      # ── Redeploy using new image ───────────────────────────────────────────
+      - name: Trigger Railway redeploy
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          # Get latest deployment ID
+          DEPLOY_ID=$(curl -sf -X POST https://backboard.railway.app/graphql/v2 \
+            -H "Authorization: Bearer $RAILWAY_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "query": "{ deployments(input: {serviceId: \"${{ env.SERVICE_ID }}\", environmentId: \"${{ env.ENV_ID }}\"}) { edges { node { id } } } }"
+            }' | jq -r '.data.deployments.edges[0].node.id')
+
+          echo "Redeploying: $DEPLOY_ID"
+
+          curl -sf -X POST https://backboard.railway.app/graphql/v2 \
+            -H "Authorization: Bearer $RAILWAY_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "$(jq -cn --arg id "$DEPLOY_ID" \
+              '{query: "mutation($id:String!) { deploymentRedeploy(id: $id, usePreviousImageTag: false) { id status } }",
+                variables: {id: $id}}')" \
+            | jq '{deployment: .data.deploymentRedeploy, errors: .errors}'
