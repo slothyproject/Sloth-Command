@@ -301,6 +301,10 @@ const REDIS_KEYS = {
   QUEUE_PREFIX: 'agent:queue:',
 };
 
+function isResumeRequest(request: string): boolean {
+  return /\b(resume|continue|pick up|pick-up|get back|where we left off|what we were doing)\b/i.test(request);
+}
+
 /**
  * Determine which agent type is best suited for a goal
  */
@@ -780,6 +784,26 @@ export async function processRequest(
   status: TaskStatus;
   summary: string;
 }> {
+  if (isResumeRequest(request)) {
+    const activePlans = await getActivePlans();
+    const resumePlan = activePlans[0];
+
+    if (resumePlan) {
+      const completedSteps = resumePlan.steps.filter((step) => step.status === TaskStatus.COMPLETED).length;
+
+      if (resumePlan.status === TaskStatus.PENDING) {
+        await queuePlanExecution(resumePlan.id);
+      }
+
+      return {
+        planId: resumePlan.id,
+        agentType: resumePlan.agentType,
+        status: resumePlan.status,
+        summary: `Resuming "${resumePlan.goal}" (${completedSteps}/${resumePlan.steps.length} steps completed).`,
+      };
+    }
+  }
+
   // Select appropriate agent
   const agentType = await selectAgent(request);
   
