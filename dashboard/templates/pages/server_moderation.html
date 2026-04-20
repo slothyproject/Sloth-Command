@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}Moderation — {{ guild.name }}{% endblock %}
+{% block page_slug %}{{ guild.name }} / moderation{% endblock %}
+{% block content %}
+<a href="{{ url_for('core.server_detail', guild_id=guild.id) }}" class="back">← {{ guild.name }}</a>
+<div class="page-header" style="margin-top:10px">
+  <h1 class="page-header__title">Moderation</h1>
+  <span class="page-header__sub">// {{ guild.name }}</span>
+</div>
+
+<div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
+  <button class="btn btn--ghost btn--sm active-filter" data-filter="" onclick="filterCases('')">All</button>
+  <button class="btn btn--ghost btn--sm" data-filter="warn"  onclick="filterCases('warn')">Warns</button>
+  <button class="btn btn--ghost btn--sm" data-filter="mute"  onclick="filterCases('mute')">Mutes</button>
+  <button class="btn btn--ghost btn--sm" data-filter="kick"  onclick="filterCases('kick')">Kicks</button>
+  <button class="btn btn--ghost btn--sm" data-filter="ban"   onclick="filterCases('ban')">Bans</button>
+</div>
+
+<div class="table-wrap">
+  <table class="data-table">
+    <thead><tr><th>#</th><th>ACTION</th><th>TARGET</th><th>MODERATOR</th><th>REASON</th><th>DATE</th></tr></thead>
+    <tbody id="cases-body"><tr><td colspan="6" class="empty-inline">loading...</td></tr></tbody>
+  </table>
+</div>
+<div id="load-more-wrap" style="text-align:center;margin-top:12px;display:none">
+  <button class="btn btn--ghost btn--sm" onclick="loadMore()">load more</button>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+const GUILD_ID = {{ guild.id }};
+let currentAction = '', currentPage = 1;
+
+async function loadCases(reset=false) {
+  if (reset) { currentPage = 1; }
+  const params = new URLSearchParams({ page: currentPage, per_page: 25 });
+  if (currentAction) params.append('action', currentAction);
+  const d = await fetch(`/api/guilds/${GUILD_ID}/moderation?${params}`).then(r => r.json()).catch(() => ({cases:[],total:0}));
+  const body = document.getElementById('cases-body');
+  const rows = d.cases.map(c => `
+    <tr>
+      <td class="td-mono">#${c.case_number}</td>
+      <td><span class="case-action case-action--${c.action}">${c.action}</span></td>
+      <td><strong>${c.target_name || c.target_id}</strong></td>
+      <td class="t1">${c.moderator_name || '—'}</td>
+      <td class="t1" style="max-width:300px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${c.reason || '—'}</td>
+      <td class="td-mono">${new Date(c.created_at).toLocaleDateString()}</td>
+    </tr>`).join('');
+  if (reset) {
+    body.innerHTML = rows || '<tr><td colspan="6" class="empty-inline">No cases found</td></tr>';
+  } else {
+    body.innerHTML += rows;
+  }
+  document.getElementById('load-more-wrap').style.display = (d.total > currentPage * 25) ? '' : 'none';
+}
+
+function filterCases(action) {
+  currentAction = action;
+  document.querySelectorAll('.active-filter').forEach(b => b.classList.remove('active-filter'));
+  event.target.classList.add('active-filter');
+  loadCases(true);
+}
+
+function loadMore() { currentPage++; loadCases(false); }
+loadCases(true);
+</script>
+{% endblock %}

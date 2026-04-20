@@ -3,12 +3,27 @@
 {% block page_slug %}tickets{% endblock %}
 {% block content %}
 <div class="page-header">
-  <h1 class="page-header__title">Tickets</h1>
-  <span class="page-header__sub">// support tickets</span>
+  <h1 class="page-header__title">Open Tickets</h1>
+  <span class="page-header__sub">// all servers</span>
 </div>
+{% if tickets %}
+<div class="ticket-list">
+  {% for ticket in tickets %}
+  <a href="{{ url_for('core.server_tickets', guild_id=ticket.guild.id) }}" class="ticket-item">
+    <span class="ticket-num">#{{ ticket.ticket_number }}</span>
+    <span class="ticket-subject">{{ ticket.subject or 'Ticket #' ~ ticket.ticket_number }}</span>
+    <span class="ticket-opener">{{ ticket.guild.name }}</span>
+    <span class="ticket-opener">{{ ticket.opener_name or '—' }}</span>
+    <span class="badge badge--online">open</span>
+    <span class="badge pri--{{ ticket.priority }}">{{ ticket.priority }}</span>
+    <span class="ticket-meta">{{ ticket.created_at.strftime('%d %b %Y') }}</span>
+  </a>
+  {% endfor %}
+</div>
+{% else %}
 <div class="empty">
-  <p>Bot Postgres read replica not yet connected.</p>
-  <p>Active tickets will appear here once wired up.</p>
-  <p style="margin-top:12px"><span class="badge badge--default">coming soon</span></p>
+  <p>No open tickets across your servers.</p>
+  <p>Tickets opened via the bot will appear here in real-time.</p>
 </div>
+{% endif %}
 {% endblock %}

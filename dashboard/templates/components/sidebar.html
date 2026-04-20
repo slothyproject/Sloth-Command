@@ -33,6 +33,7 @@
       <a href="{{ url_for('core.tickets') }}" class="sidebar__link">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
         Tickets
+        <span id="sidebar-ticket-count" class="sidebar__badge" style="display:none"></span>
       </a>
     </li>
 
@@ -63,7 +64,11 @@
 
   <div class="sidebar__footer">
     <div class="sidebar__user">
-      <div class="sidebar__avatar">{{ current_user.username[0].upper() }}</div>
+      {% if current_user.discord_id %}
+        <img src="{{ current_user.avatar_url(28) }}" class="sidebar__avatar-img" alt="">
+      {% else %}
+        <div class="sidebar__avatar">{{ current_user.username[0].upper() }}</div>
+      {% endif %}
       <div>
         <span class="sidebar__uname">{{ current_user.username }}</span>
         <span class="sidebar__role">{% if current_user.is_admin %}// admin{% else %}// user{% endif %}</span>

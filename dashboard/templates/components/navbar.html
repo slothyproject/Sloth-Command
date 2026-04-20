@@ -3,15 +3,32 @@
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
   </button>
   <div class="navbar__path">
-    <span>hub</span>
-    <span class="navbar__path-sep">/</span>
+    <span class="t2">hub</span>
+    <span class="navbar__path-sep t2">/</span>
     <span class="navbar__path-cur">{% block page_slug %}{% endblock %}</span>
   </div>
   <div class="navbar__right">
+    <!-- Notification bell -->
+    <div class="notif-bell" id="notif-bell" onclick="toggleNotifPanel()">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+      <span class="notif-bell__count" id="notif-count" style="display:none">0</span>
+    </div>
+    <!-- Bot status -->
     <div class="bot-pill" id="bot-pill">
       <span class="bot-pill__dot"></span>
       <span id="bot-pill-text" class="mono" style="font-size:10.5px">connecting...</span>
     </div>
   </div>
 </header>
+
+<!-- Notification panel -->
+<div class="notif-panel" id="notif-panel" style="display:none">
+  <div class="notif-panel__header">
+    <span class="mono" style="font-size:10px;color:var(--text-2);letter-spacing:.1em">NOTIFICATIONS</span>
+    <button class="btn btn--ghost btn--sm" onclick="markAllRead()" style="font-size:10px;padding:3px 8px">mark all read</button>
+  </div>
+  <div id="notif-list" class="notif-panel__list">
+    <div class="notif-panel__empty">No notifications</div>
+  </div>
+</div>
 {% block navbar_extra %}{% endblock %}

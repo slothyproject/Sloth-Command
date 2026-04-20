@@ -12,20 +12,31 @@
     <div class="card__row"><span class="card__label">Redis key</span><span class="card__value">dissident:bot_state</span></div>
     <div class="card__row"><span class="card__label">Update interval</span><span class="card__value">2s</span></div>
     <div class="card__row"><span class="card__label">Stale threshold</span><span class="card__value">30s</span></div>
-    <div class="card__row"><span class="card__label">Worker sync</span><span class="card__value">30s</span></div>
+    <div class="card__row"><span class="card__label">Webhook endpoint</span><span class="card__value">/api/webhook/bot</span></div>
+    <div class="card__row"><span class="card__label">Events stream</span><span class="card__value">/api/events (SSE)</span></div>
+  </div>
+  <div class="card">
+    <div class="card__title">INVITE BOT</div>
+    <div style="padding:12px 0;font-size:12.5px;color:var(--text-1);line-height:1.8">
+      Use this link to add the bot to any Discord server. The server owner will be able to manage their server's settings through the hub once invited.
+    </div>
+    <a class="btn btn--primary btn--full" id="invite-link" href="#" target="_blank">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+      Add bot to server
+    </a>
   </div>
   {% if current_user.is_admin %}
   <div class="card">
     <div class="card__title">ADMIN ACTIONS</div>
-    <div class="card__row">
+    <div class="form-row">
       <span class="card__label">Sync guilds from bot</span>
       <button class="btn btn--ghost btn--sm" onclick="doAction('sync_guilds')">sync</button>
     </div>
-    <div class="card__row">
+    <div class="form-row">
       <span class="card__label">Clear Redis cache</span>
       <button class="btn btn--danger btn--sm" onclick="doAction('clear_cache')">clear</button>
     </div>
-    <div class="card__row">
+    <div class="form-row">
       <span class="card__label">Reload bot config</span>
       <button class="btn btn--ghost btn--sm" onclick="doAction('reload_config')">reload</button>
     </div>
@@ -36,16 +47,19 @@
     <div class="card__row"><span class="card__label">Username</span><span class="card__value">{{ current_user.username }}</span></div>
     <div class="card__row"><span class="card__label">Role</span><span class="card__value">{% if current_user.is_admin %}admin{% else %}user{% endif %}</span></div>
     <div class="card__row"><span class="card__label">Discord ID</span><span class="card__value">{{ current_user.discord_id or '—' }}</span></div>
+    <div class="card__row"><span class="card__label">Last login</span><span class="card__value">{{ current_user.last_login.strftime('%d %b %Y %H:%M') if current_user.last_login else '—' }}</span></div>
   </div>
 </div>
 {% endblock %}
 {% block scripts %}
 <script>
+(async () => {
+  const d = await fetch('/api/bot/invite').then(r => r.json()).catch(() => ({}));
+  if (d.url) document.getElementById('invite-link').href = d.url;
+})();
+
 async function doAction(action) {
-  const r = await fetch('/api/actions/' + action, {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json', 'X-CSRFToken': document.cookie.match(/csrf_token=([^;]+)/)?.[1] || ''}
-  });
+  const r = await fetch('/api/actions/' + action, { method: 'POST' });
   const d = await r.json();
   alert(d.ok ? '✓ ' + action : '✗ ' + (d.error || 'error'));
 }
