@@ -63,9 +63,11 @@ def get_bot_state() -> dict:
             "cog_count": stats.get("cogs_loaded", 0),
             "version": stats.get("version", "unknown"),
             "stale": stale,
-            # Raw extras for future use
+            # Raw extras
             "guilds": data.get("guilds", []),
+            "commands": data.get("commands", []),
             "plugins": data.get("plugins", []),
+            "health": data.get("health", {}),
             "updated_at": data.get("updated_at"),
         }
     except Exception as exc:

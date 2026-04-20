@@ -96,7 +96,11 @@ async function readNotif(id, link) {
 }
 
 async function markAllRead() {
-  await fetch('/api/notifications/read-all', { method: 'POST' });
+  const csrf = document.cookie.match(/csrf_token=([^;]+)/)?.[1] || '';
+  await fetch('/api/notifications/read-all', {
+    method: 'POST',
+    headers: { 'X-CSRFToken': csrf, 'Content-Type': 'application/json' }
+  });
   loadNotifications();
 }
 
