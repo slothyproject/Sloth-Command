@@ -42,6 +42,8 @@ const navigation: NavSection[] = [
     items: [
       { name: 'Security', href: '/dashboard/security', icon: 'Shield', badge: 'v4.0' },
       { name: 'Secrets Vault', href: '/dashboard/secrets', icon: 'Lock', badge: 'NEW' },
+      { name: 'Credentials', href: '/dashboard/credentials', icon: 'KeyRound', badge: 'NEW' },
+      { name: 'Audit Logs', href: '/dashboard/audit-logs', icon: 'ClipboardList' },
       { name: 'Automation', href: '/dashboard/automation', icon: 'Automation', badge: 'NEW' },
       { name: 'Self-Healing', href: '/dashboard/healing', icon: 'HeartPulse', badge: 'v4.0' },
       { name: 'Scaling', href: '/dashboard/scaling', icon: 'TrendingUp', badge: 'v4.0' },
@@ -429,6 +431,17 @@ function Icon({ name, className }: { name: string; className?: string }) {
       <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
         <circle cx="12" cy="12" r="3" strokeWidth={2} />
+      </svg>
+    ),
+    KeyRound: (
+      <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <circle cx="7.5" cy="15.5" r="5.5" strokeWidth={2} />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 2l-9.6 9.6M15.5 7.5l3 3" />
+      </svg>
+    ),
+    ClipboardList: (
+      <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
       </svg>
     ),
   };

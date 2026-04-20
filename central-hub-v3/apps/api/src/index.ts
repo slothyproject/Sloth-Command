@@ -294,16 +294,31 @@ app.get('/api/debug', async (req, res) => {
 app.post('/api/auth/login', async (req, res) => {
   try {
     const { password } = req.body;
-    
+
     if (!password) {
       return res.status(400).json({ error: 'Password is required' });
     }
 
     // Get the user (there's only one)
     const user = await prisma.user.findFirst();
-    
+
     if (!user) {
       return res.status(401).json({ error: 'Authentication failed' });
+    }
+
+    // Account lockout: reject if >= 5 failed attempts in the last 15 minutes
+    const lockoutWindow = new Date(Date.now() - 15 * 60 * 1000);
+    const recentFailures = await prisma.auditLog.count({
+      where: {
+        action: 'auth.login.failed',
+        userId: user.id,
+        createdAt: { gte: lockoutWindow },
+      },
+    });
+
+    if (recentFailures >= 5) {
+      await auditLog({ action: 'auth.login.blocked', userId: user.id, severity: 'error', req });
+      return res.status(429).json({ error: 'Account temporarily locked. Try again in 15 minutes.' });
     }
 
     // Verify password
@@ -331,6 +346,106 @@ app.post('/api/auth/login', async (req, res) => {
   } catch (error) {
     console.error('Login error:', error);
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Change password
+app.post('/api/auth/change-password', async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ error: 'currentPassword and newPassword are required' });
+    }
+    if (newPassword.length < 12) {
+      return res.status(400).json({ error: 'New password must be at least 12 characters' });
+    }
+
+    const user = await prisma.user.findFirst();
+    if (!user) return res.status(401).json({ error: 'Authentication failed' });
+
+    const isValid = await bcrypt.compare(currentPassword, user.password);
+    if (!isValid) {
+      await auditLog({ action: 'auth.password_change.failed', userId: user.id, severity: 'warning', req });
+      return res.status(401).json({ error: 'Current password is incorrect' });
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 12);
+    await prisma.user.update({ where: { id: user.id }, data: { password: hashedPassword } });
+    await auditLog({ action: 'auth.password_changed', userId: user.id, severity: 'info', req });
+
+    res.json({ success: true, message: 'Password updated successfully' });
+  } catch (error) {
+    console.error('Change password error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Credentials CRUD
+app.get('/api/credentials', async (req, res) => {
+  try {
+    const credentials = await prisma.credential.findMany({ orderBy: { createdAt: 'desc' } });
+    // Never return encrypted tokens in the list — return metadata only
+    const safe = credentials.map(({ encryptedToken: _e, iv: _i, encryptionTag: _t, ...rest }) => rest);
+    res.json({ success: true, data: safe });
+  } catch (error) {
+    console.error('Error fetching credentials:', error);
+    res.status(500).json({ error: 'Failed to fetch credentials' });
+  }
+});
+
+app.post('/api/credentials', async (req, res) => {
+  try {
+    const { serviceType, name, token, expiresAt } = req.body as {
+      serviceType: string; name: string; token: string; expiresAt?: string;
+    };
+    if (!serviceType || !name || !token) {
+      return res.status(400).json({ error: 'serviceType, name, and token are required' });
+    }
+
+    const enc = encrypt(token);
+    const credential = await prisma.credential.create({
+      data: {
+        id: crypto.randomUUID(),
+        serviceType,
+        name,
+        encryptedToken: enc.data,
+        iv: enc.iv,
+        encryptionTag: enc.tag,
+        expiresAt: expiresAt ? new Date(expiresAt) : null,
+      },
+    });
+
+    await auditLog({
+      action: 'credential.create',
+      resourceType: 'credential',
+      resourceId: credential.id,
+      changes: { serviceType, name },
+      req,
+    });
+
+    const { encryptedToken: _e, iv: _i, encryptionTag: _t, ...safe } = credential;
+    res.status(201).json({ success: true, data: safe });
+  } catch (error) {
+    console.error('Error creating credential:', error);
+    res.status(500).json({ error: 'Failed to create credential' });
+  }
+});
+
+app.delete('/api/credentials/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await prisma.credential.delete({ where: { id } });
+    await auditLog({
+      action: 'credential.delete',
+      resourceType: 'credential',
+      resourceId: id,
+      req,
+    });
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting credential:', error);
+    res.status(500).json({ error: 'Failed to delete credential' });
   }
 });
 

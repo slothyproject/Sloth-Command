@@ -829,8 +829,44 @@ export const api = {
       apiClient.post(`/cicd/trigger/${serviceId}`, config),
     
     // Get build history
-    getHistory: (serviceId: string, limit?: number) => 
+    getHistory: (serviceId: string, limit?: number) =>
       apiClient.get(`/cicd/history/${serviceId}`, { params: { limit } }),
+  },
+
+  // ============================================================================
+  // AUTH API
+  // ============================================================================
+
+  auth: {
+    login: (password: string) => apiClient.post('/auth/login', { password }),
+    changePassword: (currentPassword: string, newPassword: string) =>
+      apiClient.post('/auth/change-password', { currentPassword, newPassword }),
+  },
+
+  // ============================================================================
+  // AUDIT LOGS API
+  // ============================================================================
+
+  auditLogs: {
+    list: (params?: {
+      limit?: number;
+      offset?: number;
+      action?: string;
+      resourceType?: string;
+      resourceId?: string;
+      severity?: 'info' | 'warning' | 'error' | 'critical';
+    }) => apiClient.get('/audit-logs', { params }),
+  },
+
+  // ============================================================================
+  // CREDENTIALS API
+  // ============================================================================
+
+  credentials: {
+    list: () => apiClient.get('/credentials'),
+    create: (data: { serviceType: string; name: string; token: string; expiresAt?: string }) =>
+      apiClient.post('/credentials', data),
+    delete: (id: string) => apiClient.delete(`/credentials/${id}`),
   },
 };
 
