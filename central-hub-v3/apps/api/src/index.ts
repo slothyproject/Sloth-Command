@@ -35,6 +35,7 @@ import { getProviderStatus } from './services/llm-router';
 import { initializeNeo4j, closeNeo4j } from './services/knowledge-graph';
 import { auditLog, getAuditLogs } from './services/audit-log';
 import { encrypt, decrypt, maskSecret, isEncryptionConfigured } from './services/encryption';
+import { discordClientMiddleware } from './middleware/discord-client';
 
 // Import scheduler
 import monitoringScheduler from './scheduler/monitoring';
@@ -266,6 +267,7 @@ app.use(cors({
   credentials: true
 }));
 app.use(express.json());
+app.use(discordClientMiddleware);
 
 // API Routes
 app.use('/api/ai', aiRoutes);
@@ -759,4 +761,5 @@ process.on('uncaughtException', async (error) => {
   process.exit(1);
 });
 
+export { registerDiscordClient } from './middleware/discord-client';
 export default app;
