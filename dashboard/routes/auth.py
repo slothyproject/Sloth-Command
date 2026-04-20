@@ -96,11 +96,20 @@ def discord_callback():
         user = User(
             discord_id=discord_user["id"],
             username=discord_user["username"],
+            discriminator=discord_user.get("discriminator"),
+            avatar=discord_user.get("avatar"),
+            email=discord_user.get("email"),
         )
         db.session.add(user)
     else:
-        user.username = discord_user["username"]
+        user.username = discord_user.get("username", user.username)
+        user.discriminator = discord_user.get("discriminator")
+        user.avatar = discord_user.get("avatar")
+        if discord_user.get("email"):
+            user.email = discord_user["email"]
 
+    from datetime import datetime, timezone
+    user.last_login = datetime.now(timezone.utc)
     db.session.commit()
     login_user(user, remember=True)
     _audit(user.id, "discord_login", ip=request.remote_addr)
@@ -133,6 +142,9 @@ def login_post():
         flash("This account is disabled.", "danger")
         return render_template("auth/login.html"), 403
 
+    from datetime import datetime, timezone
+    user.last_login = datetime.now(timezone.utc)
+    db.session.commit()
     login_user(user, remember=True)
     _audit(user.id, "local_login", ip=request.remote_addr)
 

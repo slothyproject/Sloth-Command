@@ -96,8 +96,15 @@ class Guild(db.Model):
     def icon_url(self, size: int = 64) -> str | None:
         if not self.icon or not self.discord_id:
             return None
-        ext = "gif" if self.icon.startswith("a_") else "png"
-        return f"https://cdn.discordapp.com/icons/{self.discord_id}/{self.icon}.{ext}?size={size}"
+        # Already a full URL — normalise to hash only
+        icon = self.icon
+        if icon.startswith("http"):
+            # Extract hash from URL like https://cdn.discordapp.com/icons/ID/HASH.png?size=...
+            import re
+            m = re.search(r'/icons/\d+/([^.?]+)', icon)
+            icon = m.group(1) if m else icon
+        ext = "gif" if icon.startswith("a_") else "png"
+        return f"https://cdn.discordapp.com/icons/{self.discord_id}/{icon}.{ext}?size={size}"
 
     def to_dict(self) -> dict:
         return {
