@@ -3,7 +3,7 @@
  * Predefined configurations for different server types with AI-driven customization
  */
 
-import { Client, PermissionFlagsBits, ChannelType } from 'discord.js';
+import { PermissionFlagsBits, ChannelType } from 'discord.js';
 
 export enum SetupTemplateType {
   COMMUNITY = 'community',

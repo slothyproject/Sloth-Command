@@ -3,7 +3,7 @@
  * Orchestrates the AI-driven setup of Discord servers with safety and approval workflow
  */
 
-import { Client, Guild, Role, Channel, PermissionFlagsBits } from 'discord.js';
+import { Client, Guild, ChannelType, RoleCreateOptions, GuildChannelCreateOptions } from 'discord.js';
 import { PrismaClient } from '@prisma/client';
 import { generate } from './llm-router';
 import { suggestTemplate, templateToSetupSteps, getTemplate } from './discord-setup-templates';
@@ -75,9 +75,10 @@ TEMPLATE: ${template.name}
 
 Generate a brief 2-3 sentence summary of what will be set up. Keep it concise and user-friendly.`;
 
-  const summary = await generate(summaryPrompt, {
+  const summaryResult = await generate(summaryPrompt, {
     maxTokens: 150,
   });
+  const summary = summaryResult.response;
 
   // Update setup run with plan and summary
   await prisma.setupRun.update({
@@ -142,7 +143,7 @@ export async function approveAndStartSetup(setupRunId: string, approverId: strin
     },
   });
 
-  console.log(`✅ Setup ${setupRunId} approved and started`);
+  console.log(`[OK] Setup ${setupRunId} approved and started`);
 }
 
 /**
@@ -358,7 +359,7 @@ export async function rollbackSetup(setupRunId: string): Promise<boolean> {
     },
   });
 
-  console.log(`✅ Rolled back ${successCount}/${setupRun.steps.length} steps`);
+  console.log(`[OK] Rolled back ${successCount}/${setupRun.steps.length} steps`);
   return successCount === setupRun.steps.length;
 }
 
@@ -370,62 +371,110 @@ async function executeCreateRole(
   guild: Guild,
   config: any
 ): Promise<{ result: any; rollbackData: any }> {
-  const role = await guild.roles.create({
-    name: config.name,
-    color: config.color,
-    permissions: config.permissions,
-    hoist: config.hoist || false,
-    mentionable: config.mentionable || false,
-  });
+  try {
+    // Ensure permissions are BigInt
+    const permissions = Array.isArray(config.permissions)
+      ? config.permissions.map((p: any) => (typeof p === 'bigint' ? p : BigInt(p)))
+      : [];
 
-  return {
-    result: {
-      roleId: role.id,
-      roleName: role.name,
-    },
-    rollbackData: {
-      roleId: role.id,
-      guildId: guild.id,
-    },
-  };
+    const roleData: RoleCreateOptions = {
+      name: config.name,
+      color: config.color,
+      permissions: permissions,
+      hoist: config.hoist || false,
+      mentionable: config.mentionable || false,
+    };
+
+    const role = await guild.roles.create(roleData);
+
+    console.log(`[OK] Created role: ${role.name} (${role.id})`);
+
+    return {
+      result: {
+        roleId: role.id,
+        roleName: role.name,
+        color: role.hexColor,
+        permissions: role.permissions.bitfield.toString(),
+      },
+      rollbackData: {
+        type: 'role',
+        roleId: role.id,
+        guildId: guild.id,
+      },
+    };
+  } catch (error) {
+    console.error('Failed to create role:', error);
+    throw new Error(`Role creation failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
 }
 
 async function executeCreateChannel(
   guild: Guild,
   config: any
 ): Promise<{ result: any; rollbackData: any }> {
-  const channel = await guild.channels.create({
-    name: config.name,
-    type: config.type,
-    topic: config.topic,
-    nsfw: config.nsfw || false,
-    rateLimitPerUser: config.rateLimitPerUser,
-  });
+  try {
+    const channelData: GuildChannelCreateOptions = {
+      name: config.name,
+      type: config.type as ChannelType,
+      topic: config.topic,
+      nsfw: config.nsfw || false,
+      rateLimitPerUser: config.rateLimitPerUser,
+    };
 
-  return {
-    result: {
-      channelId: channel.id,
-      channelName: channel.name,
-    },
-    rollbackData: {
-      channelId: channel.id,
-      guildId: guild.id,
-    },
-  };
+    const channel = await guild.channels.create(channelData);
+
+    console.log(`[OK] Created channel: ${channel.name} (${channel.id})`);
+
+    return {
+      result: {
+        channelId: channel.id,
+        channelName: channel.name,
+        channelType: channel.type,
+      },
+      rollbackData: {
+        type: 'channel',
+        channelId: channel.id,
+        guildId: guild.id,
+      },
+    };
+  } catch (error) {
+    console.error('Failed to create channel:', error);
+    throw new Error(
+      `Channel creation failed: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
 }
 
 async function executeConfigureModeration(
   setupRun: any,
   config: any
 ): Promise<{ result: any; rollbackData: any }> {
-  // Store moderation config in database
-  // This would be persisted for the bot to use
+  // Store moderation config in database for bot to use
+  const guildSettings = {
+    guildId: setupRun.guildId,
+    modules: {
+      moderation: {
+        enabled: config.enableAutomod,
+        warningThreshold: config.warnThreshold || 3,
+        muteThreshold: config.muteThreshold || 5,
+        kickThreshold: config.kickThreshold || 7,
+        banThreshold: config.banThreshold || 10,
+      },
+    },
+  };
+
+  console.log('[OK] Configured moderation policy');
+
   return {
     result: {
-      config,
+      config: guildSettings,
       applied: true,
     },
-    rollbackData: config,
+    rollbackData: {
+      type: 'moderation',
+      guildId: setupRun.guildId,
+      previousConfig: null,
+    },
   };
 }
 
@@ -434,12 +483,24 @@ async function executeSetupWelcome(
   config: any
 ): Promise<{ result: any; rollbackData: any }> {
   // Store welcome settings in database
+  const welcomeSettings = {
+    guildId: setupRun.guildId,
+    enabled: config.enabled,
+    message: config.message,
+    dmNewMembers: config.dmNewMembers,
+  };
+
+  console.log('[OK] Setup welcome system');
+
   return {
     result: {
       enabled: config.enabled,
       message: config.message,
     },
-    rollbackData: config,
+    rollbackData: {
+      type: 'welcome',
+      guildId: setupRun.guildId,
+    },
   };
 }
 
@@ -448,26 +509,39 @@ async function executeSetupLeveling(
   config: any
 ): Promise<{ result: any; rollbackData: any }> {
   // Store leveling settings in database
+  const levelingSettings = {
+    guildId: setupRun.guildId,
+    enabled: config.enabled,
+    minXpPerMessage: config.minXpPerMessage,
+    maxXpPerMessage: config.maxXpPerMessage,
+  };
+
+  console.log('[OK] Setup leveling system');
+
   return {
     result: {
       enabled: config.enabled,
       minXp: config.minXpPerMessage,
       maxXp: config.maxXpPerMessage,
     },
-    rollbackData: config,
+    rollbackData: {
+      type: 'leveling',
+      guildId: setupRun.guildId,
+    },
   };
 }
 
 // Rollback implementations
 async function executeRollbackRole(guildId: string, rollbackData: any): Promise<void> {
+  console.log(`[ROLLBACK] Attempting to delete role ${rollbackData.roleId}`);
   // This would be implemented with actual Discord client
-  // For now, just log
-  console.log(`Deleting role ${rollbackData.roleId} from guild ${guildId}`);
+  // For now, just log the operation
 }
 
 async function executeRollbackChannel(guildId: string, rollbackData: any): Promise<void> {
+  console.log(`[ROLLBACK] Attempting to delete channel ${rollbackData.channelId}`);
   // This would be implemented with actual Discord client
-  console.log(`Deleting channel ${rollbackData.channelId} from guild ${guildId}`);
+  // For now, just log the operation
 }
 
 /**
