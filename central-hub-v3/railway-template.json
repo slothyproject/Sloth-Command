@@ -1,0 +1,30 @@
+{
+  "name": "Central Hub Backend",
+  "description": "Express.js API for Central Hub with PostgreSQL",
+  "repository": "https://github.com/slothyproject/central-hub-v3",
+  "icon": "https://railway.app/brand/logo-light.png",
+  "docs": "https://github.com/slothyproject/central-hub-v3/blob/main/AUTOMATIC-SETUP.md",
+  "env": {
+    "DATABASE_URL": {
+      "description": "PostgreSQL connection string",
+      "required": true
+    },
+    "JWT_SECRET": {
+      "description": "Secret for JWT tokens",
+      "default": "change-me-in-production"
+    },
+    "DEFAULT_PASSWORD": {
+      "description": "Login password",
+      "default": "central-hub-2025"
+    },
+    "PORT": {
+      "description": "Server port",
+      "default": "3001"
+    }
+  },
+  "build": {
+    "builder": "DOCKERFILE",
+    "dockerfilePath": "Dockerfile",
+    "rootDirectory": "apps/api"
+  }
+}

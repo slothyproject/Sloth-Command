@@ -1,0 +1,254 @@
+// Central Hub Database Schema - AI-Powered Mission Control
+// Supports: Services, Discord Bots, AI Insights, Command History
+
+generator client {
+  provider = "prisma-client-js"
+  binaryTargets = ["debian-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// User authentication
+model User {
+  id        String   @id @default(uuid())
+  password  String   // Hashed password
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("users")
+}
+
+// Service management (Railway, Discord, Websites)
+model Service {
+  id            String   @id @default(uuid())
+  name          String
+  platform      String   // 'railway', 'discord', 'website', 'custom'
+  externalId    String?  // ID from external platform (Railway service ID, etc.)
+  status        String   @default("unknown") // 'healthy', 'degraded', 'unhealthy', 'stopped'
+  config        Json?    // Platform-specific configuration
+  url           String?
+  repositoryUrl String?
+  
+  // AI-related fields
+  aiEnabled     Boolean  @default(true)
+  autoFixEnabled Boolean @default(true)
+  lastAnalyzed  DateTime?
+  
+  // Metrics (cached)
+  cpuUsage      Float?
+  memoryUsage   Float?
+  lastDeploy    DateTime?
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  variables     Variable[]
+  deployments   Deployment[]
+  aiInsights    AIInsight[]
+  discordBots   DiscordBot[]
+
+  @@map("services")
+}
+
+// Environment variables for services
+model Variable {
+  id              String  @id @default(uuid())
+  serviceId       String
+  name            String
+  value           String  // Plaintext for non-secrets; '[ENCRYPTED]' for secrets
+  isSecret        Boolean @default(false)
+  category        String? // 'general', 'database', 'api', 'discord', etc.
+
+  // Encryption fields (populated when isSecret=true)
+  encryptedValue  String? // AES-256-GCM ciphertext (hex)
+  iv              String? // AES IV (hex, 16 bytes)
+  encryptionTag   String? // GCM auth tag (hex, 16 bytes)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  service   Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  @@map("variables")
+}
+
+// Deployment history
+model Deployment {
+  id          String   @id @default(uuid())
+  serviceId   String
+  status      String   // 'pending', 'in_progress', 'success', 'failed'
+  url         String?
+  logs        String?
+  error       String?
+  deployedBy  String?  // User or 'AI-Agent'
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  service     Service  @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  @@map("deployments")
+}
+
+// AI-generated insights and recommendations
+model AIInsight {
+  id           String   @id @default(uuid())
+  serviceId    String
+  
+  // Insight details
+  title        String
+  description  String
+  severity     String   // 'critical', 'warning', 'suggestion', 'info'
+  category     String   // 'performance', 'security', 'cost', 'reliability'
+  
+  // Fix information
+  autoFixable  Boolean  @default(false)
+  fixAction    String?  // JSON describing the fix action
+  fixed        Boolean  @default(false)
+  fixedAt      DateTime?
+  fixedBy      String?  // 'ai-agent', 'user', 'auto'
+  
+  // AI metadata
+  confidence   Float    @default(0.8) // AI confidence score
+  modelUsed    String   @default("llama3.1:8b") // Which AI model generated this
+  
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  service      Service  @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  @@map("ai_insights")
+}
+
+// Discord bot management
+model DiscordBot {
+  id             String   @id @default(uuid())
+  name           String
+  
+  // Bot configuration
+  token          String   // Encrypted Discord bot token
+  clientId       String?
+  guildId        String?  // Primary Discord server ID
+  
+  // Status
+  status         String   @default("stopped") // 'running', 'stopped', 'error', 'restarting'
+  processId      String?  // Railway process ID if deployed
+  
+  // Bot features
+  commands       Json?    // Custom slash commands configuration
+  configuration  Json?    // Bot settings (prefix, permissions, etc.)
+  aiEnabled      Boolean  @default(true) // Can use AI for responses
+  
+  // Logs and monitoring
+  logs           String?  // Recent logs (truncated)
+  errorCount     Int      @default(0)
+  lastError      String?
+  messageCount   Int      @default(0)
+  
+  // Relations
+  serviceId      String?  // Link to Service model if deployed as Railway service
+  
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  
+  service        Service? @relation(fields: [serviceId], references: [id])
+
+  @@map("discord_bots")
+}
+
+// Natural language command history
+model CommandExecution {
+  id            String   @id @default(uuid())
+  userId        String
+  
+  // Command details
+  naturalCommand String  // What the user typed
+  parsedAction   Json    // Parsed intent and parameters
+  confidence     Float   // AI confidence in parsing
+  
+  // Execution
+  executed       Boolean @default(false)
+  executedAt     DateTime?
+  result         String? // Success or error message
+  error          String?
+  
+  // Service affected (if any)
+  serviceId      String?
+  
+  createdAt      DateTime @default(now())
+
+  @@map("command_executions")
+}
+
+// System metrics for AI analysis (time-series data)
+model Metric {
+  id          String   @id @default(uuid())
+  serviceId   String
+  
+  // Metric data
+  metricType  String   // 'cpu', 'memory', 'requests', 'errors', 'latency'
+  value       Float
+  unit        String   // 'percent', 'mb', 'count', 'ms'
+  
+  // Timestamp for time-series analysis
+  timestamp   DateTime @default(now())
+  
+  @@index([serviceId, metricType, timestamp])
+  @@map("metrics")
+}
+
+// AI conversation history for context
+model AIConversation {
+  id        String   @id @default(uuid())
+  sessionId String   // Group messages by session
+
+  role      String   // 'user', 'assistant', 'system'
+  content   String
+
+  // Context
+  serviceId String?  // If conversation is about a specific service
+  userId    String?
+
+  createdAt DateTime @default(now())
+
+  @@index([sessionId, createdAt])
+  @@map("ai_conversations")
+}
+
+// Encrypted credential storage (ported from Vault)
+model Credential {
+  id             String    @id @default(uuid())
+  serviceType    String    // 'railway', 'github', 'discord', 'custom'
+  name           String    // Friendly label (e.g. "Main Railway Token")
+  encryptedToken String    // AES-256-GCM ciphertext (hex)
+  iv             String    // AES IV (hex)
+  encryptionTag  String    // GCM auth tag (hex)
+  expiresAt      DateTime?
+  lastUsedAt     DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@map("credentials")
+}
+
+// Audit trail of all mutating operations (ported from Vault)
+model AuditLog {
+  id           String   @id @default(uuid())
+  action       String   // 'auth.login', 'service.deploy', 'variable.update', etc.
+  resourceType String?  // 'service', 'variable', 'credential', 'deployment'
+  resourceId   String?  // ID of the affected resource
+  changes      Json?    // Before/after snapshot for update operations
+  userId       String?  // Which user performed the action
+  ipAddress    String?
+  userAgent    String?
+  severity     String   @default("info") // 'info', 'warning', 'error', 'critical'
+  createdAt    DateTime @default(now())
+
+  @@index([action, createdAt])
+  @@index([resourceType, resourceId])
+  @@map("audit_logs")
+}
