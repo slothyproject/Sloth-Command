@@ -69,6 +69,10 @@ export function getRedis(): Redis {
   return redis;
 }
 
+// Backward-compatible export for older services that import `{ redis }`.
+export const redisClient = getRedis();
+export { redisClient as redis };
+
 /**
  * Cache a value with TTL
  */

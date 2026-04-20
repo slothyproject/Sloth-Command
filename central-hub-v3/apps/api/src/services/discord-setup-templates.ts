@@ -83,7 +83,7 @@ export const COMMUNITY_TEMPLATE: SetupTemplate = {
       color: '#0099FF',
       permissions: [
         PermissionFlagsBits.ManageMessages,
-        PermissionFlagsBits.ManageMembers,
+        PermissionFlagsBits.ModerateMembers,
         PermissionFlagsBits.ModerateMembers,
         PermissionFlagsBits.KickMembers,
       ],
@@ -176,7 +176,7 @@ export const SUPPORT_TEMPLATE: SetupTemplate = {
       color: '#00FF00',
       permissions: [
         PermissionFlagsBits.ManageMessages,
-        PermissionFlagsBits.ManageMembers,
+        PermissionFlagsBits.ModerateMembers,
         PermissionFlagsBits.ViewAuditLog,
       ],
       hoist: true,

@@ -4,7 +4,7 @@
  * Safety-first approach with approval levels
  */
 
-import { PrismaClient, AIInsight, Service } from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
 import { railwayService } from '../services/railway';
 import { discordService } from '../services/discord';
 import aiService from '../services/ai';
@@ -159,8 +159,23 @@ export async function processFixJob(job: Queue.Job<{ insightId: string }>): Prom
 /**
  * Execute a single fix based on safety level
  */
-async function executeFix(insight: AIInsight & { service: Service }): Promise<FixResult> {
-  const fixAction = insight.fixAction as FixAction | null;
+function parseFixAction(value: unknown): FixAction | null {
+  if (!value) return null;
+  if (typeof value === 'string') {
+    try {
+      return JSON.parse(value) as FixAction;
+    } catch {
+      return null;
+    }
+  }
+  if (typeof value === 'object') {
+    return value as FixAction;
+  }
+  return null;
+}
+
+async function executeFix(insight: any): Promise<FixResult> {
+  let fixAction = parseFixAction(insight.fixAction);
 
   if (!fixAction) {
     // Generate fix if not present
@@ -173,7 +188,16 @@ async function executeFix(insight: AIInsight & { service: Service }): Promise<Fi
         timestamp: new Date(),
       };
     }
-    fixAction = generated.action;
+    fixAction = generated.action as FixAction;
+  }
+
+  if (!fixAction) {
+    return {
+      success: false,
+      action: insight.title,
+      details: 'No fix action available',
+      timestamp: new Date(),
+    };
   }
 
   const safetyLevel = ACTION_SAFETY[fixAction.type] || SafetyLevel.RISKY;
@@ -213,7 +237,7 @@ async function executeFix(insight: AIInsight & { service: Service }): Promise<Fi
  * Execute a safe fix immediately
  */
 async function executeSafeFix(
-  insight: AIInsight,
+  insight: any,
   action: FixAction
 ): Promise<FixResult> {
   console.log(`🔧 Executing safe fix: ${action.type} for ${insight.service.name}`);
@@ -286,7 +310,7 @@ async function executeSafeFix(
  * Execute a moderate fix with delay and notification
  */
 async function executeModerateFix(
-  insight: AIInsight,
+  insight: any,
   action: FixAction
 ): Promise<FixResult> {
   console.log(`⏳ Moderate fix scheduled: ${action.type} for ${insight.service.name}`);
@@ -352,7 +376,7 @@ async function executeModerateFix(
  * Handle risky fix (requires manual approval)
  */
 async function handleRiskyFix(
-  insight: AIInsight,
+  insight: any,
   action: FixAction
 ): Promise<FixResult> {
   console.log(`⚠️ Risky fix requires approval: ${action.type} for ${insight.service.name}`);
@@ -380,7 +404,7 @@ async function handleRiskyFix(
 /**
  * Get pending fixes that require approval
  */
-export async function getPendingApprovals(): Promise<AIInsight[]> {
+export async function getPendingApprovals(): Promise<any[]> {
   return prisma.aIInsight.findMany({
     where: {
       autoFixable: true,
@@ -414,7 +438,7 @@ export async function approveFix(insightId: string): Promise<FixResult> {
     };
   }
 
-  const fixAction = insight.fixAction as FixAction;
+  const fixAction = parseFixAction(insight.fixAction);
   if (!fixAction) {
     return {
       success: false,
@@ -431,7 +455,7 @@ export async function approveFix(insightId: string): Promise<FixResult> {
 /**
  * Get fix history
  */
-export async function getFixHistory(serviceId?: string): Promise<AIInsight[]> {
+export async function getFixHistory(serviceId?: string): Promise<any[]> {
   return prisma.aIInsight.findMany({
     where: {
       fixed: true,
@@ -450,12 +474,12 @@ export async function getFixHistory(serviceId?: string): Promise<AIInsight[]> {
 /**
  * Should auto-fix be applied to this insight?
  */
-export function shouldAutoFix(insight: AIInsight): boolean {
+export function shouldAutoFix(insight: any): boolean {
   if (!insight.autoFixable || insight.fixed) {
     return false;
   }
 
-  const fixAction = insight.fixAction as FixAction | null;
+  const fixAction = parseFixAction(insight.fixAction);
   if (!fixAction) {
     return false;
   }

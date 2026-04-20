@@ -272,7 +272,7 @@ router.get('/:setupRunId/status', authenticateToken, async (req, res) => {
         template: status.setupTemplate,
         createdAt: status.createdAt,
         completedAt: status.completedAt,
-        steps: status.steps.map((s) => ({
+        steps: status.steps.map((s: any) => ({
           order: s.order,
           type: s.type,
           description: s.description,

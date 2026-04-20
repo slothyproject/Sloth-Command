@@ -63,7 +63,7 @@ export async function generateSetupPlan(request: SetupRequest): Promise<SetupPla
       plan: {
         templateId,
         steps: templateSteps,
-        template: template,
+        templateName: template.name,
       },
     },
   });
@@ -88,7 +88,7 @@ Generate a brief 2-3 sentence summary of what will be set up. Keep it concise an
       plan: {
         templateId,
         steps: templateSteps,
-        template: template,
+        templateName: template.name,
         summary: summary,
       },
     },
@@ -415,7 +415,7 @@ async function executeCreateChannel(
   try {
     const channelData: GuildChannelCreateOptions = {
       name: config.name,
-      type: config.type as ChannelType,
+      type: config.type as GuildChannelCreateOptions['type'],
       topic: config.topic,
       nsfw: config.nsfw || false,
       rateLimitPerUser: config.rateLimitPerUser,

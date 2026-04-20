@@ -36,6 +36,7 @@ export enum IssueType {
   RESOURCE_EXHAUSTION = 'resource_exhaustion',
   DEPENDENCY_FAILURE = 'dependency_failure',
   CONFIG_DRIFT = 'config_drift',
+  CUSTOM = 'custom',
   SECURITY_ANOMALY = 'security_anomaly',
   PERFORMANCE_DEGRADATION = 'performance_degradation',
 }
@@ -82,6 +83,7 @@ interface RemediationAction {
   issueId: string;
   action: string;
   type: 'restart' | 'rollback' | 'scale' | 'reconfigure' | 'isolate' | 'notify' | 'custom';
+  params?: Record<string, any>;
   status: 'pending' | 'in_progress' | 'completed' | 'failed';
   executedAt?: Date;
   completedAt?: Date;
@@ -277,13 +279,16 @@ export async function detectIssues(
 /**
  * Evaluate a condition
  */
-function evaluateCondition(value: number, operator: string, threshold: number): boolean {
+function evaluateCondition(value: string | number | string[], operator: string, threshold: number): boolean {
+  const numericValue = typeof value === 'number' ? value : Number(value);
+  if (Number.isNaN(numericValue)) return false;
+
   switch (operator) {
-    case '>': return value > threshold;
-    case '<': return value < threshold;
-    case '=': return value === threshold;
-    case '>=': return value >= threshold;
-    case '<=': return value <= threshold;
+    case '>': return numericValue > threshold;
+    case '<': return numericValue < threshold;
+    case '=': return numericValue === threshold;
+    case '>=': return numericValue >= threshold;
+    case '<=': return numericValue <= threshold;
     default: return false;
   }
 }
@@ -461,19 +466,19 @@ export async function executeRemediation(
         result = await executeRollback(issue.serviceId);
         break;
       case 'scale':
-        result = await executeScale(issue.serviceId, action.params);
+        result = await executeScale(issue.serviceId, action.params ?? {});
         break;
       case 'reconfigure':
-        result = await executeReconfigure(issue.serviceId, action.params);
+        result = await executeReconfigure(issue.serviceId, action.params ?? {});
         break;
       case 'isolate':
         result = await executeIsolate(issue.serviceId);
         break;
       case 'notify':
-        result = await executeNotify(issue, action.params);
+        result = await executeNotify(issue, action.params ?? {});
         break;
       case 'custom':
-        result = await executeCustom(issue.serviceId, action.params);
+        result = await executeCustom(issue.serviceId, action.params ?? {});
         break;
       default:
         throw new Error(`Unknown action type: ${action.type}`);
@@ -962,6 +967,7 @@ export async function getHealingStats(): Promise<{
     [IssueType.RESOURCE_EXHAUSTION]: 0,
     [IssueType.DEPENDENCY_FAILURE]: 0,
     [IssueType.CONFIG_DRIFT]: 0,
+    [IssueType.CUSTOM]: 0,
     [IssueType.SECURITY_ANOMALY]: 0,
     [IssueType.PERFORMANCE_DEGRADATION]: 0,
   };
@@ -981,18 +987,6 @@ export async function getHealingStats(): Promise<{
     byType,
   };
 }
-
-// Export types and functions
-export {
-  DetectedIssue,
-  Diagnosis,
-  RemediationAction,
-  ServiceHealingConfig,
-  HealingRule,
-  IssueSeverity,
-  IssueType,
-  HealingMode,
-};
 
 export default {
   detectIssues,

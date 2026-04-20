@@ -231,7 +231,7 @@ export async function runSecurityScan(
         cvssScore: template.cvssScore,
         affectedComponent: template.affectedComponent,
         affectedVersion: template.affectedVersion,
-        fixedVersion: template.fixedVersion,
+        fixedVersion: template.fixedVersion ?? undefined,
         references: template.references,
         status: VulnStatus.OPEN,
         discoveredAt: new Date(),
@@ -903,18 +903,6 @@ export async function runScheduledScans(): Promise<{
     vulnerabilitiesFound: totalVulns,
   };
 }
-
-// Export types and functions
-export {
-  Vulnerability,
-  SecurityScan,
-  ComplianceCheck,
-  SecurityPolicy,
-  PolicyRule,
-  SecurityEvent,
-  VulnSeverity,
-  VulnStatus,
-};
 
 export default {
   runSecurityScan,

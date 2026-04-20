@@ -45,6 +45,7 @@ interface PipelineConfig {
     slack?: string;
     discord?: string;
     email?: string[];
+    onSuccess?: boolean;
   };
   createdAt: Date;
   updatedAt: Date;
@@ -944,19 +945,6 @@ export async function getCICDSummary(): Promise<{
     byProvider,
   };
 }
-
-// Export types and functions
-export {
-  PipelineConfig,
-  PipelineStage,
-  PipelineJob,
-  PipelineRun,
-  BuildAnalytics,
-  DeploymentConfig,
-  GitHubWorkflow,
-  GitLabCI,
-  CICDProvider,
-};
 
 export default {
   createPipeline,

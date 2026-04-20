@@ -441,7 +441,7 @@ app.get('/api/credentials', async (req, res) => {
   try {
     const credentials = await prisma.credential.findMany({ orderBy: { createdAt: 'desc' } });
     // Never return encrypted tokens in the list — return metadata only
-    const safe = credentials.map(({ encryptedToken: _e, iv: _i, encryptionTag: _t, ...rest }) => rest);
+    const safe = credentials.map(({ encryptedToken: _e, iv: _i, encryptionTag: _t, ...rest }: any) => rest);
     res.json({ success: true, data: safe });
   } catch (error) {
     console.error('Error fetching credentials:', error);
@@ -544,7 +544,7 @@ app.get('/api/services/:id/variables', async (req, res) => {
       where: { serviceId: id }
     });
 
-    const result = variables.map(v => {
+    const result = variables.map((v: any) => {
       if (v.isSecret && v.encryptedValue && v.iv && v.encryptionTag) {
         if (reveal === '1') {
           try {

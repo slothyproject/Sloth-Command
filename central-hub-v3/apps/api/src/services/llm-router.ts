@@ -264,7 +264,7 @@ async function generateWithOllama(
       throw new Error(`Ollama error: ${response.status} ${response.statusText}`);
     }
     
-    const data = await response.json();
+    const data: any = await response.json();
     
     return {
       response: data.response.trim(),
@@ -330,7 +330,7 @@ async function generateWithAnthropic(
     throw new Error(`Anthropic error: ${response.status} ${response.statusText}`);
   }
   
-  const data = await response.json();
+  const data: any = await response.json();
   
   return {
     response: data.content[0]?.text || '',

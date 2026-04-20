@@ -5,7 +5,7 @@
  * Provides analysis, predictions, chat, and automation
  */
 
-import { PrismaClient, Service, AIInsight } from '@prisma/client';
+import { PrismaClient, AIInsight } from '@prisma/client';
 import llmRouter, { TaskComplexity, GenerateResult } from './llm-router';
 
 const prisma = new PrismaClient();
@@ -32,7 +32,7 @@ interface AnalysisResult {
 interface ParsedCommand {
   intent: string;
   action: string;
-  service?: string;
+  service?: string | null;
   parameters: Record<string, any>;
   confidence: number;
 }
@@ -56,7 +56,7 @@ interface AnalysisResult {
 interface ParsedCommand {
   intent: string;
   action: string;
-  service?: string;
+  service?: string | null;
   parameters: Record<string, any>;
   confidence: number;
 }
@@ -194,7 +194,7 @@ Be thorough but practical. Only suggest auto-fixes for safe operations.`;
           severity: insight.severity,
           category: insight.category,
           autoFixable: insight.autoFixable,
-          fixAction: insight.fixAction || null,
+          fixAction: insight.fixAction ? JSON.stringify(insight.fixAction) : null,
           confidence: result.confidence,
           modelUsed: 'multi-llm-router', // Track that we used the router
         },

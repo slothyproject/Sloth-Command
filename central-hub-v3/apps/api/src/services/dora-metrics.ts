@@ -448,16 +448,6 @@ export async function getDeploymentTrend(
   }));
 }
 
-// Export
-export {
-  DORAMetrics,
-  getDORAMetrics,
-  getAllDORAMetrics,
-  getPerformanceLevel,
-  recordDeployment,
-  getDeploymentTrend,
-};
-
 export default {
   getDORAMetrics,
   getAllDORAMetrics,

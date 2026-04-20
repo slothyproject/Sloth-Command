@@ -23,7 +23,7 @@ interface CircuitBreakerOptions {
 }
 
 // Store all circuit breakers
-const breakers: Map<string, CircuitBreaker> = new Map();
+const breakers: Map<string, any> = new Map();
 
 /**
  * Create or get a circuit breaker for a function
@@ -31,7 +31,7 @@ const breakers: Map<string, CircuitBreaker> = new Map();
 export function createCircuitBreaker<T extends (...args: any[]) => Promise<any>>(
   fn: T,
   options: CircuitBreakerOptions = {}
-): CircuitBreaker {
+): any {
   const name = options.name || fn.name || 'unnamed';
   
   // Return existing if already created
@@ -61,7 +61,7 @@ export function createCircuitBreaker<T extends (...args: any[]) => Promise<any>>
     console.log(`✅ Circuit breaker CLOSED for ${name} (healthy)`);
   });
   
-  breaker.on('fallback', (result) => {
+  breaker.on('fallback', (result: unknown) => {
     console.log(`🛡️ Circuit breaker fallback executed for ${name}:`, result);
   });
   

@@ -35,7 +35,7 @@ async function railwayGraphQLQuery(query: string, variables?: Record<string, any
       throw new Error(`Railway API error: ${response.status} ${response.statusText}`);
     }
 
-    const data = await response.json();
+    const data: any = await response.json();
     
     if (data.errors) {
       throw new Error(`Railway GraphQL error: ${data.errors.map((e: any) => e.message).join(', ')}`);
@@ -55,9 +55,9 @@ export async function syncServices(): Promise<Service[]> {
       console.log('🔄 Syncing Railway services (bypassing cache)...');
       return await doSyncServices();
     },
-    'railway:sync:services',
-    CACHE_TTL.SYNC
-  );
+    () => 'railway:sync:services',
+    CACHE_TTL.SERVICES
+  )();
 }
 
 /**
@@ -246,9 +246,9 @@ export async function getServiceMetrics(serviceId: string): Promise<{
     throw error;
   }
     },
-    `railway:metrics:${serviceId}`,
+    () => `railway:metrics:${serviceId}`,
     CACHE_TTL.METRICS
-  );
+  )();
 }
 
 /**

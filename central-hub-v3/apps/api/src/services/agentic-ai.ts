@@ -837,16 +837,6 @@ export async function approvePlan(
   return plan;
 }
 
-// Export types and functions
-export {
-  AgentPlan,
-  AgentStep,
-  AgentConfig,
-  ExecutionContext,
-  TaskStatus,
-  AGENTS,
-};
-
 export default {
   selectAgent,
   createPlan,
