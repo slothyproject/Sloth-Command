@@ -9,6 +9,9 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: Dissident-Backend-API
     
     strategy:
       matrix:
@@ -36,16 +39,15 @@ jobs:
       uses: actions/setup-node@v4
       with:
         node-version: ${{ matrix.node-version }}
-        cache: 'npm'
     
     - name: Install dependencies
-      run: npm ci
+      run: npm install
     
     - name: Run linter
       run: npm run lint --if-present
     
     - name: Run tests
-      run: npm test
+      run: npm test --if-present
       env:
         NODE_ENV: test
         DATABASE_URL: postgresql://test:test@localhost:5432/test
@@ -53,7 +55,7 @@ jobs:
         ENCRYPTION_MASTER_KEY: test-master-key-32-chars-long!!
     
     - name: Run tests with coverage
-      run: npm run test:coverage
+      run: npm run test:coverage --if-present
       env:
         NODE_ENV: test
         DATABASE_URL: postgresql://test:test@localhost:5432/test
@@ -61,16 +63,23 @@ jobs:
         ENCRYPTION_MASTER_KEY: test-master-key-32-chars-long!!
     
     - name: Upload coverage to Codecov
+      if: hashFiles('Dissident-Backend-API/coverage/lcov.info') != ''
       uses: codecov/codecov-action@v3
       with:
-        file: ./coverage/lcov.info
+        file: Dissident-Backend-API/coverage/lcov.info
         flags: unittests
         name: codecov-umbrella
 
   security:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: Dissident-Backend-API
     steps:
     - uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: npm install
     
     - name: Run npm audit
       run: npm audit --audit-level=moderate

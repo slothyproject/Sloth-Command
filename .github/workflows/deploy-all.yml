@@ -18,7 +18,7 @@ on:
 
 jobs:
   deploy-backend:
-    if: github.event.inputs.component == 'all' || github.event.inputs.component == 'backend' || github.event.inputs.component == 'bot'
+    if: github.event_name == 'push' || github.event.inputs.component == 'all' || github.event.inputs.component == 'backend' || github.event.inputs.component == 'bot'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Backend
@@ -47,7 +47,7 @@ jobs:
           curl -s https://dissident-api-backend-production.up.railway.app/api/health || echo "Health check pending"
 
   deploy-frontend:
-    if: github.event.inputs.component == 'all' || github.event.inputs.component == 'frontend'
+    if: github.event_name == 'push' || github.event.inputs.component == 'all' || github.event.inputs.component == 'frontend'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Frontend
