@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}Ticket #{{ ticket.ticket_number }} — Dissident Central Hub{% endblock %}
+{% block page_slug %}{{ ticket.guild.name }} / ticket #{{ ticket.ticket_number }}{% endblock %}
+{% block content %}
+<a href="{{ url_for('core.server_tickets', guild_id=ticket.guild.id) }}" class="back">← tickets</a>
+
+<div class="guild-header" style="margin-top:10px;margin-bottom:20px">
+  <div>
+    <div style="display:flex;align-items:center;gap:10px">
+      <span class="mono t2" style="font-size:11px">#{{ ticket.ticket_number }}</span>
+      <div style="font-size:18px;font-weight:600;color:var(--text-0)">{{ ticket.subject or 'Ticket #' ~ ticket.ticket_number }}</div>
+      <span class="badge badge--{{ 'online' if ticket.status == 'open' else 'default' }}">{{ ticket.status }}</span>
+      <span class="badge pri--{{ ticket.priority }}">{{ ticket.priority }}</span>
+    </div>
+    <div style="font-family:var(--font-mono);font-size:10.5px;color:var(--text-2);margin-top:4px">
+      Opened by {{ ticket.opener_name or ticket.opener_id }} · {{ ticket.created_at.strftime('%d %b %Y at %H:%M') }} · {{ ticket.guild.name }}
+    </div>
+  </div>
+  {% if ticket.status == 'open' %}
+  <div class="guild-header__actions">
+    <button class="btn btn--danger btn--sm" onclick="closeTicket()">Close ticket</button>
+  </div>
+  {% endif %}
+</div>
+
+<!-- Thread messages -->
+<div id="thread" style="display:flex;flex-direction:column;gap:8px;margin-bottom:20px">
+  <div class="empty-inline">loading messages...</div>
+</div>
+
+{% if ticket.status == 'open' %}
+<div class="card">
+  <div class="card__title">REPLY</div>
+  <div style="display:flex;gap:8px;margin-top:4px">
+    <textarea class="field__input--inline" id="reply-text" rows="3" placeholder="Type a reply..." style="flex:1;max-width:100%;resize:vertical"></textarea>
+  </div>
+  <div style="margin-top:8px;display:flex;justify-content:flex-end">
+    <button class="btn btn--primary btn--sm" onclick="sendReply()">Send reply</button>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+const TICKET_ID = {{ ticket.id }};
+const GUILD_ID = {{ ticket.guild.id }};
+
+async function loadMessages() {
+  const msgs = await fetch(`/api/tickets/${TICKET_ID}/messages`).then(r => r.json()).catch(() => []);
+  const thread = document.getElementById('thread');
+  if (!msgs.length) {
+    thread.innerHTML = '<div class="empty-inline">No messages yet</div>';
+    return;
+  }
+  thread.innerHTML = msgs.map(m => `
+    <div style="display:flex;gap:10px;${m.is_staff ? 'flex-direction:row-reverse' : ''}">
+      <div style="width:32px;height:32px;border-radius:50%;background:${m.is_staff ? 'var(--cyan-dim)' : 'var(--surface)'};border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:11px;color:${m.is_staff ? 'var(--cyan)' : 'var(--text-1)'};flex-shrink:0">
+        ${m.author_name?.[0]?.toUpperCase() || '?'}
+      </div>
+      <div style="flex:1;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);padding:12px 14px;max-width:80%">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+          <span style="font-size:12.5px;font-weight:500;color:var(--text-0)">${m.author_name || 'Unknown'}</span>
+          ${m.is_staff ? '<span class="badge badge--admin">staff</span>' : ''}
+          <span style="font-family:var(--font-mono);font-size:10px;color:var(--text-3)">${new Date(m.created_at).toLocaleString()}</span>
+        </div>
+        <div style="font-size:13px;color:var(--text-1);white-space:pre-wrap;line-height:1.6">${m.content}</div>
+      </div>
+    </div>`).join('');
+}
+
+async function sendReply() {
+  const text = document.getElementById('reply-text').value.trim();
+  if (!text) return;
+  // Post via webhook-style — in practice this would post to Discord
+  alert('Reply posting to Discord via bot is coming. For now use Discord directly.');
+}
+
+async function closeTicket() {
+  if (!confirm('Close this ticket?')) return;
+  // Would call hub → bot command
+  alert('Ticket close command sent to bot.');
+}
+
+loadMessages();
+</script>
+{% endblock %}
