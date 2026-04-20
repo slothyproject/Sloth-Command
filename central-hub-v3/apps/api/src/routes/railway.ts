@@ -5,6 +5,8 @@
 
 import { Router } from 'express';
 import { railwayService } from '../services/railway';
+import { auditLog } from '../services/audit-log';
+import { discordNotify } from '../services/discord-notifications';
 
 const router = Router();
 
@@ -80,18 +82,22 @@ router.get('/services/:serviceId/metrics', async (req, res) => {
 router.post('/services/:serviceId/deploy', async (req, res) => {
   try {
     const { serviceId } = req.params;
+    discordNotify.deploymentStarted(serviceId);
     const deployment = await railwayService.deployService(serviceId);
-    
+
+    await auditLog({ action: 'service.deploy', resourceType: 'service', resourceId: serviceId, req });
+    discordNotify.deploymentSuccess(serviceId);
+
     res.json({
       success: true,
       data: deployment,
     });
   } catch (error) {
+    const msg = error instanceof Error ? error.message : 'Deployment failed';
     console.error('Deploy error:', error);
-    res.status(500).json({
-      success: false,
-      error: error instanceof Error ? error.message : 'Deployment failed',
-    });
+    discordNotify.deploymentFailed(req.params.serviceId, 'production', msg);
+    await auditLog({ action: 'service.deploy.failed', resourceType: 'service', resourceId: req.params.serviceId, changes: { error: msg }, severity: 'error', req });
+    res.status(500).json({ success: false, error: msg });
   }
 });
 
@@ -103,13 +109,16 @@ router.post('/services/:serviceId/restart', async (req, res) => {
   try {
     const { serviceId } = req.params;
     const success = await railwayService.restartService(serviceId);
-    
+
+    await auditLog({ action: 'service.restart', resourceType: 'service', resourceId: serviceId, req });
+
     res.json({
       success,
       message: success ? 'Service restarted' : 'Failed to restart service',
     });
   } catch (error) {
     console.error('Restart error:', error);
+    await auditLog({ action: 'service.restart.failed', resourceType: 'service', resourceId: req.params.serviceId, severity: 'error', req });
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Restart failed',
@@ -134,13 +143,16 @@ router.post('/services/:serviceId/scale', async (req, res) => {
     }
     
     const success = await railwayService.scaleService(serviceId, replicas);
-    
+
+    await auditLog({ action: 'service.scale', resourceType: 'service', resourceId: serviceId, changes: { replicas }, req });
+
     res.json({
       success,
       message: success ? `Scaled to ${replicas} replicas` : 'Failed to scale',
     });
   } catch (error) {
     console.error('Scale error:', error);
+    await auditLog({ action: 'service.scale.failed', resourceType: 'service', resourceId: req.params.serviceId, severity: 'error', req });
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Scaling failed',
@@ -165,7 +177,16 @@ router.post('/services/:serviceId/variables', async (req, res) => {
     }
     
     const updated = await railwayService.updateVariables(serviceId, variables);
-    
+
+    await auditLog({
+      action: 'variable.bulk_update',
+      resourceType: 'service',
+      resourceId: serviceId,
+      changes: { keys: Object.keys(variables) },
+      req,
+    });
+    discordNotify.syncCompleted(serviceId, updated.length);
+
     res.json({
       success: true,
       data: updated,

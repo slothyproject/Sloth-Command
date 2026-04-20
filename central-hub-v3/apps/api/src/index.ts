@@ -7,6 +7,7 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import crypto from 'crypto';
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
@@ -31,6 +32,8 @@ import { initializeRedis, closeRedis } from './services/redis';
 import { initializeQueues, closeQueues } from './services/queue';
 import { getProviderStatus } from './services/llm-router';
 import { initializeNeo4j, closeNeo4j } from './services/knowledge-graph';
+import { auditLog, getAuditLogs } from './services/audit-log';
+import { encrypt, decrypt, maskSecret, isEncryptionConfigured } from './services/encryption';
 
 // Import scheduler
 import monitoringScheduler from './scheduler/monitoring';
@@ -81,13 +84,13 @@ async function initializeDatabase(): Promise<boolean> {
     // Check if tables exist by trying to query
     try {
       await prisma.$queryRaw`SELECT 1 FROM "users" LIMIT 1`;
-      console.log('✅ Tables already exist');
-      return true;
+      console.log('✅ Core tables exist — running incremental migrations...');
     } catch {
       console.log('📝 Creating database tables...');
     }
-    
-    // Create tables using raw SQL
+
+    // Always run idempotent table creation & column additions
+    // (CREATE TABLE IF NOT EXISTS / ADD COLUMN IF NOT EXISTS are safe on every boot)
     await prisma.$executeRaw`
       CREATE TABLE IF NOT EXISTS "users" (
         "id" TEXT PRIMARY KEY,
@@ -141,6 +144,55 @@ async function initializeDatabase(): Promise<boolean> {
       )
     `;
     console.log('✅ Deployments table created');
+
+    // Encryption columns on variables (safe to run even if table already exists)
+    await prisma.$executeRaw`
+      ALTER TABLE "variables"
+        ADD COLUMN IF NOT EXISTS "encryptedValue" TEXT,
+        ADD COLUMN IF NOT EXISTS "iv"             TEXT,
+        ADD COLUMN IF NOT EXISTS "encryptionTag"  TEXT
+    `;
+    console.log('✅ Variable encryption columns ensured');
+
+    await prisma.$executeRaw`
+      CREATE TABLE IF NOT EXISTS "credentials" (
+        "id"             TEXT PRIMARY KEY,
+        "serviceType"    TEXT NOT NULL,
+        "name"           TEXT NOT NULL,
+        "encryptedToken" TEXT NOT NULL,
+        "iv"             TEXT NOT NULL,
+        "encryptionTag"  TEXT NOT NULL,
+        "expiresAt"      TIMESTAMP,
+        "lastUsedAt"     TIMESTAMP,
+        "createdAt"      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt"      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `;
+    console.log('✅ Credentials table created');
+
+    await prisma.$executeRaw`
+      CREATE TABLE IF NOT EXISTS "audit_logs" (
+        "id"           TEXT PRIMARY KEY,
+        "action"       TEXT NOT NULL,
+        "resourceType" TEXT,
+        "resourceId"   TEXT,
+        "changes"      JSONB,
+        "userId"       TEXT,
+        "ipAddress"    TEXT,
+        "userAgent"    TEXT,
+        "severity"     TEXT DEFAULT 'info',
+        "createdAt"    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `;
+    await prisma.$executeRaw`
+      CREATE INDEX IF NOT EXISTS "audit_logs_action_createdAt"
+        ON "audit_logs" ("action", "createdAt" DESC)
+    `;
+    await prisma.$executeRaw`
+      CREATE INDEX IF NOT EXISTS "audit_logs_resource"
+        ON "audit_logs" ("resourceType", "resourceId")
+    `;
+    console.log('✅ Audit logs table created');
     
     console.log('✅ All tables created successfully');
     return true;
@@ -199,12 +251,14 @@ app.get('/api/health', async (req, res) => {
   
   // Environment variables check
   checks.config = {
-    ollamaHost: process.env.OLLAMA_HOST ? 'configured' : 'missing',
-    ollamaKey: process.env.OLLAMA_API_KEY ? 'configured' : 'missing',
-    openaiKey: process.env.OPENAI_API_KEY ? 'configured' : 'missing',
-    anthropicKey: process.env.ANTHROPIC_API_KEY ? 'configured' : 'missing',
-    redisUrl: process.env.REDIS_URL ? 'configured' : 'missing',
-    railwayToken: process.env.RAILWAY_TOKEN ? 'configured' : 'missing',
+    ollamaHost:          process.env.OLLAMA_HOST         ? 'configured' : 'missing',
+    ollamaKey:           process.env.OLLAMA_API_KEY      ? 'configured' : 'missing',
+    openaiKey:           process.env.OPENAI_API_KEY      ? 'configured' : 'missing',
+    anthropicKey:        process.env.ANTHROPIC_API_KEY   ? 'configured' : 'missing',
+    redisUrl:            process.env.REDIS_URL           ? 'configured' : 'missing',
+    railwayToken:        process.env.RAILWAY_TOKEN       ? 'configured' : 'missing',
+    encryptionKey:       isEncryptionConfigured()         ? 'configured' : '⚠️ missing — secrets stored with fallback key',
+    discordWebhook:      process.env.DISCORD_WEBHOOK_URL ? 'configured' : 'missing (ops notifications disabled)',
   };
   
   const allHealthy = checks.database === 'connected' && 
@@ -254,8 +308,9 @@ app.post('/api/auth/login', async (req, res) => {
 
     // Verify password
     const isValid = await bcrypt.compare(password, user.password);
-    
+
     if (!isValid) {
+      await auditLog({ action: 'auth.login.failed', userId: user.id, severity: 'warning', req });
       return res.status(401).json({ error: 'Invalid password' });
     }
 
@@ -265,6 +320,8 @@ app.post('/api/auth/login', async (req, res) => {
       JWT_SECRET,
       { expiresIn: '7d' }
     );
+
+    await auditLog({ action: 'auth.login', userId: user.id, severity: 'info', req });
 
     res.json({
       success: true,
@@ -312,13 +369,102 @@ app.get('/api/services/:id', async (req, res) => {
 app.get('/api/services/:id/variables', async (req, res) => {
   try {
     const { id } = req.params;
+    const { reveal } = req.query; // ?reveal=1 to get decrypted values
     const variables = await prisma.variable.findMany({
       where: { serviceId: id }
     });
-    res.json({ success: true, data: variables });
+
+    const result = variables.map(v => {
+      if (v.isSecret && v.encryptedValue && v.iv && v.encryptionTag) {
+        if (reveal === '1') {
+          try {
+            const plaintext = decrypt({ iv: v.iv, tag: v.encryptionTag, data: v.encryptedValue, algorithm: 'aes-256-gcm' });
+            return { ...v, value: plaintext };
+          } catch {
+            return { ...v, value: '[DECRYPT_ERROR]' };
+          }
+        }
+        return { ...v, value: maskSecret(v.encryptedValue) };
+      }
+      return v;
+    });
+
+    res.json({ success: true, data: result });
   } catch (error) {
     console.error('Error fetching variables:', error);
     res.status(500).json({ error: 'Failed to fetch variables' });
+  }
+});
+
+// Create or update a variable in the local DB
+app.put('/api/services/:id/variables/:varId?', async (req, res) => {
+  try {
+    const { id, varId } = req.params;
+    const { name, value, isSecret = false, category } = req.body as {
+      name: string; value: string; isSecret?: boolean; category?: string;
+    };
+
+    if (!name || value === undefined) {
+      return res.status(400).json({ error: 'name and value are required' });
+    }
+
+    let storedValue = value;
+    let encryptedValue: string | null = null;
+    let iv: string | null = null;
+    let encryptionTag: string | null = null;
+
+    if (isSecret) {
+      const enc = encrypt(value);
+      storedValue = '[ENCRYPTED]';
+      encryptedValue = enc.data;
+      iv = enc.iv;
+      encryptionTag = enc.tag;
+    }
+
+    const data = { serviceId: id, name, value: storedValue, isSecret: !!isSecret, category: category ?? null, encryptedValue, iv, encryptionTag };
+
+    let variable;
+    let changeAction: 'variable.create' | 'variable.update';
+
+    if (varId) {
+      variable = await prisma.variable.update({ where: { id: varId }, data });
+      changeAction = 'variable.update';
+    } else {
+      variable = await prisma.variable.create({ data: { id: crypto.randomUUID(), ...data } });
+      changeAction = 'variable.create';
+    }
+
+    await auditLog({
+      action: changeAction,
+      resourceType: 'variable',
+      resourceId: variable.id,
+      changes: { serviceId: id, name, isSecret: !!isSecret },
+      req,
+    });
+
+    res.json({ success: true, data: { ...variable, value: isSecret ? maskSecret(value) : value } });
+  } catch (error) {
+    console.error('Error saving variable:', error);
+    res.status(500).json({ error: 'Failed to save variable' });
+  }
+});
+
+// Audit log route
+app.get('/api/audit-logs', async (req, res) => {
+  try {
+    const { limit = '50', offset = '0', action, resourceType, resourceId, severity } = req.query;
+    const result = await getAuditLogs({
+      limit:        parseInt(limit as string),
+      offset:       parseInt(offset as string),
+      action:       action       as string | undefined,
+      resourceType: resourceType as string | undefined,
+      resourceId:   resourceId   as string | undefined,
+      severity:     severity     as 'info' | 'warning' | 'error' | 'critical' | undefined,
+    });
+    res.json({ success: true, ...result });
+  } catch (error) {
+    console.error('Error fetching audit logs:', error);
+    res.status(500).json({ error: 'Failed to fetch audit logs' });
   }
 });
 

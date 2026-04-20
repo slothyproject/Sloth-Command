@@ -55,13 +55,18 @@ model Service {
 
 // Environment variables for services
 model Variable {
-  id        String  @id @default(uuid())
-  serviceId String
-  name      String
-  value     String
-  isSecret  Boolean @default(false)
-  category  String? // 'general', 'database', 'api', 'discord', etc.
-  
+  id              String  @id @default(uuid())
+  serviceId       String
+  name            String
+  value           String  // Plaintext for non-secrets; '[ENCRYPTED]' for secrets
+  isSecret        Boolean @default(false)
+  category        String? // 'general', 'database', 'api', 'discord', etc.
+
+  // Encryption fields (populated when isSecret=true)
+  encryptedValue  String? // AES-256-GCM ciphertext (hex)
+  iv              String? // AES IV (hex, 16 bytes)
+  encryptionTag   String? // GCM auth tag (hex, 16 bytes)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -199,16 +204,50 @@ model Metric {
 model AIConversation {
   id        String   @id @default(uuid())
   sessionId String   // Group messages by session
-  
+
   role      String   // 'user', 'assistant', 'system'
   content   String
-  
+
   // Context
   serviceId String?  // If conversation is about a specific service
   userId    String?
-  
+
   createdAt DateTime @default(now())
 
   @@index([sessionId, createdAt])
   @@map("ai_conversations")
+}
+
+// Encrypted credential storage (ported from Vault)
+model Credential {
+  id             String    @id @default(uuid())
+  serviceType    String    // 'railway', 'github', 'discord', 'custom'
+  name           String    // Friendly label (e.g. "Main Railway Token")
+  encryptedToken String    // AES-256-GCM ciphertext (hex)
+  iv             String    // AES IV (hex)
+  encryptionTag  String    // GCM auth tag (hex)
+  expiresAt      DateTime?
+  lastUsedAt     DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@map("credentials")
+}
+
+// Audit trail of all mutating operations (ported from Vault)
+model AuditLog {
+  id           String   @id @default(uuid())
+  action       String   // 'auth.login', 'service.deploy', 'variable.update', etc.
+  resourceType String?  // 'service', 'variable', 'credential', 'deployment'
+  resourceId   String?  // ID of the affected resource
+  changes      Json?    // Before/after snapshot for update operations
+  userId       String?  // Which user performed the action
+  ipAddress    String?
+  userAgent    String?
+  severity     String   @default("info") // 'info', 'warning', 'error', 'critical'
+  createdAt    DateTime @default(now())
+
+  @@index([action, createdAt])
+  @@index([resourceType, resourceId])
+  @@map("audit_logs")
 }
