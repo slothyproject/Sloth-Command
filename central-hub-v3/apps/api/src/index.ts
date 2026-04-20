@@ -261,8 +261,7 @@ app.get('/api/health', async (req, res) => {
     discordWebhook:      process.env.DISCORD_WEBHOOK_URL ? 'configured' : 'missing (ops notifications disabled)',
   };
   
-  const allHealthy = checks.database === 'connected' && 
-    checks.llmProviders.some((p: any) => p.healthy);
+  const allHealthy = checks.database === 'connected';
   
   res.status(allHealthy ? 200 : 503).json({
     status: allHealthy ? 'healthy' : 'degraded',
