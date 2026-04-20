@@ -1,69 +1,82 @@
 {% extends "base.html" %}
 {% block title %}Dashboard — Dissident Central Hub{% endblock %}
+{% block page_slug %}dashboard{% endblock %}
 
 {% block content %}
 <div class="page-header">
   <h1 class="page-header__title">Dashboard</h1>
-  <span class="page-header__subtitle">Dissident ecosystem overview</span>
-  {% if bot.stale %}
-  <span class="badge badge--inactive" style="margin-left:8px">Bot data stale</span>
-  {% endif %}
+  <span class="page-header__sub">// live ecosystem overview</span>
+  {% if bot.stale %}<span class="badge badge--stale">stale</span>{% endif %}
 </div>
 
+<!-- Latency sparkline -->
+<div class="latency-chart">
+  <div class="latency-chart__header">
+    <span class="latency-chart__label">BOT LATENCY — LIVE</span>
+    <span class="latency-chart__val" id="latency-big">{{ bot.latency_ms }}<span>ms</span></span>
+  </div>
+  <canvas id="latency-canvas" height="48"></canvas>
+</div>
+
+<!-- Stats -->
 <div class="stats-grid">
   <div class="stat-card">
-    <div class="stat-card__label">Bot status</div>
-    <div class="stat-card__value {% if bot.online %}stat-card__value--online{% else %}stat-card__value--offline{% endif %}">
-      {{ "Online" if bot.online else "Offline" }}
+    <div class="stat-card__label">STATUS</div>
+    <div class="stat-card__val {% if bot.online %}stat-card__val--online{% else %}stat-card__val--offline{% endif %}" id="s-status">
+      {{ "ONLINE" if bot.online else "OFFLINE" }}
     </div>
   </div>
   <div class="stat-card">
-    <div class="stat-card__label">Servers</div>
-    <div class="stat-card__value" id="stat-guilds">{{ bot.guild_count }}</div>
+    <div class="stat-card__label">SERVERS</div>
+    <div class="stat-card__val stat-card__val--cyan" id="s-guilds">{{ bot.guild_count }}</div>
   </div>
   <div class="stat-card">
-    <div class="stat-card__label">Members</div>
-    <div class="stat-card__value" id="stat-members">{{ "{:,}".format(bot.member_count) }}</div>
+    <div class="stat-card__label">MEMBERS</div>
+    <div class="stat-card__val" id="s-members">{{ "{:,}".format(bot.member_count) }}</div>
   </div>
   <div class="stat-card">
-    <div class="stat-card__label">Latency</div>
-    <div class="stat-card__value" id="stat-latency">{{ bot.latency_ms }}ms</div>
+    <div class="stat-card__label">UPTIME</div>
+    <div class="stat-card__val stat-card__val--mono" id="s-uptime">{{ bot.uptime }}</div>
   </div>
   <div class="stat-card">
-    <div class="stat-card__label">Commands today</div>
-    <div class="stat-card__value" id="stat-commands">{{ bot.commands_today }}</div>
+    <div class="stat-card__label">COGS</div>
+    <div class="stat-card__val" id="s-cogs">{{ bot.cog_count }}</div>
   </div>
   <div class="stat-card">
-    <div class="stat-card__label">Uptime</div>
-    <div class="stat-card__value" id="stat-uptime" style="font-size:16px">{{ bot.uptime }}</div>
+    <div class="stat-card__label">CMDS TODAY</div>
+    <div class="stat-card__val" id="s-cmds">{{ bot.commands_today }}</div>
   </div>
   <div class="stat-card">
-    <div class="stat-card__label">Cogs loaded</div>
-    <div class="stat-card__value" id="stat-cogs">{{ bot.cog_count }}</div>
+    <div class="stat-card__label">CHANNELS</div>
+    <div class="stat-card__val" id="s-chans">{{ bot.channel_count }}</div>
   </div>
   <div class="stat-card">
-    <div class="stat-card__label">Version</div>
-    <div class="stat-card__value" id="stat-version" style="font-size:14px">{{ bot.version }}</div>
+    <div class="stat-card__label">VERSION</div>
+    <div class="stat-card__val stat-card__val--mono stat-card__val--sm" id="s-ver">{{ bot.version }}</div>
   </div>
 </div>
 
+<!-- Servers -->
 <div class="section">
-  <h2 class="section__title">Active servers</h2>
+  <div class="section__header">
+    <span class="section__title">ACTIVE SERVERS</span>
+    <a href="{{ url_for('core.servers') }}" class="btn btn--ghost btn--sm">view all</a>
+  </div>
   <div class="server-list" id="server-list">
     {% for guild in guilds %}
-    <a href="{{ url_for('core.server_detail', guild_id=guild.id) }}" class="server-card">
+    <a href="{{ url_for('core.server_detail', guild_id=guild.id) if guild.id else '#' }}" class="server-card">
       {% if guild.icon %}
-        <img src="https://cdn.discordapp.com/icons/{{ guild.discord_id }}/{{ guild.icon }}.png" class="server-card__icon" alt="">
+        <img src="{{ guild.icon if guild.icon.startswith('http') else 'https://cdn.discordapp.com/icons/' ~ guild.discord_id ~ '/' ~ guild.icon ~ '.png?size=64' }}" class="server-card__icon" alt="">
       {% else %}
         <div class="server-card__icon server-card__icon--placeholder">{{ guild.name[0] }}</div>
       {% endif %}
-      <div class="server-card__info">
+      <div style="min-width:0">
         <div class="server-card__name">{{ guild.name }}</div>
-        <div class="server-card__members">{{ guild.member_count }} members</div>
+        <div class="server-card__meta">{{ "{:,}".format(guild.member_count) }} members</div>
       </div>
     </a>
     {% else %}
-    <p class="empty-state" id="no-guilds-msg">Loading servers from bot...</p>
+    <p class="empty-inline">fetching servers from bot...</p>
     {% endfor %}
   </div>
 </div>
@@ -71,41 +84,96 @@
 
 {% block scripts %}
 <script>
-async function refreshStats() {
+// ── Latency sparkline ──────────────────────────────────────────
+const canvas = document.getElementById('latency-canvas');
+const ctx = canvas.getContext('2d');
+const history = [];
+const MAX_POINTS = 60;
+
+function drawSparkline() {
+  const W = canvas.offsetWidth;
+  const H = canvas.offsetHeight;
+  canvas.width = W * devicePixelRatio;
+  canvas.height = H * devicePixelRatio;
+  ctx.scale(devicePixelRatio, devicePixelRatio);
+
+  if (history.length < 2) return;
+  const min = Math.min(...history);
+  const max = Math.max(...history) || 1;
+  const range = max - min || 1;
+
+  ctx.clearRect(0, 0, W, H);
+
+  // Gradient fill
+  const grad = ctx.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0, 'rgba(0,212,255,0.25)');
+  grad.addColorStop(1, 'rgba(0,212,255,0)');
+
+  ctx.beginPath();
+  history.forEach((v, i) => {
+    const x = (i / (MAX_POINTS - 1)) * W;
+    const y = H - ((v - min) / range) * H * 0.85 - H * 0.05;
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  const lastX = ((history.length - 1) / (MAX_POINTS - 1)) * W;
+  ctx.lineTo(lastX, H);
+  ctx.lineTo(0, H);
+  ctx.closePath();
+  ctx.fillStyle = grad;
+  ctx.fill();
+
+  // Line
+  ctx.beginPath();
+  history.forEach((v, i) => {
+    const x = (i / (MAX_POINTS - 1)) * W;
+    const y = H - ((v - min) / range) * H * 0.85 - H * 0.05;
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.strokeStyle = '#00D4FF';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+}
+
+// ── Stats polling ──────────────────────────────────────────────
+async function pollStats() {
   try {
-    const r = await fetch('/api/stats');
-    const d = await r.json();
-    document.getElementById('stat-guilds').textContent = d.guilds;
-    document.getElementById('stat-members').textContent = d.members.toLocaleString();
-    document.getElementById('stat-commands').textContent = d.commands_today;
-    document.getElementById('stat-uptime').textContent = d.uptime;
-    document.getElementById('stat-latency').textContent = d.latency_ms + 'ms';
-    document.getElementById('stat-cogs').textContent = d.cog_count || '—';
-    document.getElementById('stat-version').textContent = d.version || '—';
+    const d = await fetch('/api/stats').then(r => r.json());
+    // Update stats
+    document.getElementById('s-status').textContent = d.online ? 'ONLINE' : 'OFFLINE';
+    document.getElementById('s-status').className = 'stat-card__val ' + (d.online ? 'stat-card__val--online' : 'stat-card__val--offline');
+    document.getElementById('s-guilds').textContent = d.guilds;
+    document.getElementById('s-members').textContent = d.members.toLocaleString();
+    document.getElementById('s-uptime').textContent = d.uptime;
+    document.getElementById('s-cogs').textContent = d.cog_count || '—';
+    document.getElementById('s-cmds').textContent = d.commands_today;
+    document.getElementById('s-chans').textContent = d.channels || 0;
+    document.getElementById('s-ver').textContent = d.version || '—';
+    document.getElementById('latency-big').innerHTML = d.latency_ms + '<span>ms</span>';
+    // Latency history
+    history.push(d.latency_ms);
+    if (history.length > MAX_POINTS) history.shift();
+    drawSparkline();
   } catch {}
 }
 
-async function refreshGuilds() {
-  const list = document.getElementById('server-list');
-  if (!list) return;
+async function pollGuilds() {
   try {
-    const r = await fetch('/api/guilds');
-    const guilds = await r.json();
+    const guilds = await fetch('/api/guilds').then(r => r.json());
     if (!guilds.length) return;
-    list.innerHTML = guilds.map(g => {
+    document.getElementById('server-list').innerHTML = guilds.map(g => {
       const icon = g.icon
-        ? `<img src="https://cdn.discordapp.com/icons/${g.discord_id}/${g.icon}.png" class="server-card__icon" alt="">`
+        ? `<img src="${g.icon.startsWith('http') ? g.icon : 'https://cdn.discordapp.com/icons/'+g.discord_id+'/'+g.icon+'.png?size=64'}" class="server-card__icon" alt="">`
         : `<div class="server-card__icon server-card__icon--placeholder">${g.name[0]}</div>`;
       const href = g.id ? `/servers/${g.id}` : '#';
-      return `<a href="${href}" class="server-card">${icon}<div class="server-card__info"><div class="server-card__name">${g.name}</div><div class="server-card__members">${(g.member_count||0).toLocaleString()} members</div></div></a>`;
+      return `<a href="${href}" class="server-card">${icon}<div style="min-width:0"><div class="server-card__name">${g.name}</div><div class="server-card__meta">${(g.member_count||0).toLocaleString()} members</div></div></a>`;
     }).join('');
   } catch {}
 }
 
-// Refresh stats every 10s, guilds every 30s
-setInterval(refreshStats, 10000);
-setInterval(refreshGuilds, 30000);
-refreshStats();
-refreshGuilds();
+pollStats();
+pollGuilds();
+setInterval(pollStats, 10000);
+setInterval(pollGuilds, 30000);
+window.addEventListener('resize', drawSparkline);
 </script>
 {% endblock %}

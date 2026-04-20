@@ -1,25 +1,42 @@
 {% extends "base.html" %}
 {% block title %}Servers — Dissident Central Hub{% endblock %}
+{% block page_slug %}servers{% endblock %}
 {% block content %}
 <div class="page-header">
   <h1 class="page-header__title">Servers</h1>
-  <span class="page-header__subtitle">All guilds the bot is in</span>
+  <span class="page-header__sub">// {{ guilds|length }} guild(s) synced</span>
 </div>
-<div class="server-list">
+<div class="server-list" id="server-list">
   {% for guild in guilds %}
   <a href="{{ url_for('core.server_detail', guild_id=guild.id) }}" class="server-card">
     {% if guild.icon %}
-      <img src="https://cdn.discordapp.com/icons/{{ guild.discord_id }}/{{ guild.icon }}.png" class="server-card__icon" alt="">
+      <img src="{{ guild.icon if guild.icon.startswith('http') else 'https://cdn.discordapp.com/icons/' ~ guild.discord_id ~ '/' ~ guild.icon ~ '.png?size=64' }}" class="server-card__icon" alt="">
     {% else %}
       <div class="server-card__icon server-card__icon--placeholder">{{ guild.name[0] }}</div>
     {% endif %}
-    <div class="server-card__info">
+    <div style="min-width:0">
       <div class="server-card__name">{{ guild.name }}</div>
-      <div class="server-card__members">{{ guild.member_count }} members</div>
+      <div class="server-card__meta">{{ "{:,}".format(guild.member_count) }} members</div>
     </div>
   </a>
   {% else %}
-  <p class="empty-state">No servers synced yet. Make sure the bot is online.</p>
+  <p class="empty-inline">no servers synced — waiting for bot data</p>
   {% endfor %}
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(async () => {
+  const guilds = await fetch('/api/guilds').then(r => r.json()).catch(() => []);
+  if (!guilds.length) return;
+  document.getElementById('server-list').innerHTML = guilds.map(g => {
+    const icon = g.icon
+      ? `<img src="${g.icon.startsWith('http') ? g.icon : 'https://cdn.discordapp.com/icons/'+g.discord_id+'/'+g.icon+'.png?size=64'}" class="server-card__icon" alt="">`
+      : `<div class="server-card__icon server-card__icon--placeholder">${g.name[0]}</div>`;
+    const href = g.id ? `/servers/${g.id}` : '#';
+    return `<a href="${href}" class="server-card">${icon}<div style="min-width:0"><div class="server-card__name">${g.name}</div><div class="server-card__meta">${(g.member_count||0).toLocaleString()} members</div></div></a>`;
+  }).join('');
+})();
+</script>
 {% endblock %}

@@ -1,12 +1,14 @@
 {% extends "base.html" %}
 {% block title %}Moderation — Dissident Central Hub{% endblock %}
+{% block page_slug %}moderation{% endblock %}
 {% block content %}
 <div class="page-header">
   <h1 class="page-header__title">Moderation</h1>
-  <span class="page-header__subtitle">Cases, warnings, and bans across all servers</span>
+  <span class="page-header__sub">// cases across all guilds</span>
 </div>
-<div class="empty-state-box">
-  <p>Moderation data is pulled from the bot database.</p>
-  <p>Connect the bot's PostgreSQL read replica to enable this view.</p>
+<div class="empty">
+  <p>Bot Postgres read replica not yet connected.</p>
+  <p>Moderation cases will appear here once the bot DB is wired up.</p>
+  <p style="margin-top:12px"><span class="badge badge--default">coming soon</span></p>
 </div>
 {% endblock %}

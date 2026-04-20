@@ -1,17 +1,18 @@
 {% extends "base.html" %}
 {% block title %}Users — Dissident Central Hub{% endblock %}
+{% block page_slug %}users{% endblock %}
 {% block content %}
 <div class="page-header">
   <h1 class="page-header__title">Users</h1>
-  <span class="page-header__subtitle">Hub access management</span>
+  <span class="page-header__sub">// hub access</span>
 </div>
 <div class="table-wrap">
   <table class="data-table">
     <thead>
-      <tr><th>Username</th><th>Discord ID</th><th>Role</th><th>Status</th><th>Last login</th></tr>
+      <tr><th>USERNAME</th><th>DISCORD ID</th><th>ROLE</th><th>STATUS</th><th>LAST LOGIN</th></tr>
     </thead>
     <tbody id="users-body">
-      <tr><td colspan="5" class="empty-state">Loading…</td></tr>
+      <tr><td colspan="5" class="empty-inline">loading...</td></tr>
     </tbody>
   </table>
 </div>
@@ -19,19 +20,17 @@
 {% block scripts %}
 <script>
 (async () => {
-  const resp = await fetch('/api/users');
-  const users = await resp.json();
+  const users = await fetch('/api/users').then(r => r.json()).catch(() => []);
   const body = document.getElementById('users-body');
-  if (!users.length) { body.innerHTML = '<tr><td colspan="5" class="empty-state">No users yet.</td></tr>'; return; }
+  if (!users.length) { body.innerHTML = '<tr><td colspan="5" class="empty-inline">no users</td></tr>'; return; }
   body.innerHTML = users.map(u => `
     <tr>
-      <td>${u.username}</td>
+      <td><strong>${u.username}</strong></td>
       <td class="td-mono">${u.discord_id || '—'}</td>
-      <td><span class="badge ${u.is_admin ? 'badge--admin' : ''}">${u.is_admin ? 'Admin' : 'User'}</span></td>
-      <td><span class="badge ${u.is_active ? 'badge--active' : 'badge--inactive'}">${u.is_active ? 'Active' : 'Disabled'}</span></td>
-      <td class="td-mono">${u.last_login ? new Date(u.last_login).toLocaleString() : 'Never'}</td>
-    </tr>
-  `).join('');
+      <td><span class="badge ${u.is_admin ? 'badge--admin' : 'badge--default'}">${u.is_admin ? 'admin' : 'user'}</span></td>
+      <td><span class="badge ${u.is_active ? 'badge--online' : 'badge--offline'}">${u.is_active ? 'active' : 'disabled'}</span></td>
+      <td class="td-mono">${u.last_login ? new Date(u.last_login).toLocaleString() : 'never'}</td>
+    </tr>`).join('');
 })();
 </script>
 {% endblock %}

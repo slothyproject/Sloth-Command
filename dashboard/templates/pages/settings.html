@@ -1,49 +1,53 @@
 {% extends "base.html" %}
 {% block title %}Settings — Dissident Central Hub{% endblock %}
+{% block page_slug %}settings{% endblock %}
 {% block content %}
 <div class="page-header">
   <h1 class="page-header__title">Settings</h1>
-  <span class="page-header__subtitle">Hub configuration</span>
+  <span class="page-header__sub">// hub configuration</span>
 </div>
 <div class="settings-grid">
-  <div class="settings-card">
-    <h2 class="settings-card__title">Bot connection</h2>
-    <div class="settings-card__row">
-      <span class="settings-card__label">Redis key</span>
-      <code class="settings-card__value">dissident:bot_state</code>
+  <div class="card">
+    <div class="card__title">BOT CONNECTION</div>
+    <div class="card__row"><span class="card__label">Redis key</span><span class="card__value">dissident:bot_state</span></div>
+    <div class="card__row"><span class="card__label">Update interval</span><span class="card__value">2s</span></div>
+    <div class="card__row"><span class="card__label">Stale threshold</span><span class="card__value">30s</span></div>
+    <div class="card__row"><span class="card__label">Worker sync</span><span class="card__value">30s</span></div>
+  </div>
+  {% if current_user.is_admin %}
+  <div class="card">
+    <div class="card__title">ADMIN ACTIONS</div>
+    <div class="card__row">
+      <span class="card__label">Sync guilds from bot</span>
+      <button class="btn btn--ghost btn--sm" onclick="doAction('sync_guilds')">sync</button>
     </div>
-    <div class="settings-card__row">
-      <span class="settings-card__label">Update interval</span>
-      <code class="settings-card__value">2s (bot-side)</code>
+    <div class="card__row">
+      <span class="card__label">Clear Redis cache</span>
+      <button class="btn btn--danger btn--sm" onclick="doAction('clear_cache')">clear</button>
     </div>
-    <div class="settings-card__row">
-      <span class="settings-card__label">Stale threshold</span>
-      <code class="settings-card__value">30s</code>
+    <div class="card__row">
+      <span class="card__label">Reload bot config</span>
+      <button class="btn btn--ghost btn--sm" onclick="doAction('reload_config')">reload</button>
     </div>
   </div>
-  <div class="settings-card">
-    <h2 class="settings-card__title">Admin actions</h2>
-    {% if current_user.is_admin %}
-    <div class="action-row">
-      <span>Sync guilds from bot</span>
-      <button class="btn btn--sm" onclick="doAction('sync_guilds')">Sync</button>
-    </div>
-    <div class="action-row">
-      <span>Clear Redis cache</span>
-      <button class="btn btn--sm btn--danger" onclick="doAction('clear_cache')">Clear</button>
-    </div>
-    {% else %}
-    <p class="empty-state">Admin access required.</p>
-    {% endif %}
+  {% endif %}
+  <div class="card">
+    <div class="card__title">ACCOUNT</div>
+    <div class="card__row"><span class="card__label">Username</span><span class="card__value">{{ current_user.username }}</span></div>
+    <div class="card__row"><span class="card__label">Role</span><span class="card__value">{% if current_user.is_admin %}admin{% else %}user{% endif %}</span></div>
+    <div class="card__row"><span class="card__label">Discord ID</span><span class="card__value">{{ current_user.discord_id or '—' }}</span></div>
   </div>
 </div>
 {% endblock %}
 {% block scripts %}
 <script>
 async function doAction(action) {
-  const r = await fetch('/api/actions/' + action, { method: 'POST' });
+  const r = await fetch('/api/actions/' + action, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json', 'X-CSRFToken': document.cookie.match(/csrf_token=([^;]+)/)?.[1] || ''}
+  });
   const d = await r.json();
-  alert(d.ok ? 'Done: ' + action : 'Error: ' + (d.error || 'unknown'));
+  alert(d.ok ? '✓ ' + action : '✗ ' + (d.error || 'error'));
 }
 </script>
 {% endblock %}

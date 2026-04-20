@@ -1,27 +1,31 @@
 {% extends "base.html" %}
 {% block title %}{{ guild.name }} — Dissident Central Hub{% endblock %}
+{% block page_slug %}servers / {{ guild.name }}{% endblock %}
 {% block content %}
-<div class="page-header">
-  <a href="{{ url_for('core.servers') }}" class="back-link">← Servers</a>
+<a href="{{ url_for('core.servers') }}" class="back">← back to servers</a>
+<div class="page-header" style="margin-top:8px">
+  {% if guild.icon %}
+    <img src="{{ guild.icon if guild.icon.startswith('http') else 'https://cdn.discordapp.com/icons/' ~ guild.discord_id ~ '/' ~ guild.icon ~ '.png?size=64' }}" style="width:40px;height:40px;border-radius:9px;border:1px solid var(--border-md)" alt="">
+  {% endif %}
   <h1 class="page-header__title">{{ guild.name }}</h1>
-  <span class="page-header__subtitle">{{ guild.member_count }} members · ID: {{ guild.discord_id }}</span>
+  <span class="badge badge--online">active</span>
 </div>
-<div class="stats-grid">
+<div class="stats-grid" style="margin-bottom:24px">
   <div class="stat-card">
-    <div class="stat-card__label">Members</div>
-    <div class="stat-card__value">{{ guild.member_count }}</div>
+    <div class="stat-card__label">MEMBERS</div>
+    <div class="stat-card__val stat-card__val--cyan">{{ "{:,}".format(guild.member_count) }}</div>
   </div>
   <div class="stat-card">
-    <div class="stat-card__label">Status</div>
-    <div class="stat-card__value stat-card__value--online">Active</div>
+    <div class="stat-card__label">DISCORD ID</div>
+    <div class="stat-card__val stat-card__val--mono stat-card__val--sm">{{ guild.discord_id }}</div>
   </div>
   <div class="stat-card">
-    <div class="stat-card__label">Joined</div>
-    <div class="stat-card__value" style="font-size:14px">{{ guild.joined_at.strftime('%d %b %Y') if guild.joined_at else '—' }}</div>
+    <div class="stat-card__label">JOINED</div>
+    <div class="stat-card__val stat-card__val--mono stat-card__val--sm">{{ guild.joined_at.strftime('%d %b %Y') if guild.joined_at else '—' }}</div>
   </div>
   <div class="stat-card">
-    <div class="stat-card__label">Last sync</div>
-    <div class="stat-card__value" style="font-size:14px">{{ guild.last_sync.strftime('%d %b %Y') if guild.last_sync else 'Never' }}</div>
+    <div class="stat-card__label">LAST SYNC</div>
+    <div class="stat-card__val stat-card__val--mono stat-card__val--sm">{{ guild.last_sync.strftime('%H:%M:%S') if guild.last_sync else 'never' }}</div>
   </div>
 </div>
 {% endblock %}

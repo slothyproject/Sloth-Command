@@ -1,14 +1,17 @@
 <header class="navbar">
-  <button class="navbar__toggle" aria-label="Toggle sidebar" onclick="document.querySelector('.layout').classList.toggle('sidebar-open')">
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-      <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
-    </svg>
+  <button class="navbar__toggle" onclick="document.getElementById('layout').classList.toggle('sidebar-open')" aria-label="Toggle menu">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
   </button>
-  <div class="navbar__title">{% block page_title %}{% endblock %}</div>
+  <div class="navbar__path">
+    <span>hub</span>
+    <span class="navbar__path-sep">/</span>
+    <span class="navbar__path-cur">{% block page_slug %}{% endblock %}</span>
+  </div>
   <div class="navbar__right">
-    <div class="bot-status" id="bot-status">
-      <span class="bot-status__dot bot-status__dot--unknown"></span>
-      <span class="bot-status__label">Bot</span>
+    <div class="bot-pill" id="bot-pill">
+      <span class="bot-pill__dot"></span>
+      <span id="bot-pill-text" class="mono" style="font-size:10.5px">connecting...</span>
     </div>
   </div>
 </header>
+{% block navbar_extra %}{% endblock %}
