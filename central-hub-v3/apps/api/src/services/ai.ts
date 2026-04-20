@@ -80,14 +80,6 @@ async function generateWithFallback(
   });
 }
 
-    const data: OllamaResponse = await response.json();
-    return data.response.trim();
-  } catch (error) {
-    console.error('Ollama generation failed:', error);
-    throw error;
-  }
-}
-
 /**
  * Analyze a service and generate insights
  */
