@@ -88,10 +88,14 @@ const MODELS_BY_COMPLEXITY: Record<TaskComplexity, Record<string, string>> = {
   },
 };
 
-// Initialize OpenAI client
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+// Initialize OpenAI client lazily to avoid startup crash when OPENAI_API_KEY is not set
+let _openai: OpenAI | null = null;
+function getOpenAI(): OpenAI {
+  if (!_openai) {
+    _openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || 'not-configured' });
+  }
+  return _openai;
+}
 
 interface GenerateOptions {
   complexity?: TaskComplexity;
@@ -280,7 +284,7 @@ async function generateWithOpenAI(
   model: string,
   options: GenerateOptions
 ): Promise<{ response: string; tokensUsed: number }> {
-  const response = await openai.chat.completions.create({
+  const response = await getOpenAI().chat.completions.create({
     model,
     messages: [
       ...(options.systemPrompt ? [{ role: 'system' as const, content: options.systemPrompt }] : []),
