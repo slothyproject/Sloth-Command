@@ -520,6 +520,7 @@ def _handle_guild_join(payload: dict):
     if not discord_id:
         return
     guild = Guild.query.filter_by(discord_id=discord_id).first()
+    is_new = guild is None
     if not guild:
         guild = Guild(
             discord_id=discord_id,
@@ -527,21 +528,30 @@ def _handle_guild_join(payload: dict):
             icon=payload.get("icon"),
             owner_discord_id=str(payload.get("owner_id", "")) or None,
             member_count=payload.get("member_count", 0),
+            channel_count=payload.get("channel_count", 0),
         )
         db.session.add(guild)
         db.session.flush()
         guild.settings = GuildSettings(guild_id=guild.id)
         db.session.add(guild.settings)
     else:
+        # Update fields from heartbeat without spamming notifications
         guild.name = payload.get("name", guild.name)
+        guild.icon = payload.get("icon", guild.icon)
+        guild.member_count = payload.get("member_count", guild.member_count)
+        guild.channel_count = payload.get("channel_count", guild.channel_count)
+        guild.owner_discord_id = str(payload.get("owner_id", "") or "") or guild.owner_discord_id
         guild.is_active = True
 
-    _notify_admins(
-        "guild_join",
-        f"Bot joined {guild.name}",
-        f"{payload.get('member_count', 0)} members",
-        f"/servers/{guild.id}" if guild.id else "",
-    )
+    # Only notify on genuine new guild join, not heartbeat re-syncs
+    if is_new:
+        _notify_admins(
+            "guild_join",
+            f"Bot joined {guild.name}",
+            f"{payload.get('member_count', 0)} members",
+            f"/servers/{guild.id}" if guild.id else "",
+            guild_id=guild.id,
+        )
 
 
 def _handle_guild_leave(payload: dict):
@@ -637,6 +647,33 @@ def notifications_read_all():
     Notification.query.filter_by(user_id=current_user.id, is_read=False).update({"is_read": True})
     db.session.commit()
     return jsonify({"ok": True})
+
+
+@api_bp.post("/notifications/clear-duplicates")
+@login_required
+def notifications_clear_duplicates():
+    """Delete duplicate notifications keeping only the oldest per (user, type, guild)."""
+    # Keep only the first notification per user+type+guild_id group, delete the rest
+    deleted = 0
+    seen = {}
+    notifs = Notification.query.filter_by(
+        user_id=current_user.id
+    ).order_by(Notification.created_at.asc()).all()
+    to_delete = []
+    for n in notifs:
+        key = (n.type, n.guild_id, n.title)
+        if key in seen:
+            to_delete.append(n.id)
+        else:
+            seen[key] = n.id
+    if to_delete:
+        Notification.query.filter(
+            Notification.id.in_(to_delete),
+            Notification.user_id == current_user.id
+        ).delete(synchronize_session=False)
+        db.session.commit()
+        deleted = len(to_delete)
+    return jsonify({"ok": True, "deleted": deleted})
 
 
 @api_bp.post("/notifications/<int:notif_id>/read")

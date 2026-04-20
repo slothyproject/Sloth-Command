@@ -86,7 +86,10 @@ function toggleNotifPanel() {
   if (!panel) return;
   notifPanelOpen = !notifPanelOpen;
   panel.style.display = notifPanelOpen ? 'block' : 'none';
-  if (notifPanelOpen) loadNotifications();
+  if (notifPanelOpen) {
+    // Silently deduplicate then load
+    fetch('/api/notifications/clear-duplicates', { method: 'POST' }).finally(() => loadNotifications());
+  }
 }
 
 async function readNotif(id, link) {
@@ -97,6 +100,8 @@ async function readNotif(id, link) {
 
 async function markAllRead() {
   const csrf = document.cookie.match(/csrf_token=([^;]+)/)?.[1] || '';
+  // Deduplicate first, then mark all read
+  await fetch('/api/notifications/clear-duplicates', { method: 'POST' });
   await fetch('/api/notifications/read-all', {
     method: 'POST',
     headers: { 'X-CSRFToken': csrf, 'Content-Type': 'application/json' }
