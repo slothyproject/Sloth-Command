@@ -99,8 +99,12 @@ let supportedProviders = {};
 })();
 
 async function doAction(action) {
-  const r = await fetch('/api/actions/' + action, { method: 'POST' });
-  const d = await r.json();
+  const r = await fetch('/api/bot/command', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ command: action }),
+  });
+  const d = await r.json().catch(() => ({}));
   alert(d.ok ? '✓ ' + action : '✗ ' + (d.error || 'error'));
 }
 

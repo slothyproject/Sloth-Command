@@ -57,6 +57,34 @@
   </div>
 </div>
 
+<div class="section" style="margin-top:18px">
+  <div class="section__header">
+    <span class="section__title">AI READINESS</span>
+    <a href="{{ url_for('core.settings') }}" class="btn btn--ghost btn--sm">manage provider</a>
+  </div>
+  <div class="card" style="padding:16px">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;align-items:start">
+      <div>
+        <div class="card__label">STATUS</div>
+        <div class="stat-card__val stat-card__val--mono stat-card__val--sm" id="ai-ready-status">loading...</div>
+      </div>
+      <div>
+        <div class="card__label">PROVIDER</div>
+        <div class="card__value" id="ai-ready-provider">—</div>
+      </div>
+      <div>
+        <div class="card__label">MODEL</div>
+        <div class="card__value" id="ai-ready-model">—</div>
+      </div>
+      <div>
+        <div class="card__label">REQ/HOUR</div>
+        <div class="card__value" id="ai-ready-limit">—</div>
+      </div>
+    </div>
+    <div id="ai-ready-feedback" style="margin-top:12px;font-size:12px;color:var(--text-1)">Checking whether your personal AI provider is ready to use.</div>
+  </div>
+</div>
+
 <!-- Servers -->
 <div class="section">
   <div class="section__header">
@@ -171,8 +199,41 @@ async function pollGuilds() {
   } catch {}
 }
 
+async function loadAIReadiness() {
+  try {
+    const response = await fetch('/api/user/ai-provider');
+    const data = await response.json().catch(() => ({}));
+    const configured = !!data.configured;
+    document.getElementById('ai-ready-status').textContent = data.status || (configured ? 'configured' : 'not configured');
+    document.getElementById('ai-ready-provider').textContent = data.provider || '—';
+    document.getElementById('ai-ready-model').textContent = data.model || '—';
+    document.getElementById('ai-ready-limit').textContent = data.usage_limit_requests_per_hour || '—';
+
+    const feedback = document.getElementById('ai-ready-feedback');
+    if (!configured) {
+      feedback.textContent = 'No personal AI provider is configured yet. Add one in Settings before AI commands can run.';
+      return;
+    }
+    if (data.status === 'disabled') {
+      feedback.textContent = 'Your AI provider is saved but currently disabled.';
+      return;
+    }
+    if (data.validation_error) {
+      feedback.textContent = data.validation_error;
+      return;
+    }
+    feedback.textContent = data.last_validated_at
+      ? `Provider ready. Last validated at ${new Date(data.last_validated_at).toLocaleString()}.`
+      : 'Provider configured. Run a connection test from Settings if you want to refresh validation.';
+  } catch {
+    document.getElementById('ai-ready-status').textContent = 'unavailable';
+    document.getElementById('ai-ready-feedback').textContent = 'Could not load AI readiness right now.';
+  }
+}
+
 pollStats();
 pollGuilds();
+loadAIReadiness();
 setInterval(pollStats, 10000);
 setInterval(pollGuilds, 30000);
 window.addEventListener('resize', drawSparkline);
