@@ -25,6 +25,7 @@ def app():
         "TESTING": True,
         "WTF_CSRF_ENABLED": False,
         "SQLALCHEMY_DATABASE_URI": "sqlite:///:memory:",
+        "RATELIMIT_STORAGE_URI": "memory://",
     })
 
     with app.app_context():
