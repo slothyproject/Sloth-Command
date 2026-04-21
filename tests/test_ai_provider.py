@@ -150,3 +150,54 @@ def test_custom_openai_requires_base_url(client):
 
     assert response.status_code == 400
     assert "Base URL is required" in response.get_json()["error"]
+
+
+def test_internal_ai_provider_endpoints_expose_usage_and_support_disable(client, monkeypatch):
+    from dashboard.models import AuditLog
+    from dashboard.routes import api as api_routes
+
+    _login(client)
+    monkeypatch.setenv("WEBHOOK_SECRET", os.environ["AI_PROVIDER_ENCRYPTION_KEY"])
+
+    monkeypatch.setattr(
+        api_routes,
+        "validate_ai_provider_config",
+        lambda **kwargs: {"ok": True, "provider": kwargs["provider"], "model": kwargs["model"], "message": "ok"},
+    )
+
+    save = client.post(
+        "/api/user/ai-provider",
+        json={"provider": "openai", "model": "gpt-4o-mini", "api_key": "sk-live-super-secret-1234"},
+    )
+    assert save.status_code == 200
+
+    headers = {"X-Internal-API-Key": os.environ["WEBHOOK_SECRET"]}
+
+    internal = client.get("/api/internal/ai-provider/1411142904604528673", headers=headers)
+    assert internal.status_code == 200
+    payload = internal.get_json()
+    assert payload["configured"] is True
+    assert payload["api_key"] == "sk-live-super-secret-1234"
+    assert payload["usage"]["requests_this_hour"] == 0
+
+    usage = client.post(
+        "/api/internal/ai-provider/1411142904604528673/usage",
+        headers=headers,
+        json={"command": "aiask", "success": True, "token_count": 42},
+    )
+    assert usage.status_code == 200
+    assert usage.get_json()["usage"]["requests_this_hour"] == 1
+
+    disable = client.post(
+        "/api/internal/ai-provider/1411142904604528673/disable",
+        headers=headers,
+        json={"reason": "Disabled in test"},
+    )
+    assert disable.status_code == 200
+    assert disable.get_json()["status"] == "disabled"
+
+    with client.application.app_context():
+        actions = {entry.action for entry in AuditLog.query.all()}
+        assert "internal_ai_provider_lookup_success" in actions
+        assert "internal_ai_provider_usage_recorded" in actions
+        assert "internal_ai_provider_disabled_by_internal" in actions

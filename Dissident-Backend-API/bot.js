@@ -4,12 +4,14 @@
  */
 
 const { Client, GatewayIntentBits, Events, PermissionFlagsBits, SlashCommandBuilder, Routes, REST } = require('discord.js');
+const axios = require('axios');
 const {
   DEFAULT_SETTINGS,
   normalizeServerSettings,
   calculateLevelFromXP,
   getXPForLevel
 } = require('./lib/bot-config');
+const { invokeAIProvider } = require('./lib/ai-providers');
 
 class DissidentBot {
   constructor() {
@@ -28,6 +30,8 @@ class DissidentBot {
     this.commandStats = new Map();
     this.messageCache = new Map();
     this.xpCooldowns = new Map();
+    this.hubApiBaseUrl = (process.env.HUB_API_BASE_URL || process.env.CENTRAL_HUB_API_BASE_URL || '').replace(/\/$/, '');
+    this.internalApiKey = process.env.BOT_INTERNAL_API_KEY || process.env.WEBHOOK_SECRET || '';
     
     this.init();
   }
@@ -223,7 +227,31 @@ class DissidentBot {
 
       new SlashCommandBuilder()
         .setName('help')
-        .setDescription('Show available commands and categories')
+        .setDescription('Show available commands and categories'),
+
+      new SlashCommandBuilder()
+        .setName('aiask')
+        .setDescription('Ask a question using your personal AI provider')
+        .addStringOption(option =>
+          option.setName('prompt').setDescription('Question or prompt').setRequired(true).setMaxLength(1000)),
+
+      new SlashCommandBuilder()
+        .setName('aiadvisor')
+        .setDescription('Ask the AI advisor using your personal AI provider')
+        .addStringOption(option =>
+          option.setName('prompt').setDescription('Question or prompt').setRequired(true).setMaxLength(1000)),
+
+      new SlashCommandBuilder()
+        .setName('ai-config')
+        .setDescription('Show your personal AI provider status'),
+
+      new SlashCommandBuilder()
+        .setName('ai-usage')
+        .setDescription('Show your current AI usage stats'),
+
+      new SlashCommandBuilder()
+        .setName('ai-disable')
+        .setDescription('Disable your personal AI provider')
     ];
     
     try {
@@ -299,6 +327,21 @@ class DissidentBot {
           break;
         case 'help':
           await this.cmdHelp(interaction);
+          break;
+        case 'aiask':
+          await this.cmdAIAsk(interaction, options);
+          break;
+        case 'aiadvisor':
+          await this.cmdAIAsk(interaction, options, 'aiadvisor');
+          break;
+        case 'ai-config':
+          await this.cmdAIConfig(interaction);
+          break;
+        case 'ai-usage':
+          await this.cmdAIUsage(interaction);
+          break;
+        case 'ai-disable':
+          await this.cmdAIDisable(interaction);
           break;
       }
     } catch (err) {
@@ -1079,10 +1122,189 @@ class DissidentBot {
       '`/serverinfo` `/userinfo` `/help`',
       '',
       '**Progression**',
-      '`/balance` `/daily` `/leaderboard` `/rank`'
+      '`/balance` `/daily` `/leaderboard` `/rank`',
+      '',
+      '**AI**',
+      '`/aiask` `/aiadvisor` `/ai-config` `/ai-usage` `/ai-disable`'
     ].join('\n');
 
     await interaction.reply({ content: text, ephemeral: true });
+  }
+
+  getInternalApiHeaders() {
+    if (!this.internalApiKey) {
+      throw new Error('BOT_INTERNAL_API_KEY or WEBHOOK_SECRET must be configured for AI commands');
+    }
+    return { 'X-Internal-API-Key': this.internalApiKey };
+  }
+
+  getHubApiBaseUrl() {
+    if (!this.hubApiBaseUrl) {
+      throw new Error('HUB_API_BASE_URL must be configured for AI commands');
+    }
+    return this.hubApiBaseUrl;
+  }
+
+  async fetchUserAIConfig(discordId) {
+    const response = await axios.get(
+      `${this.getHubApiBaseUrl()}/api/internal/ai-provider/${encodeURIComponent(discordId)}`,
+      {
+        headers: this.getInternalApiHeaders(),
+        timeout: 10000
+      }
+    );
+    return response.data;
+  }
+
+  async postUserAIUsage(discordId, payload) {
+    await axios.post(
+      `${this.getHubApiBaseUrl()}/api/internal/ai-provider/${encodeURIComponent(discordId)}/usage`,
+      payload,
+      {
+        headers: {
+          ...this.getInternalApiHeaders(),
+          'Content-Type': 'application/json'
+        },
+        timeout: 10000
+      }
+    );
+  }
+
+  async disableUserAIProvider(discordId, reason) {
+    const response = await axios.post(
+      `${this.getHubApiBaseUrl()}/api/internal/ai-provider/${encodeURIComponent(discordId)}/disable`,
+      { reason },
+      {
+        headers: {
+          ...this.getInternalApiHeaders(),
+          'Content-Type': 'application/json'
+        },
+        timeout: 10000
+      }
+    );
+    return response.data;
+  }
+
+  async getUserAIContext(discordId) {
+    try {
+      return await this.fetchUserAIConfig(discordId);
+    } catch (err) {
+      if (err.response?.status === 404) {
+        return err.response.data || null;
+      }
+      throw err;
+    }
+  }
+
+  async cmdAIConfig(interaction) {
+    const config = await this.getUserAIContext(interaction.user.id);
+    if (!config?.configured) {
+      return interaction.reply({
+        content: `AI is ${config?.status || 'not configured'} for your account. Open the Hub Settings page and add or re-enable your personal provider key.`,
+        ephemeral: true
+      });
+    }
+
+    const usage = config.usage || {};
+    await interaction.reply({
+      content: [
+        `**Provider:** ${config.provider}`,
+        `**Model:** ${config.model}`,
+        `**Status:** ${config.status}`,
+        `**Req/hour limit:** ${config.usage_limit_requests_per_hour}`,
+        `**Used this hour:** ${usage.requests_this_hour || 0} requests / ${usage.tokens_this_hour || 0} tokens`,
+        `**Stored key:** ${config.key_hint || 'hidden'}`
+      ].join('\n'),
+      ephemeral: true
+    });
+  }
+
+  async cmdAIUsage(interaction) {
+    const config = await this.getUserAIContext(interaction.user.id);
+    if (!config) {
+      return interaction.reply({
+        content: 'No AI usage is available because your personal provider is not configured yet.',
+        ephemeral: true
+      });
+    }
+
+    const usage = config.usage || {};
+    await interaction.reply({
+      content: [
+        `**This hour:** ${usage.requests_this_hour || 0} requests, ${usage.tokens_this_hour || 0} tokens`,
+        `**Lifetime:** ${usage.lifetime_requests || 0} requests, ${usage.lifetime_tokens || 0} tokens`,
+        `**Last command:** ${usage.last_command || '—'}`,
+        `**Last used:** ${usage.last_used_at ? new Date(usage.last_used_at).toLocaleString() : '—'}`,
+        `**Last error:** ${usage.last_error || 'none'}`
+      ].join('\n'),
+      ephemeral: true
+    });
+  }
+
+  async cmdAIDisable(interaction) {
+    const config = await this.getUserAIContext(interaction.user.id);
+    if (!config?.configured) {
+      return interaction.reply({
+        content: 'There is no active AI provider to disable for your account.',
+        ephemeral: true
+      });
+    }
+
+    await this.disableUserAIProvider(interaction.user.id, 'Disabled via Discord command');
+    await interaction.reply({
+      content: 'Your personal AI provider has been disabled. Re-enable it from the Hub Settings page when ready.',
+      ephemeral: true
+    });
+  }
+
+  async cmdAIAsk(interaction, options, commandName = 'aiask') {
+    const prompt = options.getString('prompt');
+    if (!prompt || !String(prompt).trim()) {
+      return interaction.reply({ content: 'Please provide a prompt.', ephemeral: true });
+    }
+
+    await interaction.deferReply({ ephemeral: true });
+
+    const config = await this.getUserAIContext(interaction.user.id);
+    if (!config?.configured) {
+      return interaction.editReply('AI is not configured for your account. Open the Hub Settings page and add a personal provider key first.');
+    }
+
+    const usage = config.usage || {};
+    const usedThisHour = Number(usage.requests_this_hour || 0);
+    const requestLimit = Number(config.usage_limit_requests_per_hour || 0);
+    if (requestLimit > 0 && usedThisHour >= requestLimit) {
+      return interaction.editReply(`You have reached your hourly AI limit of ${requestLimit} requests. Try again later or raise the limit in the Hub Settings page.`);
+    }
+
+    try {
+      const result = await invokeAIProvider({
+        provider: config.provider,
+        model: config.model,
+        baseUrl: config.base_url,
+        apiKey: config.api_key,
+        timeout: 20000
+      }, prompt);
+
+      const tokenCount = Number(result.usage?.totalTokens || result.usage?.total_tokens || 0);
+      await this.postUserAIUsage(interaction.user.id, {
+        command: commandName,
+        success: true,
+        token_count: tokenCount
+      });
+
+      const answer = result.text || 'The provider returned an empty response.';
+      await interaction.editReply(answer.slice(0, 1900));
+    } catch (err) {
+      const errorMessage = err.response?.data?.error?.message || err.response?.data?.message || err.message || 'Unknown AI provider error';
+      await this.postUserAIUsage(interaction.user.id, {
+        command: commandName,
+        success: false,
+        token_count: 0,
+        error: errorMessage
+      }).catch(() => null);
+      await interaction.editReply(`AI request failed: ${errorMessage}`);
+    }
   }
   
   // Login method

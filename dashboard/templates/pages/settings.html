@@ -78,6 +78,9 @@
     </div>
     <div class="card__row"><span class="card__label">Stored key</span><span class="card__value" id="ai-key-hint">not configured</span></div>
     <div class="card__row"><span class="card__label">Status</span><span class="card__value" id="ai-status">not configured</span></div>
+    <div class="card__row"><span class="card__label">Requests this hour</span><span class="card__value" id="ai-requests-hour">0</span></div>
+    <div class="card__row"><span class="card__label">Tokens this hour</span><span class="card__value" id="ai-tokens-hour">0</span></div>
+    <div class="card__row"><span class="card__label">Last AI command</span><span class="card__value" id="ai-last-command">—</span></div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">
       <button id="ai-validate-button" type="button" class="btn btn--ghost btn--sm" onclick="validateAIProvider()">test connection</button>
       <button id="ai-save-button" type="button" class="btn btn--primary btn--sm" onclick="saveAIProvider()">save provider</button>
@@ -149,6 +152,9 @@ function renderAIProviderStatus(data) {
   document.getElementById('ai-api-key').value = '';
   document.getElementById('ai-key-hint').textContent = data.key_hint || 'not configured';
   document.getElementById('ai-status').textContent = data.status || 'not configured';
+  document.getElementById('ai-requests-hour').textContent = data.usage?.requests_this_hour ?? 0;
+  document.getElementById('ai-tokens-hour').textContent = data.usage?.tokens_this_hour ?? 0;
+  document.getElementById('ai-last-command').textContent = data.usage?.last_command || '—';
   syncProviderDefaults();
 }
 

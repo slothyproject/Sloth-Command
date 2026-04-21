@@ -7,7 +7,7 @@ import hashlib
 import hmac
 import json
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from functools import wraps
 
 from flask import Blueprint, abort, jsonify, request, stream_with_context, Response
@@ -17,7 +17,7 @@ from dashboard.extensions import db, redis_client
 from dashboard.models import (
     AuditLog, BotEvent, Guild, GuildCommand, GuildMember,
     GuildSettings, ModerationCase, Notification, Ticket, TicketMessage,
-    User, UserAIProviderCredential,
+    User, UserAIProviderCredential, UserAIProviderUsageStat,
 )
 from dashboard.services.bot_state import get_bot_state, push_bot_command
 from dashboard.services.ai_provider import (
@@ -27,7 +27,7 @@ from dashboard.services.ai_provider import (
     serialize_ai_provider_credential,
     validate_ai_provider_config,
 )
-from dashboard.services.encryption import encrypt_secret
+from dashboard.services.encryption import decrypt_secret, encrypt_secret
 
 api_bp = Blueprint("api", __name__)
 
@@ -39,6 +39,17 @@ def admin_required(f):
     def decorated(*args, **kwargs):
         if not current_user.is_authenticated or not current_user.is_admin:
             return jsonify({"error": "Forbidden"}), 403
+        return f(*args, **kwargs)
+    return decorated
+
+
+def internal_api_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        configured = os.environ.get("BOT_INTERNAL_API_KEY") or os.environ.get("WEBHOOK_SECRET") or ""
+        provided = request.headers.get("X-Internal-API-Key", "")
+        if not configured or not hmac.compare_digest(provided, configured):
+            return jsonify({"error": "Unauthorized"}), 401
         return f(*args, **kwargs)
     return decorated
 
@@ -71,6 +82,20 @@ def _audit(action: str, guild_id: int | None = None, target_type: str | None = N
     db.session.commit()
 
 
+def _audit_internal(action: str, user: User | None = None, discord_id: str | None = None,
+                    details: dict | None = None) -> None:
+    entry = AuditLog(
+        action=action,
+        actor_id=None,
+        guild_id=None,
+        target_type="user" if user else "discord_user",
+        target_id=str(user.id) if user else str(discord_id) if discord_id else None,
+        details=details,
+        ip_address=request.remote_addr,
+    )
+    db.session.add(entry)
+
+
 def _notify_admins(type_: str, title: str, body: str = "", link: str = "", guild_id: int | None = None):
     admins = User.query.filter_by(is_admin=True, is_active=True).all()
     for admin in admins:
@@ -88,6 +113,41 @@ def _notify_admins(type_: str, title: str, body: str = "", link: str = "", guild
     redis_client.publish("hub:notifications", json.dumps({
         "type": type_, "title": title, "body": body, "link": link
     }))
+
+
+def _get_or_create_ai_usage(user: User) -> UserAIProviderUsageStat:
+    usage = UserAIProviderUsageStat.query.filter_by(user_id=user.id).first()
+    if not usage:
+        usage = UserAIProviderUsageStat(user_id=user.id)
+        db.session.add(usage)
+    return usage
+
+
+def _normalize_usage_window(now: datetime, usage: UserAIProviderUsageStat) -> None:
+    window_start = usage.current_hour_started_at
+    if window_start and window_start.tzinfo is None:
+        # SQLite commonly returns naive datetimes even when timezone=True.
+        window_start = window_start.replace(tzinfo=timezone.utc)
+    if not window_start or window_start + timedelta(hours=1) <= now:
+        usage.current_hour_started_at = now.replace(minute=0, second=0, microsecond=0)
+        usage.requests_this_hour = 0
+        usage.tokens_this_hour = 0
+
+
+def _serialize_user_ai_provider_status(user: User) -> dict:
+    payload = serialize_ai_provider_credential(user.ai_provider_credential)
+    payload["usage"] = user.ai_provider_usage.to_dict() if user.ai_provider_usage else {
+        "current_hour_started_at": None,
+        "requests_this_hour": 0,
+        "tokens_this_hour": 0,
+        "lifetime_requests": 0,
+        "lifetime_tokens": 0,
+        "last_used_at": None,
+        "last_command": None,
+        "last_error": None,
+        "updated_at": None,
+    }
+    return payload
 
 
 # ── Health ───────────────────────────────────────────────────────
@@ -190,8 +250,7 @@ def bot_invite():
 @api_bp.get("/user/ai-provider")
 @login_required
 def user_ai_provider_status():
-    credential = UserAIProviderCredential.query.filter_by(user_id=current_user.id).first()
-    payload = serialize_ai_provider_credential(credential)
+    payload = _serialize_user_ai_provider_status(current_user)
     payload["supported_providers"] = {
         name: {
             "label": config["label"],
@@ -270,7 +329,7 @@ def save_user_ai_provider():
             "status": credential.status,
         },
     )
-    return jsonify(serialize_ai_provider_credential(credential))
+    return jsonify(_serialize_user_ai_provider_status(current_user))
 
 
 @api_bp.post("/user/ai-provider/disable")
@@ -289,7 +348,7 @@ def disable_user_ai_provider():
         target_id=str(current_user.id),
         details={"provider": credential.provider},
     )
-    return jsonify(serialize_ai_provider_credential(credential))
+    return jsonify(_serialize_user_ai_provider_status(current_user))
 
 
 @api_bp.delete("/user/ai-provider")
@@ -309,6 +368,122 @@ def delete_user_ai_provider():
         details={"provider": provider},
     )
     return jsonify({"ok": True, "deleted": True})
+
+
+@api_bp.get("/internal/ai-provider/<string:discord_id>")
+@internal_api_required
+def internal_ai_provider_by_discord_id(discord_id: str):
+    user = User.query.filter_by(discord_id=str(discord_id)).first()
+    if not user:
+        _audit_internal("internal_ai_provider_lookup_missing_user", discord_id=discord_id)
+        db.session.commit()
+        return jsonify({"configured": False, "error": "User not linked in hub"}), 404
+
+    credential = user.ai_provider_credential
+    if not credential or credential.status != "active":
+        _audit_internal(
+            "internal_ai_provider_lookup_not_configured",
+            user=user,
+            discord_id=discord_id,
+            details={"status": credential.status if credential else "not_configured"},
+        )
+        db.session.commit()
+        return jsonify({
+            "configured": False,
+            "status": credential.status if credential else "not_configured",
+            "error": "AI provider not configured for this user",
+            "usage": user.ai_provider_usage.to_dict() if user.ai_provider_usage else None,
+        }), 404
+
+    try:
+        api_key = decrypt_secret(credential.encrypted_api_key, credential.api_key_iv)
+    except Exception:
+        _audit_internal("internal_ai_provider_lookup_decrypt_failed", user=user, discord_id=discord_id)
+        db.session.commit()
+        return jsonify({"configured": False, "error": "Could not decrypt AI provider secret"}), 503
+
+    usage = _get_or_create_ai_usage(user)
+    now = datetime.now(timezone.utc)
+    _normalize_usage_window(now, usage)
+    _audit_internal("internal_ai_provider_lookup_success", user=user, discord_id=discord_id)
+    db.session.commit()
+
+    return jsonify({
+        "configured": True,
+        "provider": credential.provider,
+        "model": credential.model,
+        "base_url": credential.base_url,
+        "api_key": api_key,
+        "usage_limit_requests_per_hour": credential.usage_limit_requests_per_hour,
+        "key_hint": credential.key_hint,
+        "status": credential.status,
+        "usage": usage.to_dict(),
+    })
+
+
+@api_bp.post("/internal/ai-provider/<string:discord_id>/usage")
+@internal_api_required
+def internal_ai_provider_usage(discord_id: str):
+    user = User.query.filter_by(discord_id=str(discord_id)).first()
+    if not user:
+        _audit_internal("internal_ai_provider_usage_missing_user", discord_id=discord_id)
+        db.session.commit()
+        return jsonify({"error": "User not linked in hub"}), 404
+
+    payload = request.get_json(silent=True) or {}
+    usage = _get_or_create_ai_usage(user)
+    now = datetime.now(timezone.utc)
+    _normalize_usage_window(now, usage)
+
+    token_count = payload.get("token_count", 0)
+    try:
+        token_count = max(0, int(token_count))
+    except (TypeError, ValueError):
+        token_count = 0
+
+    success = bool(payload.get("success", False))
+    usage.requests_this_hour += 1
+    usage.tokens_this_hour += token_count
+    usage.lifetime_requests += 1
+    usage.lifetime_tokens += token_count
+    usage.last_used_at = now
+    usage.last_command = str(payload.get("command") or "aiask").strip() or "aiask"
+    usage.last_error = None if success else str(payload.get("error") or "Unknown AI provider error")
+    _audit_internal(
+        "internal_ai_provider_usage_recorded",
+        user=user,
+        discord_id=discord_id,
+        details={
+            "command": usage.last_command,
+            "success": success,
+            "token_count": token_count,
+        },
+    )
+    db.session.commit()
+
+    return jsonify({"ok": True, "usage": usage.to_dict()})
+
+
+@api_bp.post("/internal/ai-provider/<string:discord_id>/disable")
+@internal_api_required
+def internal_disable_ai_provider(discord_id: str):
+    user = User.query.filter_by(discord_id=str(discord_id)).first()
+    if not user or not user.ai_provider_credential:
+        _audit_internal("internal_ai_provider_disable_missing_user", discord_id=discord_id)
+        db.session.commit()
+        return jsonify({"error": "AI provider not configured"}), 404
+
+    reason = str((request.get_json(silent=True) or {}).get("reason") or "Disabled by bot command").strip()
+    user.ai_provider_credential.status = "disabled"
+    user.ai_provider_credential.validation_error = reason
+    _audit_internal(
+        "internal_ai_provider_disabled_by_internal",
+        user=user,
+        discord_id=discord_id,
+        details={"reason": reason},
+    )
+    db.session.commit()
+    return jsonify({"ok": True, "status": user.ai_provider_credential.status})
 
 
 # ── Guilds ───────────────────────────────────────────────────────

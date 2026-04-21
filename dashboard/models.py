@@ -42,6 +42,12 @@ class User(UserMixin, db.Model):
         uselist=False,
         cascade="all, delete-orphan",
     )
+    ai_provider_usage = db.relationship(
+        "UserAIProviderUsageStat",
+        back_populates="user",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
 
     def set_password(self, password: str) -> None:
         self.hashed_password = generate_password_hash(password)
@@ -225,6 +231,43 @@ class UserAIProviderCredential(db.Model):
             "usage_limit_requests_per_hour": self.usage_limit_requests_per_hour,
             "last_validated_at": self.last_validated_at.isoformat() if self.last_validated_at else None,
             "validation_error": self.validation_error,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+class UserAIProviderUsageStat(db.Model):
+    __tablename__ = "hub_user_ai_provider_usage"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(
+        db.Integer,
+        db.ForeignKey("hub_users.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    current_hour_started_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    requests_this_hour = db.Column(db.Integer, nullable=False, default=0)
+    tokens_this_hour = db.Column(db.Integer, nullable=False, default=0)
+    lifetime_requests = db.Column(db.Integer, nullable=False, default=0)
+    lifetime_tokens = db.Column(db.Integer, nullable=False, default=0)
+    last_used_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    last_command = db.Column(db.String(40), nullable=True)
+    last_error = db.Column(db.Text, nullable=True)
+    updated_at = db.Column(db.DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+    user = db.relationship("User", back_populates="ai_provider_usage")
+
+    def to_dict(self) -> dict:
+        return {
+            "current_hour_started_at": self.current_hour_started_at.isoformat() if self.current_hour_started_at else None,
+            "requests_this_hour": self.requests_this_hour,
+            "tokens_this_hour": self.tokens_this_hour,
+            "lifetime_requests": self.lifetime_requests,
+            "lifetime_tokens": self.lifetime_tokens,
+            "last_used_at": self.last_used_at.isoformat() if self.last_used_at else None,
+            "last_command": self.last_command,
+            "last_error": self.last_error,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
 

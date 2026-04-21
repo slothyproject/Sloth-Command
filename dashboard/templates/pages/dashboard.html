@@ -80,6 +80,10 @@
         <div class="card__label">REQ/HOUR</div>
         <div class="card__value" id="ai-ready-limit">—</div>
       </div>
+      <div>
+        <div class="card__label">USED THIS HOUR</div>
+        <div class="card__value" id="ai-ready-usage">0 req / 0 tok</div>
+      </div>
     </div>
     <div id="ai-ready-feedback" style="margin-top:12px;font-size:12px;color:var(--text-1)">Checking whether your personal AI provider is ready to use.</div>
   </div>
@@ -208,6 +212,7 @@ async function loadAIReadiness() {
     document.getElementById('ai-ready-provider').textContent = data.provider || '—';
     document.getElementById('ai-ready-model').textContent = data.model || '—';
     document.getElementById('ai-ready-limit').textContent = data.usage_limit_requests_per_hour || '—';
+    document.getElementById('ai-ready-usage').textContent = `${data.usage?.requests_this_hour ?? 0} req / ${data.usage?.tokens_this_hour ?? 0} tok`;
 
     const feedback = document.getElementById('ai-ready-feedback');
     if (!configured) {
