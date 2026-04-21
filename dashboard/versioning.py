@@ -43,12 +43,24 @@ def _base_version() -> str:
 
 
 def get_dashboard_commit() -> str:
-    """Get current git commit SHA (7 chars) from environment or git."""
+    """Get commit SHA from env, file, or git (in order of preference)."""
+    # Try environment variables first
     for env_key in ("RAILWAY_GIT_COMMIT_SHA", "GIT_COMMIT", "SOURCE_COMMIT"):
         value = (os.environ.get(env_key) or "").strip()
-        if value:
+        if value and value != "unknown":
             return value[:7]
 
+    # Try reading from commit.txt (created by Dockerfile at build time)
+    try:
+        commit_file = Path("/tmp/commit.txt")
+        if commit_file.exists():
+            commit = commit_file.read_text(encoding="utf-8").strip()
+            if commit and commit != "unknown":
+                return commit[:7]
+    except Exception:
+        pass
+
+    # Try git subprocess as fallback
     try:
         result = subprocess.run(
             ["git", "rev-parse", "--short", "HEAD"],
@@ -60,7 +72,7 @@ def get_dashboard_commit() -> str:
         if result.returncode == 0:
             commit = result.stdout.strip()
             if commit:
-                return commit
+                return commit[:7]
     except Exception:
         pass
 
