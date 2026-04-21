@@ -19,6 +19,9 @@ from flask_login import current_user, login_required
 
 from dashboard.extensions import db, redis_client
 from dashboard.models import (
+    AIActionProposal,
+    AIConversationMessage,
+    AIConversationThread,
     AuditLog, BotEvent, Guild, GuildCommand, GuildMember,
     GuildSettings, ModerationCase, Notification, Ticket, TicketMessage, User,
 )
