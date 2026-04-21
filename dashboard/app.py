@@ -75,7 +75,8 @@ def create_app(config: dict | None = None) -> Flask:
     # ── Health endpoint ─────────────────────────────────────────
     @app.get("/health")
     def health():
-        return {"status": "ok", "service": "dissident-central-hub", "version": "1.0.0"}
+        from dashboard.versioning import get_dashboard_version
+        return {"status": "ok", "service": "dissident-central-hub", "version": get_dashboard_version()}
 
     # ── DB init ─────────────────────────────────────────────────
     # Run migrations first (ALTER TABLE for new columns on existing tables)
