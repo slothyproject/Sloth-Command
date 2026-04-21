@@ -16,9 +16,18 @@ from flask_login import current_user, login_required
 from dashboard.extensions import db, redis_client
 from dashboard.models import (
     AuditLog, BotEvent, Guild, GuildCommand, GuildMember,
-    GuildSettings, ModerationCase, Notification, Ticket, TicketMessage, User,
+    GuildSettings, ModerationCase, Notification, Ticket, TicketMessage,
+    User, UserAIProviderCredential,
 )
 from dashboard.services.bot_state import get_bot_state, push_bot_command
+from dashboard.services.ai_provider import (
+    SUPPORTED_AI_PROVIDERS,
+    mask_api_key,
+    normalize_ai_provider_payload,
+    serialize_ai_provider_credential,
+    validate_ai_provider_config,
+)
+from dashboard.services.encryption import encrypt_secret
 
 api_bp = Blueprint("api", __name__)
 
@@ -176,6 +185,130 @@ def bot_invite():
     perms = 8  # Administrator — or use fine-grained: 1374389534902
     url = f"https://discord.com/oauth2/authorize?client_id={client_id}&permissions={perms}&scope=bot%20applications.commands"
     return jsonify({"url": url, "client_id": client_id})
+
+
+@api_bp.get("/user/ai-provider")
+@login_required
+def user_ai_provider_status():
+    credential = UserAIProviderCredential.query.filter_by(user_id=current_user.id).first()
+    payload = serialize_ai_provider_credential(credential)
+    payload["supported_providers"] = {
+        name: {
+            "label": config["label"],
+            "default_model": config["default_model"],
+            "requires_base_url": config["requires_base_url"],
+        }
+        for name, config in SUPPORTED_AI_PROVIDERS.items()
+    }
+    return jsonify(payload)
+
+
+@api_bp.post("/user/ai-provider/validate")
+@login_required
+def validate_user_ai_provider():
+    try:
+        payload = normalize_ai_provider_payload(request.get_json() or {}, require_api_key=True)
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+    validation = validate_ai_provider_config(
+        provider=payload["provider"],
+        api_key=payload["api_key"],
+        model=payload["model"],
+        base_url=payload["base_url"],
+    )
+    status = 200 if validation.get("ok") else 400
+    return jsonify(validation), status
+
+
+@api_bp.post("/user/ai-provider")
+@login_required
+def save_user_ai_provider():
+    try:
+        payload = normalize_ai_provider_payload(request.get_json() or {}, require_api_key=True)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    validation = validate_ai_provider_config(
+        provider=payload["provider"],
+        api_key=payload["api_key"],
+        model=payload["model"],
+        base_url=payload["base_url"],
+    )
+    if not validation.get("ok"):
+        return jsonify(validation), 400
+
+    try:
+        encrypted_api_key, api_key_iv = encrypt_secret(payload["api_key"])
+    except (RuntimeError, ValueError) as exc:
+        return jsonify({"error": str(exc)}), 503
+
+    credential = UserAIProviderCredential.query.filter_by(user_id=current_user.id).first()
+    if not credential:
+        credential = UserAIProviderCredential(user_id=current_user.id)
+        db.session.add(credential)
+
+    credential.provider = payload["provider"]
+    credential.model = payload["model"]
+    credential.base_url = payload["base_url"]
+    credential.encrypted_api_key = encrypted_api_key
+    credential.api_key_iv = api_key_iv
+    credential.key_hint = mask_api_key(payload["api_key"])
+    credential.status = "active"
+    credential.usage_limit_requests_per_hour = payload["usage_limit_requests_per_hour"]
+    credential.last_validated_at = datetime.now(timezone.utc)
+    credential.validation_error = None
+
+    db.session.commit()
+    _audit(
+        "user_ai_provider_saved",
+        target_type="ai_provider",
+        target_id=str(current_user.id),
+        details={
+            "provider": credential.provider,
+            "model": credential.model,
+            "status": credential.status,
+        },
+    )
+    return jsonify(serialize_ai_provider_credential(credential))
+
+
+@api_bp.post("/user/ai-provider/disable")
+@login_required
+def disable_user_ai_provider():
+    credential = UserAIProviderCredential.query.filter_by(user_id=current_user.id).first()
+    if not credential:
+        return jsonify({"error": "No AI provider configuration found"}), 404
+
+    credential.status = "disabled"
+    credential.validation_error = None
+    db.session.commit()
+    _audit(
+        "user_ai_provider_disabled",
+        target_type="ai_provider",
+        target_id=str(current_user.id),
+        details={"provider": credential.provider},
+    )
+    return jsonify(serialize_ai_provider_credential(credential))
+
+
+@api_bp.delete("/user/ai-provider")
+@login_required
+def delete_user_ai_provider():
+    credential = UserAIProviderCredential.query.filter_by(user_id=current_user.id).first()
+    if not credential:
+        return jsonify({"ok": True, "deleted": False})
+
+    provider = credential.provider
+    db.session.delete(credential)
+    db.session.commit()
+    _audit(
+        "user_ai_provider_deleted",
+        target_type="ai_provider",
+        target_id=str(current_user.id),
+        details={"provider": provider},
+    )
+    return jsonify({"ok": True, "deleted": True})
 
 
 # ── Guilds ───────────────────────────────────────────────────────

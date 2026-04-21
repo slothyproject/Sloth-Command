@@ -49,13 +49,53 @@
     <div class="card__row"><span class="card__label">Discord ID</span><span class="card__value">{{ current_user.discord_id or '—' }}</span></div>
     <div class="card__row"><span class="card__label">Last login</span><span class="card__value">{{ current_user.last_login.strftime('%d %b %Y %H:%M') if current_user.last_login else '—' }}</span></div>
   </div>
+  <div class="card">
+    <div class="card__title">PERSONAL AI PROVIDER</div>
+    <div class="form-row">
+      <span class="card__label">Provider</span>
+      <select id="ai-provider" class="field__input--inline" style="max-width:220px">
+        <option value="openai">OpenAI</option>
+        <option value="anthropic">Anthropic</option>
+        <option value="gemini">Google Gemini</option>
+        <option value="custom_openai">Custom OpenAI-compatible</option>
+      </select>
+    </div>
+    <div class="form-row">
+      <span class="card__label">Model</span>
+      <input id="ai-model" class="field__input--inline" type="text" placeholder="gpt-4o-mini">
+    </div>
+    <div class="form-row">
+      <span class="card__label">Base URL</span>
+      <input id="ai-base-url" class="field__input--inline" type="url" placeholder="https://your-endpoint.example.com">
+    </div>
+    <div class="form-row">
+      <span class="card__label">API key</span>
+      <input id="ai-api-key" class="field__input--inline" type="password" placeholder="Paste your provider key">
+    </div>
+    <div class="form-row">
+      <span class="card__label">Req/hour limit</span>
+      <input id="ai-usage-limit" class="field__input--inline" type="number" min="1" max="10000" value="100">
+    </div>
+    <div class="card__row"><span class="card__label">Stored key</span><span class="card__value" id="ai-key-hint">not configured</span></div>
+    <div class="card__row"><span class="card__label">Status</span><span class="card__value" id="ai-status">not configured</span></div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">
+      <button id="ai-validate-button" type="button" class="btn btn--ghost btn--sm" onclick="validateAIProvider()">test connection</button>
+      <button id="ai-save-button" type="button" class="btn btn--primary btn--sm" onclick="saveAIProvider()">save provider</button>
+      <button id="ai-disable-button" type="button" class="btn btn--ghost btn--sm" onclick="disableAIProvider()">disable</button>
+      <button id="ai-delete-button" type="button" class="btn btn--danger btn--sm" onclick="deleteAIProvider()">delete</button>
+    </div>
+    <div id="ai-feedback" style="padding-top:12px;font-size:12px;color:var(--text-1)"></div>
+  </div>
 </div>
 {% endblock %}
 {% block scripts %}
 <script>
+let supportedProviders = {};
+
 (async () => {
   const d = await fetch('/api/bot/invite').then(r => r.json()).catch(() => ({}));
   if (d.url) document.getElementById('invite-link').href = d.url;
+  await loadAIProvider();
 })();
 
 async function doAction(action) {
@@ -63,5 +103,120 @@ async function doAction(action) {
   const d = await r.json();
   alert(d.ok ? '✓ ' + action : '✗ ' + (d.error || 'error'));
 }
+
+function aiPayload() {
+  return {
+    provider: document.getElementById('ai-provider').value,
+    model: document.getElementById('ai-model').value.trim(),
+    base_url: document.getElementById('ai-base-url').value.trim(),
+    api_key: document.getElementById('ai-api-key').value.trim(),
+    usage_limit_requests_per_hour: document.getElementById('ai-usage-limit').value,
+  };
+}
+
+function setAIButtonsDisabled(disabled) {
+  ['ai-validate-button', 'ai-save-button', 'ai-disable-button', 'ai-delete-button'].forEach(id => {
+    const element = document.getElementById(id);
+    if (element) element.disabled = disabled;
+  });
+}
+
+function syncProviderDefaults() {
+  const provider = document.getElementById('ai-provider').value;
+  const config = supportedProviders[provider] || {};
+  const model = document.getElementById('ai-model');
+  const baseUrl = document.getElementById('ai-base-url');
+
+  if (!model.value.trim() && config.default_model) {
+    model.value = config.default_model;
+  }
+  baseUrl.disabled = !config.requires_base_url;
+  if (!config.requires_base_url) {
+    baseUrl.value = '';
+  }
+}
+
+function renderAIProviderStatus(data) {
+  supportedProviders = data.supported_providers || supportedProviders;
+  if (data.provider) document.getElementById('ai-provider').value = data.provider;
+  document.getElementById('ai-model').value = data.model || '';
+  document.getElementById('ai-base-url').value = data.base_url || '';
+  document.getElementById('ai-usage-limit').value = data.usage_limit_requests_per_hour || 100;
+  document.getElementById('ai-api-key').value = '';
+  document.getElementById('ai-key-hint').textContent = data.key_hint || 'not configured';
+  document.getElementById('ai-status').textContent = data.status || 'not configured';
+  syncProviderDefaults();
+}
+
+async function loadAIProvider() {
+  const response = await fetch('/api/user/ai-provider');
+  const data = await response.json().catch(() => ({}));
+  renderAIProviderStatus(data);
+}
+
+async function validateAIProvider() {
+  const feedback = document.getElementById('ai-feedback');
+  setAIButtonsDisabled(true);
+  feedback.textContent = 'Validating provider...';
+  try {
+    const response = await fetch('/api/user/ai-provider/validate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(aiPayload()),
+    });
+    const data = await response.json().catch(() => ({}));
+    feedback.textContent = response.ok ? (data.message || 'Provider validated successfully.') : (data.error || data.message || 'Validation failed.');
+  } finally {
+    setAIButtonsDisabled(false);
+  }
+}
+
+async function saveAIProvider() {
+  const feedback = document.getElementById('ai-feedback');
+  setAIButtonsDisabled(true);
+  feedback.textContent = 'Saving provider...';
+  try {
+    const response = await fetch('/api/user/ai-provider', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(aiPayload()),
+    });
+    const data = await response.json().catch(() => ({}));
+    feedback.textContent = response.ok ? 'Provider saved.' : (data.error || data.message || 'Failed to save provider.');
+    if (response.ok) renderAIProviderStatus({ ...data, supported_providers: supportedProviders });
+  } finally {
+    setAIButtonsDisabled(false);
+  }
+}
+
+async function disableAIProvider() {
+  const feedback = document.getElementById('ai-feedback');
+  setAIButtonsDisabled(true);
+  feedback.textContent = 'Disabling provider...';
+  try {
+    const response = await fetch('/api/user/ai-provider/disable', { method: 'POST' });
+    const data = await response.json().catch(() => ({}));
+    feedback.textContent = response.ok ? 'Provider disabled.' : (data.error || 'Failed to disable provider.');
+    if (response.ok) renderAIProviderStatus({ ...data, supported_providers: supportedProviders });
+  } finally {
+    setAIButtonsDisabled(false);
+  }
+}
+
+async function deleteAIProvider() {
+  const feedback = document.getElementById('ai-feedback');
+  setAIButtonsDisabled(true);
+  feedback.textContent = 'Deleting provider...';
+  try {
+    const response = await fetch('/api/user/ai-provider', { method: 'DELETE' });
+    const data = await response.json().catch(() => ({}));
+    feedback.textContent = response.ok ? 'Provider deleted.' : (data.error || 'Failed to delete provider.');
+    if (response.ok) await loadAIProvider();
+  } finally {
+    setAIButtonsDisabled(false);
+  }
+}
+
+document.getElementById('ai-provider').addEventListener('change', syncProviderDefaults);
 </script>
 {% endblock %}
