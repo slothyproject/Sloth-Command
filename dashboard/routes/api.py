@@ -147,6 +147,18 @@ def public_stats():
     })
 
 
+@api_bp.get("/version")
+def get_version():
+    """Get dashboard and bot version info."""
+    from dashboard.versioning import get_dashboard_version
+    bot = get_bot_state()
+    return jsonify({
+        "dashboard": get_dashboard_version(),
+        "bot": bot.get("version", "unknown"),
+        "bot_online": bot.get("online", False),
+    })
+
+
 # ── Bot state ────────────────────────────────────────────────────
 
 @api_bp.get("/bot")
