@@ -108,6 +108,7 @@ def call_dissident_api(method: str, path: str, user, *, json_payload: dict | Non
             headers={
                 "Authorization": f"Bearer {token}",
                 "Content-Type": "application/json",
+                "X-Hub-Bridge": "1",
             },
             json=json_payload,
             params=params,
