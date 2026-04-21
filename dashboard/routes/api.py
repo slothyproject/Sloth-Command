@@ -19,6 +19,7 @@ from dashboard.models import (
     GuildSettings, ModerationCase, Notification, Ticket, TicketMessage, User,
 )
 from dashboard.services.bot_state import get_bot_state, push_bot_command
+from dashboard.services.dissident_api import call_dissident_api
 
 api_bp = Blueprint("api", __name__)
 
@@ -79,6 +80,26 @@ def _notify_admins(type_: str, title: str, body: str = "", link: str = "", guild
     redis_client.publish("hub:notifications", json.dumps({
         "type": type_, "title": title, "body": body, "link": link
     }))
+
+
+def _record_moderation_case(guild: Guild, *, action: str, target_id: str,
+                            target_name: str | None = None, reason: str | None = None,
+                            moderator_id: str | None = None, moderator_name: str | None = None,
+                            duration: str | None = None) -> ModerationCase:
+    case = ModerationCase(
+        guild_id=guild.id,
+        case_number=guild.mod_cases.count() + 1,
+        action=action,
+        target_id=str(target_id),
+        target_name=target_name,
+        moderator_id=moderator_id,
+        moderator_name=moderator_name,
+        reason=reason,
+        duration=duration,
+        is_active=action not in {"unban", "unmute", "global_unban"},
+    )
+    db.session.add(case)
+    return case
 
 
 # ── Health ───────────────────────────────────────────────────────
@@ -373,6 +394,176 @@ def guild_moderation(guild_id: int):
         "per_page": per_page,
         "cases": [c.to_dict() for c in cases.items],
     })
+
+
+@api_bp.get("/guilds/<int:guild_id>/moderation/member-search")
+@login_required
+@guild_access_required
+def guild_member_search(guild_id: int):
+    guild = Guild.query.get_or_404(guild_id)
+    query = (request.args.get("query") or "").strip()
+    if not query:
+        return jsonify([])
+
+    status, payload = call_dissident_api(
+        "GET",
+        f"guilds/{guild.discord_id}/members/search",
+        current_user,
+        params={"query": query, "limit": request.args.get("limit", 10)},
+    )
+    return jsonify(payload), status
+
+
+@api_bp.post("/guilds/<int:guild_id>/moderation/actions")
+@login_required
+@guild_access_required
+def guild_moderation_action(guild_id: int):
+    guild = Guild.query.get_or_404(guild_id)
+    data = request.get_json() or {}
+    action = str(data.get("action") or "").strip().lower()
+    supported = {"ban", "kick", "mute", "unmute", "warn", "unban"}
+    if action not in supported:
+        return jsonify({"error": "Unsupported moderation action"}), 400
+
+    payload = {
+        "guildId": guild.discord_id,
+        "userId": data.get("user_id"),
+        "reason": data.get("reason"),
+    }
+    if action == "mute":
+        payload["duration"] = data.get("duration")
+    if action == "ban":
+        payload["deleteMessages"] = bool(data.get("delete_messages"))
+
+    status, response = call_dissident_api(
+        "POST",
+        f"moderation/{action}",
+        current_user,
+        json_payload=payload,
+    )
+    if status >= 400:
+        return jsonify(response), status
+
+    _record_moderation_case(
+        guild,
+        action=action,
+        target_id=str(data.get("user_id") or ""),
+        target_name=data.get("target_name"),
+        reason=data.get("reason"),
+        moderator_id=current_user.discord_id,
+        moderator_name=current_user.username,
+        duration=str(data.get("duration")) if data.get("duration") else None,
+    )
+    db.session.commit()
+    _audit(f"moderation_action:{action}", guild_id=guild.id, target_type="discord_user", target_id=str(data.get("user_id") or ""))
+    return jsonify(response)
+
+
+@api_bp.post("/guilds/<int:guild_id>/moderation/bulk")
+@login_required
+@guild_access_required
+def guild_moderation_bulk(guild_id: int):
+    guild = Guild.query.get_or_404(guild_id)
+    data = request.get_json() or {}
+    action = str(data.get("action") or "").strip().lower()
+
+    status, response = call_dissident_api(
+        "POST",
+        "moderation/bulk",
+        current_user,
+        json_payload={
+            "guildId": guild.discord_id,
+            "action": action,
+            "userIds": data.get("user_ids"),
+            "reason": data.get("reason"),
+            "duration": data.get("duration"),
+            "deleteMessages": bool(data.get("delete_messages")),
+        },
+    )
+    if status >= 400:
+        return jsonify(response), status
+
+    for result in response.get("results", []):
+        if not result.get("success"):
+            continue
+        _record_moderation_case(
+            guild,
+            action=action,
+            target_id=str(result.get("userId") or ""),
+            target_name=result.get("targetTag"),
+            reason=data.get("reason"),
+            moderator_id=current_user.discord_id,
+            moderator_name=current_user.username,
+            duration=str(data.get("duration")) if data.get("duration") else None,
+        )
+
+    db.session.commit()
+    _audit("moderation_bulk", guild_id=guild.id, target_type="guild", target_id=str(guild.id), details={"action": action})
+    return jsonify(response)
+
+
+@api_bp.get("/moderation/global-bans")
+@login_required
+@admin_required
+def global_bans_list():
+    status, response = call_dissident_api("GET", "moderation/global-bans", current_user)
+    return jsonify(response), status
+
+
+@api_bp.post("/moderation/global-bans")
+@login_required
+@admin_required
+def global_bans_create():
+    data = request.get_json() or {}
+    source_guild = None
+    if data.get("source_guild_id"):
+        source_guild = Guild.query.get(int(data["source_guild_id"]))
+
+    status, response = call_dissident_api(
+        "POST",
+        "moderation/global-ban",
+        current_user,
+        json_payload={
+            "userId": data.get("user_id"),
+            "username": data.get("username"),
+            "reason": data.get("reason"),
+            "evidence": data.get("evidence"),
+            "sourceGuildId": source_guild.discord_id if source_guild else None,
+            "deleteMessages": bool(data.get("delete_messages")),
+        },
+    )
+    if status >= 400:
+        return jsonify(response), status
+
+    if source_guild:
+        _record_moderation_case(
+            source_guild,
+            action="global_ban",
+            target_id=str(data.get("user_id") or ""),
+            target_name=data.get("username"),
+            reason=data.get("reason"),
+            moderator_id=current_user.discord_id,
+            moderator_name=current_user.username,
+        )
+        db.session.commit()
+
+    _audit("global_ban_create", guild_id=source_guild.id if source_guild else None, target_type="discord_user", target_id=str(data.get("user_id") or ""))
+    return jsonify(response)
+
+
+@api_bp.delete("/moderation/global-bans/<string:user_id>")
+@login_required
+@admin_required
+def global_bans_delete(user_id: str):
+    data = request.get_json(silent=True) or {}
+    status, response = call_dissident_api(
+        "DELETE",
+        f"moderation/global-ban/{user_id}",
+        current_user,
+        json_payload={"reason": data.get("reason")},
+    )
+    _audit("global_ban_delete", target_type="discord_user", target_id=user_id, details={"status": status})
+    return jsonify(response), status
 
 
 @api_bp.get("/moderation/recent")

@@ -12,6 +12,7 @@ const path = require('path');
 const { Pool } = require('pg');
 const { Client, GatewayIntentBits } = require('discord.js');
 const axios = require('axios');
+const { parseUserIdList, summarizeBulkResults } = require('./lib/moderation-tools');
 const {
   DEFAULT_SETTINGS,
   normalizeServerSettings,
@@ -56,6 +57,27 @@ function createCaseId() {
 
 function formatAuditReason(reason, caseId) {
   return `[CASE:${caseId}] ${normalizeReason(reason)}`;
+}
+
+function isGlobalAdminUser(userId) {
+  return (process.env.DISCORD_ADMIN_IDS || '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .includes(String(userId));
+}
+
+function getDeploymentDiagnostics() {
+  return {
+    deploymentVersion: '2.1.1-route-parity',
+    moderationRoutes: {
+      ban: '/api/moderation/ban',
+      bulk: '/api/moderation/bulk',
+      globalBans: '/api/moderation/global-bans',
+      globalBanCreate: '/api/moderation/global-ban',
+      globalBanDelete: '/api/moderation/global-ban/:userId',
+    },
+  };
 }
 
 function getHierarchyBlockReason(guild, moderator, target, botMember) {
@@ -156,6 +178,138 @@ async function applyWarningThresholdAction(guild, member, moderatorId, reason) {
   );
 
   return `Automatic action applied: muted for ${muteMinutes} minutes after ${totalWarnings} warnings.`;
+}
+
+async function performModerationAction({
+  guild,
+  action,
+  targetUserId,
+  moderatorId,
+  reason,
+  durationSeconds,
+  deleteMessages,
+}) {
+  const auditReason = normalizeReason(reason);
+  const caseId = createCaseId();
+  const moderator = await guild.members.fetch(moderatorId).catch(() => null);
+  const botMember = guild.members.me;
+
+  if (action === 'unban') {
+    const ban = await guild.bans.fetch(targetUserId).catch(() => null);
+    if (!ban) {
+      return { success: false, userId: targetUserId, error: 'User is not currently banned.' };
+    }
+
+    await guild.members.unban(targetUserId, auditReason);
+    await pool.query(
+      `INSERT INTO audit_logs (server_id, user_id, target_id, action, reason)
+       VALUES ($1, $2, $3, 'UNBAN', $4)`,
+      [guild.id, moderatorId, targetUserId, formatAuditReason(auditReason, caseId)]
+    );
+    return { success: true, userId: targetUserId, action: 'unban', caseId, targetTag: ban.user.tag };
+  }
+
+  const member = await guild.members.fetch(targetUserId).catch(() => null);
+  if (!member) {
+    return { success: false, userId: targetUserId, error: 'Target user not found in guild.' };
+  }
+
+  const block = getHierarchyBlockReason(guild, moderator, member, botMember);
+  if (block) {
+    return { success: false, userId: targetUserId, error: block };
+  }
+
+  if (action === 'ban') {
+    if (!member.bannable) {
+      return { success: false, userId: targetUserId, error: 'Bot cannot ban this user.' };
+    }
+
+    await member.ban({
+      reason: auditReason,
+      deleteMessageSeconds: deleteMessages ? 604800 : 0,
+    });
+    await pool.query(
+      `INSERT INTO audit_logs (server_id, user_id, target_id, action, reason)
+       VALUES ($1, $2, $3, 'BAN', $4)`,
+      [guild.id, moderatorId, targetUserId, formatAuditReason(auditReason, caseId)]
+    );
+    return { success: true, userId: targetUserId, action: 'ban', caseId, targetTag: member.user.tag };
+  }
+
+  if (action === 'kick') {
+    if (!member.kickable) {
+      return { success: false, userId: targetUserId, error: 'Bot cannot kick this user.' };
+    }
+
+    await member.kick(auditReason);
+    await pool.query(
+      `INSERT INTO audit_logs (server_id, user_id, target_id, action, reason)
+       VALUES ($1, $2, $3, 'KICK', $4)`,
+      [guild.id, moderatorId, targetUserId, formatAuditReason(auditReason, caseId)]
+    );
+    return { success: true, userId: targetUserId, action: 'kick', caseId, targetTag: member.user.tag };
+  }
+
+  if (action === 'mute') {
+    if (!member.moderatable) {
+      return { success: false, userId: targetUserId, error: 'Bot cannot mute this user.' };
+    }
+
+    const normalizedDuration = Number(durationSeconds);
+    if (!Number.isFinite(normalizedDuration) || normalizedDuration < 1 || normalizedDuration > 2419200) {
+      return { success: false, userId: targetUserId, error: 'Duration must be between 1 and 2419200 seconds.' };
+    }
+
+    await member.timeout(normalizedDuration * 1000, auditReason);
+    await pool.query(
+      `INSERT INTO audit_logs (server_id, user_id, target_id, action, reason)
+       VALUES ($1, $2, $3, 'MUTE', $4)`,
+      [guild.id, moderatorId, targetUserId, formatAuditReason(`${auditReason} (${normalizedDuration}s)`, caseId)]
+    );
+    return { success: true, userId: targetUserId, action: 'mute', caseId, targetTag: member.user.tag };
+  }
+
+  if (action === 'unmute') {
+    if (!member.moderatable) {
+      return { success: false, userId: targetUserId, error: 'Bot cannot unmute this user.' };
+    }
+
+    await member.timeout(null, auditReason);
+    await pool.query(
+      `INSERT INTO audit_logs (server_id, user_id, target_id, action, reason)
+       VALUES ($1, $2, $3, 'UNMUTE', $4)`,
+      [guild.id, moderatorId, targetUserId, formatAuditReason(auditReason, caseId)]
+    );
+    return { success: true, userId: targetUserId, action: 'unmute', caseId, targetTag: member.user.tag };
+  }
+
+  if (action === 'warn') {
+    const warningResult = await pool.query(
+      `INSERT INTO user_warnings (user_id, guild_id, moderator_id, reason)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id`,
+      [targetUserId, guild.id, moderatorId, auditReason]
+    );
+
+    await pool.query(
+      `INSERT INTO audit_logs (server_id, user_id, target_id, action, reason)
+       VALUES ($1, $2, $3, 'WARN', $4)`,
+      [guild.id, moderatorId, targetUserId, formatAuditReason(auditReason, caseId)]
+    );
+
+    const autoAction = await applyWarningThresholdAction(guild, member, moderatorId, auditReason);
+    return {
+      success: true,
+      userId: targetUserId,
+      action: 'warn',
+      caseId,
+      targetTag: member.user.tag,
+      warningId: warningResult.rows[0]?.id,
+      autoAction,
+    };
+  }
+
+  return { success: false, userId: targetUserId, error: `Unsupported action: ${action}` };
 }
 
 // Test endpoint to verify deployment
@@ -274,6 +428,23 @@ async function initDatabase() {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
 
+      CREATE TABLE IF NOT EXISTS global_bans (
+        id SERIAL PRIMARY KEY,
+        user_id VARCHAR(32) NOT NULL UNIQUE,
+        username VARCHAR(255),
+        reason TEXT NOT NULL,
+        evidence TEXT,
+        source_guild_id VARCHAR(32),
+        created_by VARCHAR(32),
+        created_by_name VARCHAR(255),
+        is_active BOOLEAN DEFAULT TRUE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        revoked_at TIMESTAMP,
+        revoked_by VARCHAR(32),
+        revoke_reason TEXT
+      );
+
       CREATE TABLE IF NOT EXISTS user_xp (
         user_id VARCHAR(32) NOT NULL,
         guild_id VARCHAR(32) NOT NULL,
@@ -373,6 +544,11 @@ const authenticateToken = async (req, res, next) => {
   
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+    if (decoded.hubBridge === true) {
+      req.user = decoded;
+      return next();
+    }
     
     // Verify session exists
     const sessionResult = await pool.query(
@@ -614,6 +790,159 @@ app.get('/api/moderation/logs/:guildId', authenticateToken, async (req, res) => 
   } catch (error) {
     console.error('Moderation logs error:', error);
     res.status(500).json({ error: 'Failed to fetch logs' });
+  }
+});
+
+app.post('/api/moderation/bulk', authenticateToken, async (req, res) => {
+  try {
+    const { guildId, action, userIds, reason, duration, deleteMessages } = req.body;
+    if (!isValidSnowflake(guildId)) {
+      throw makeError(400, 'Invalid guildId.');
+    }
+
+    const supportedActions = new Set(['ban', 'kick', 'mute', 'unmute', 'warn', 'unban']);
+    if (!supportedActions.has(action)) {
+      throw makeError(400, 'Unsupported moderation action.');
+    }
+
+    const { valid, invalid } = parseUserIdList(userIds);
+    if (valid.length === 0) {
+      throw makeError(400, 'At least one valid Discord user ID is required.');
+    }
+
+    const client = getActiveDiscordClient();
+    const guild = await client.guilds.fetch(guildId).catch(() => null);
+    if (!guild) throw makeError(404, 'Guild not found.');
+
+    const results = [];
+    for (const userId of valid) {
+      try {
+        const result = await performModerationAction({
+          guild,
+          action,
+          targetUserId: userId,
+          moderatorId: req.user.userId,
+          reason,
+          durationSeconds: duration,
+          deleteMessages,
+        });
+        results.push(result);
+      } catch (error) {
+        results.push({ success: false, userId, error: error.message || 'Unexpected moderation error.' });
+      }
+    }
+
+    res.json({
+      success: true,
+      action,
+      invalid,
+      summary: summarizeBulkResults(results),
+      results,
+    });
+  } catch (error) {
+    console.error('Bulk moderation error:', error);
+    res.status(error.status || 500).json({ error: error.message || 'Failed to complete bulk moderation' });
+  }
+});
+
+app.get('/api/moderation/global-bans', authenticateToken, async (req, res) => {
+  try {
+    if (!isGlobalAdminUser(req.user.userId)) {
+      throw makeError(403, 'Only configured global administrators can view global bans.');
+    }
+
+    const result = await pool.query(
+      `SELECT user_id, username, reason, evidence, source_guild_id, created_by, created_by_name, created_at
+       FROM global_bans
+       WHERE is_active = TRUE
+       ORDER BY created_at DESC`
+    );
+
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Global bans fetch error:', error);
+    res.status(error.status || 500).json({ error: error.message || 'Failed to fetch global bans' });
+  }
+});
+
+app.post('/api/moderation/global-ban', authenticateToken, async (req, res) => {
+  try {
+    if (!isGlobalAdminUser(req.user.userId)) {
+      throw makeError(403, 'Only configured global administrators can create global bans.');
+    }
+
+    const { userId, username, reason, evidence, sourceGuildId, deleteMessages } = req.body;
+    if (!isValidSnowflake(userId)) {
+      throw makeError(400, 'Invalid userId.');
+    }
+
+    const bot = app.locals.bot;
+    if (!bot) {
+      throw makeError(503, 'Bot runtime is unavailable.');
+    }
+
+    await bot.createOrUpdateGlobalBan({
+      userId,
+      username,
+      reason,
+      evidence,
+      sourceGuildId,
+      createdBy: req.user.userId,
+      createdByName: req.user.username,
+    });
+
+    const targetUser = await getActiveDiscordClient().users.fetch(userId).catch(() => null);
+    const applyResult = targetUser
+      ? await bot.applyGlobalBanToGuilds(targetUser, { id: req.user.userId }, normalizeReason(reason), deleteMessages ? 604800 : 0)
+      : { applied: [], skipped: [], caseId: null };
+
+    res.json({
+      success: true,
+      userId,
+      applied: applyResult.applied,
+      skipped: applyResult.skipped,
+      caseId: applyResult.caseId,
+    });
+  } catch (error) {
+    console.error('Global ban error:', error);
+    res.status(error.status || 500).json({ error: error.message || 'Failed to create global ban' });
+  }
+});
+
+app.delete('/api/moderation/global-ban/:userId', authenticateToken, async (req, res) => {
+  try {
+    if (!isGlobalAdminUser(req.user.userId)) {
+      throw makeError(403, 'Only configured global administrators can lift global bans.');
+    }
+
+    const { userId } = req.params;
+    if (!isValidSnowflake(userId)) {
+      throw makeError(400, 'Invalid userId.');
+    }
+
+    const bot = app.locals.bot;
+    if (!bot) {
+      throw makeError(503, 'Bot runtime is unavailable.');
+    }
+
+    const revokeReason = normalizeReason(req.body?.reason);
+    const revoked = await bot.removeGlobalBan(userId, req.user.userId, revokeReason);
+    if (!revoked) {
+      throw makeError(404, 'Global ban not found.');
+    }
+
+    const unbanResult = await bot.liftGlobalBanFromGuilds(userId, { id: req.user.userId }, revokeReason);
+
+    res.json({
+      success: true,
+      userId,
+      lifted: unbanResult.lifted,
+      skipped: unbanResult.skipped,
+      caseId: unbanResult.caseId,
+    });
+  } catch (error) {
+    console.error('Global unban error:', error);
+    res.status(error.status || 500).json({ error: error.message || 'Failed to lift global ban' });
   }
 });
 
@@ -1234,11 +1563,21 @@ async function getRecentActivity() {
 // Health check
 app.get('/api/health', (req, res) => {
   const client = getActiveDiscordClient();
+  const diagnostics = getDeploymentDiagnostics();
   res.json({ 
     status: 'ok', 
     timestamp: new Date().toISOString(),
     discordConnected: client.isReady(),
-    deploymentVersion: '2.0.0'  // Force new deployment
+    deploymentVersion: diagnostics.deploymentVersion,
+    moderationRouteCount: Object.keys(diagnostics.moderationRoutes).length,
+  });
+});
+
+app.get('/api/deployment-info', (req, res) => {
+  const diagnostics = getDeploymentDiagnostics();
+  res.json({
+    ...diagnostics,
+    timestamp: new Date().toISOString(),
   });
 });
 
