@@ -10,6 +10,8 @@ import os
 from datetime import datetime, timezone
 from functools import wraps
 
+import requests
+
 from flask import Blueprint, abort, jsonify, request, stream_with_context, Response
 from flask_login import current_user, login_required
 
@@ -77,9 +79,12 @@ def _notify_admins(type_: str, title: str, body: str = "", link: str = "", guild
         db.session.add(notif)
     db.session.commit()
     # Publish to Redis for real-time SSE
-    redis_client.publish("hub:notifications", json.dumps({
-        "type": type_, "title": title, "body": body, "link": link
-    }))
+    try:
+        redis_client.publish("hub:notifications", json.dumps({
+            "type": type_, "title": title, "body": body, "link": link
+        }))
+    except Exception:
+        pass
 
 
 def _record_moderation_case(guild: Guild, *, action: str, target_id: str,
@@ -100,6 +105,26 @@ def _record_moderation_case(guild: Guild, *, action: str, target_id: str,
     )
     db.session.add(case)
     return case
+
+
+TICKET_STATUSES = {"open", "resolved", "closed"}
+
+
+def _set_ticket_status(ticket: Ticket, status: str, actor_name: str | None, reason: str | None = None):
+    now = datetime.now(timezone.utc)
+    ticket.status = status
+
+    if status == "closed":
+        ticket.closed_at = now
+        if actor_name:
+            ticket.closed_by = actor_name
+        if reason:
+            ticket.closed_reason = reason
+    else:
+        ticket.closed_at = None
+        ticket.closed_by = None
+        if status == "open":
+            ticket.closed_reason = None
 
 
 # ── Health ───────────────────────────────────────────────────────
@@ -265,6 +290,7 @@ def _settings_dict(s: GuildSettings) -> dict:
         "welcome_message": s.welcome_message,
         "farewell_channel": s.farewell_channel,
         "ticket_channel": s.ticket_channel,
+        "ticket_category": s.ticket_category,
         "ticket_role": s.ticket_role,
         "leveling_enabled": s.leveling_enabled,
         "level_channel": s.level_channel,
@@ -300,7 +326,7 @@ def guild_settings_update(guild_id: int):
     allowed = {
         "prefix", "language", "timezone", "mod_log_channel", "automod_enabled",
         "antinuke_enabled", "max_warns", "warn_action", "welcome_channel",
-        "welcome_message", "farewell_channel", "ticket_channel", "ticket_role",
+        "welcome_message", "farewell_channel", "ticket_channel", "ticket_category", "ticket_role",
         "leveling_enabled", "level_channel", "xp_multiplier", "log_channel",
         "log_joins", "log_leaves", "log_moderation", "log_messages",
     }
@@ -593,13 +619,18 @@ def guild_tickets(guild_id: int):
     page = int(request.args.get("page", 1))
     per_page = min(int(request.args.get("per_page", 25)), 100)
     status = request.args.get("status")
+    assigned = request.args.get("assigned")
 
     q = Ticket.query.filter_by(guild_id=guild_id)
     if status:
         q = q.filter_by(status=status)
+    if assigned == "unassigned":
+        q = q.filter(Ticket.assigned_to.is_(None))
+    elif assigned == "assigned":
+        q = q.filter(Ticket.assigned_to.is_not(None))
 
     total = q.count()
-    tickets = q.order_by(Ticket.created_at.desc()).paginate(
+    tickets = q.order_by(Ticket.updated_at.desc(), Ticket.created_at.desc()).paginate(
         page=page, per_page=per_page, error_out=False
     )
     return jsonify({
@@ -650,13 +681,58 @@ def ticket_close(ticket_id: int):
     guild = Guild.query.get(ticket.guild_id)
     if guild and not current_user.can_manage(guild):
         return jsonify({"error": "Forbidden"}), 403
-    from datetime import datetime, timezone
-    ticket.status = "closed"
-    ticket.closed_by = current_user.username
-    ticket.closed_at = datetime.now(timezone.utc)
+    _set_ticket_status(ticket, "closed", current_user.username)
     db.session.commit()
     _audit("ticket_close", guild_id=ticket.guild_id, target_type="ticket", target_id=str(ticket_id))
     return jsonify({"ok": True})
+
+
+@api_bp.post("/tickets/<int:ticket_id>/status")
+@login_required
+def ticket_set_status(ticket_id: int):
+    ticket = Ticket.query.get_or_404(ticket_id)
+    guild = Guild.query.get(ticket.guild_id)
+    if guild and not current_user.can_manage(guild):
+        return jsonify({"error": "Forbidden"}), 403
+
+    data = request.get_json(silent=True) or {}
+    status = str(data.get("status", "")).strip().lower()
+    reason = (data.get("reason") or "").strip() or None
+    if status not in TICKET_STATUSES:
+        return jsonify({"error": "status must be one of: open, resolved, closed"}), 400
+
+    _set_ticket_status(ticket, status, current_user.username, reason)
+    db.session.commit()
+    _audit(
+        "ticket_status_update",
+        guild_id=ticket.guild_id,
+        target_type="ticket",
+        target_id=str(ticket_id),
+        details={"status": status, "reason": reason},
+    )
+    return jsonify({"ok": True, "ticket": ticket.to_dict()})
+
+
+@api_bp.post("/tickets/<int:ticket_id>/assign")
+@login_required
+def ticket_assign(ticket_id: int):
+    ticket = Ticket.query.get_or_404(ticket_id)
+    guild = Guild.query.get(ticket.guild_id)
+    if guild and not current_user.can_manage(guild):
+        return jsonify({"error": "Forbidden"}), 403
+
+    data = request.get_json(silent=True) or {}
+    assigned_to = (data.get("assigned_to") or "").strip()
+    ticket.assigned_to = assigned_to or None
+    db.session.commit()
+    _audit(
+        "ticket_assignment_update",
+        guild_id=ticket.guild_id,
+        target_type="ticket",
+        target_id=str(ticket_id),
+        details={"assigned_to": ticket.assigned_to},
+    )
+    return jsonify({"ok": True, "ticket": ticket.to_dict()})
 
 # ── Webhook (bot → hub) ──────────────────────────────────────────
 
@@ -774,17 +850,29 @@ def _handle_mod_action(payload: dict, guild: Guild | None):
 def _handle_ticket_open(payload: dict, guild: Guild | None):
     if not guild:
         return
-    ticket_num = Ticket.query.filter_by(guild_id=guild.id).count() + 1
-    ticket = Ticket(
-        guild_id=guild.id,
-        ticket_number=ticket_num,
-        channel_id=str(payload.get("channel_id", "")),
-        opener_id=str(payload.get("opener_id", "")),
-        opener_name=payload.get("opener_name"),
-        subject=payload.get("subject"),
-        priority=payload.get("priority", "normal"),
-    )
-    db.session.add(ticket)
+    channel_id = str(payload.get("channel_id", ""))
+    if not channel_id:
+        return
+
+    ticket = Ticket.query.filter_by(guild_id=guild.id, channel_id=channel_id).first()
+    if not ticket:
+        ticket_num = Ticket.query.filter_by(guild_id=guild.id).count() + 1
+        ticket = Ticket(
+            guild_id=guild.id,
+            ticket_number=ticket_num,
+            channel_id=channel_id,
+            opener_id=str(payload.get("opener_id", "")),
+            opener_name=payload.get("opener_name"),
+            subject=payload.get("subject"),
+            priority=payload.get("priority", "normal"),
+        )
+        db.session.add(ticket)
+    else:
+        ticket.opener_id = str(payload.get("opener_id", ticket.opener_id))
+        ticket.opener_name = payload.get("opener_name") or ticket.opener_name
+        ticket.subject = payload.get("subject") or ticket.subject
+        ticket.priority = payload.get("priority", ticket.priority)
+        ticket.status = "open"
 
 
 def _handle_ticket_close(payload: dict, guild: Guild | None):
@@ -876,6 +964,104 @@ def notification_read(notif_id: int):
     notif.is_read = True
     db.session.commit()
     return jsonify({"ok": True})
+
+
+# ── AI advisor ───────────────────────────────────────────────────
+
+@api_bp.post("/ai/advisor")
+@login_required
+def ai_advisor():
+    data = request.get_json() or {}
+    message = (data.get("message") or "").strip()
+    if not message:
+        return jsonify({"error": "message is required"}), 400
+
+    mode = (data.get("mode") or "ask").strip().lower()
+    guild_id = data.get("guild_id")
+
+    base_url = (os.environ.get("OLLAMA_BASE_URL") or "").strip().rstrip("/")
+    model = (os.environ.get("OLLAMA_MODEL") or "kimi-k2.6:cloud").strip()
+    api_key = (os.environ.get("OLLAMA_API_KEY") or "").strip()
+    timeout = int((os.environ.get("OLLAMA_TIMEOUT_SECONDS") or "120").strip() or 120)
+
+    if not base_url:
+        return jsonify({"error": "OLLAMA_BASE_URL is not configured"}), 503
+
+    system_prompt = (
+        "You are a Discord server architecture advisor. "
+        "Produce practical, actionable setup recommendations for channels, roles, permissions, onboarding, moderation, and ticketing. "
+        "When possible, return a phased implementation checklist."
+    )
+
+    if mode == "interview":
+        system_prompt += (
+            " Start by asking 5-8 focused discovery questions before giving the final plan. "
+            "Do not assume requirements not provided."
+        )
+
+    guild_context = ""
+    if guild_id:
+        guild = Guild.query.get(guild_id)
+        if guild and current_user.can_manage(guild):
+            guild_context = (
+                f"Guild context: name={guild.name}, members={guild.member_count}, "
+                f"channels={guild.channel_count}, roles={guild.role_count}."
+            )
+
+    user_prompt = f"{guild_context}\n\nUser request:\n{message}".strip()
+
+    payload = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        "temperature": 0.4,
+        "max_tokens": 1200,
+    }
+
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+
+    endpoint = f"{base_url}/chat/completions"
+    try:
+        response = requests.post(
+            endpoint,
+            json=payload,
+            headers=headers,
+            timeout=timeout,
+        )
+    except requests.RequestException as exc:
+        return jsonify({"error": f"AI upstream request failed: {exc}"}), 502
+
+    if response.status_code >= 400:
+        detail = response.text[:500]
+        return jsonify({
+            "error": f"AI upstream error {response.status_code}",
+            "detail": detail,
+        }), 502
+
+    try:
+        body = response.json()
+    except ValueError:
+        return jsonify({"error": "AI upstream returned non-JSON response"}), 502
+
+    choices = body.get("choices") or []
+    content = ""
+    if choices:
+        content = ((choices[0].get("message") or {}).get("content") or "").strip()
+
+    if not content:
+        content = "No response content returned by AI provider."
+
+    return jsonify({
+        "ok": True,
+        "response": content,
+        "model": model,
+        "endpoint": endpoint,
+        "mode": mode,
+    })
 
 
 # ── Real-time SSE ────────────────────────────────────────────────
