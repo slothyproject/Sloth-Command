@@ -78,6 +78,11 @@ def create_app(config: dict | None = None) -> Flask:
     def health():
         return {"status": "ok", "service": "dissident-central-hub", "version": get_dashboard_version()}
 
+    # ── Template context processor ──────────────────────────────
+    @app.context_processor
+    def inject_version():
+        return {"dashboard_version": get_dashboard_version()}
+
     # ── DB init ─────────────────────────────────────────────────
     # Run migrations first (ALTER TABLE for new columns on existing tables)
     _run_migrations(app)
