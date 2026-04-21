@@ -17,11 +17,20 @@ from dashboard.extensions import db
 from dashboard.routes.api import api_bp
 from dashboard.routes.auth import auth_bp
 from dashboard.routes.core import core_bp
+from dashboard.versioning import get_dashboard_version
 
 log = logging.getLogger(__name__)
 
 socketio = SocketIO()
-limiter = Limiter(key_func=get_remote_address, default_limits=["300 per day", "60 per hour"])
+limiter = Limiter(
+    key_func=get_remote_address,
+    default_limits=["300 per day", "60 per hour"],
+    storage_uri=(
+        os.environ.get("RATELIMIT_STORAGE_URI")
+        or os.environ.get("REDIS_URL")
+        or "memory://"
+    ),
+)
 login_manager = LoginManager()
 csrf = CSRFProtect()
 
@@ -75,7 +84,11 @@ def create_app(config: dict | None = None) -> Flask:
     # ── Health endpoint ─────────────────────────────────────────
     @app.get("/health")
     def health():
-        return {"status": "ok", "service": "dissident-central-hub", "version": "1.0.0"}
+        return {
+            "status": "ok",
+            "service": "dissident-central-hub",
+            "version": get_dashboard_version(),
+        }
 
     # ── DB init ─────────────────────────────────────────────────
     # Run migrations first (ALTER TABLE for new columns on existing tables)
