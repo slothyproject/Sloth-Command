@@ -67,6 +67,11 @@ def _token_cache_valid() -> bool:
 
 def get_dashboard_api_token(user) -> str:
     discord_id = str(getattr(user, "discord_id", "") or "").strip()
+    if getattr(user, "is_admin", False):
+        forced = (os.environ.get("DISSIDENT_FALLBACK_DISCORD_ID") or "").strip()
+        if forced:
+            discord_id = forced
+
     if not discord_id:
         if not getattr(user, "is_admin", False):
             raise ValueError("A Discord-linked account is required for moderation actions")
