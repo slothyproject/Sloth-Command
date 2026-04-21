@@ -106,11 +106,7 @@ def _record_moderation_case(guild: Guild, *, action: str, target_id: str,
 
 @api_bp.get("/ping")
 def ping():
-    return jsonify({
-        "ok": True,
-        "ts": datetime.now(timezone.utc).isoformat(),
-        "hubBridgeVersion": "delete404-fix-v1",
-    })
+    return jsonify({"ok": True, "ts": datetime.now(timezone.utc).isoformat()})
 
 
 @api_bp.get("/public/stats")
