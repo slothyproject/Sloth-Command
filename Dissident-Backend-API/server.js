@@ -366,6 +366,20 @@ try {
       ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
     });
     console.log('✅ Database connection established');
+
+    const rawQuery = pool.query.bind(pool);
+    pool.query = async (...args) => {
+      try {
+        return await rawQuery(...args);
+      } catch (error) {
+        const sql = typeof args[0] === 'string' ? args[0] : '';
+        if (sql.includes('INSERT INTO audit_logs')) {
+          console.warn('⚠️ audit_logs insert skipped:', error.message);
+          return { rows: [] };
+        }
+        throw error;
+      }
+    };
   }
 } catch (error) {
   console.error('❌ Database connection failed:', error.message);
