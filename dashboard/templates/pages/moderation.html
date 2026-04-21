@@ -6,6 +6,32 @@
   <h1 class="page-header__title">Moderation</h1>
   <span class="page-header__sub">// all servers</span>
 </div>
+{% if current_user.is_admin %}
+<div class="card" style="padding:16px;margin-bottom:16px">
+  <div class="card__title" style="margin-bottom:12px">GLOBAL BAN REGISTRY</div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px;margin-bottom:12px">
+    <input id="global-user-id" class="field__input--inline" type="text" placeholder="Discord user ID">
+    <input id="global-username" class="field__input--inline" type="text" placeholder="Username or tag (optional)">
+    <textarea id="global-reason" class="field__input--inline" rows="2" placeholder="Reason"></textarea>
+    <textarea id="global-evidence" class="field__input--inline" rows="2" placeholder="Evidence or case notes"></textarea>
+  </div>
+  <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
+    <label class="t1" style="display:flex;gap:8px;align-items:center">
+      <input id="global-delete-messages" type="checkbox">
+      Delete the last 7 days of messages when bans are applied
+    </label>
+    <button class="btn btn--ghost btn--sm" onclick="createGlobalBan()">create global ban</button>
+    <div id="global-ban-result" class="t1"></div>
+  </div>
+
+  <div class="table-wrap">
+    <table class="data-table">
+      <thead><tr><th>USER</th><th>REASON</th><th>EVIDENCE</th><th>CREATED</th><th></th></tr></thead>
+      <tbody id="global-ban-body"><tr><td colspan="5" class="empty-inline">loading...</td></tr></tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
 {% if cases %}
 <div class="table-wrap">
   <table class="data-table">
@@ -30,5 +56,78 @@
   <p>No moderation cases yet across your servers.</p>
   <p>Cases will appear here when the bot takes moderation actions.</p>
 </div>
+{% endif %}
+{% if current_user.is_admin %}
+<script>
+function globalEscape(value) {
+  return String(value || '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
+async function loadGlobalBans() {
+  const body = document.getElementById('global-ban-body');
+  const bans = await fetch('/api/moderation/global-bans').then(r => r.json()).catch(() => []);
+  if (!Array.isArray(bans) || bans.length === 0) {
+    body.innerHTML = '<tr><td colspan="5" class="empty-inline">No active global bans</td></tr>';
+    return;
+  }
+
+  body.innerHTML = bans.map(entry => `
+    <tr>
+      <td><strong>${globalEscape(entry.username || entry.user_id)}</strong><div class="t1">${entry.user_id}</div></td>
+      <td class="t1">${globalEscape(entry.reason || '—')}</td>
+      <td class="t1">${globalEscape(entry.evidence || '—')}</td>
+      <td class="td-mono">${new Date(entry.created_at).toLocaleString()}</td>
+      <td><button class="btn btn--ghost btn--sm" onclick="removeGlobalBan('${entry.user_id}')">lift</button></td>
+    </tr>
+  `).join('');
+}
+
+async function createGlobalBan() {
+  const payload = {
+    user_id: document.getElementById('global-user-id').value.trim(),
+    username: document.getElementById('global-username').value.trim(),
+    reason: document.getElementById('global-reason').value.trim(),
+    evidence: document.getElementById('global-evidence').value.trim(),
+    delete_messages: document.getElementById('global-delete-messages').checked,
+  };
+
+  const result = document.getElementById('global-ban-result');
+  result.textContent = 'running...';
+  const response = await fetch('/api/moderation/global-bans', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    result.textContent = data.error || 'Failed to create global ban';
+    return;
+  }
+
+  result.textContent = `Applied in ${(data.applied || []).length} guild(s).`;
+  loadGlobalBans();
+}
+
+async function removeGlobalBan(userId) {
+  const reason = window.prompt('Reason for lifting this global ban:', 'No reason provided') || 'No reason provided';
+  const response = await fetch(`/api/moderation/global-bans/${userId}`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reason }),
+  });
+  const data = await response.json().catch(() => ({}));
+  document.getElementById('global-ban-result').textContent = response.ok
+    ? `Lifted in ${(data.lifted || []).length} guild(s).`
+    : (data.error || 'Failed to lift global ban');
+  loadGlobalBans();
+}
+
+loadGlobalBans();
+</script>
 {% endif %}
 {% endblock %}
