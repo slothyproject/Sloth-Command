@@ -1,12 +1,13 @@
 #!/bin/sh
 # =============================================================================
-# Central Hub API Startup Script v2.0
-# Starts Node.js server immediately for Railway healthcheck, then runs migrations
+# Central Hub API Startup Script v3.0
+# The app handles all DB initialization in initializeDatabase()
+# No prisma db push needed - uses CREATE TABLE IF NOT EXISTS
 # =============================================================================
-set -e
 
 echo "🚀 Central Hub API - Starting..."
 echo "📂 Working directory: $(pwd)"
+echo "📂 Contents: $(ls dist/ 2>/dev/null | head -5 || echo 'dist/ not found')"
 
 # Validate DATABASE_URL
 if [ -z "$DATABASE_URL" ]; then
@@ -15,27 +16,11 @@ if [ -z "$DATABASE_URL" ]; then
 fi
 echo "✅ DATABASE_URL configured"
 
-# Validate Prisma schema
-if [ ! -f "prisma/schema.prisma" ]; then
-    echo "❌ Prisma schema NOT found!"
-    ls -la prisma/ 2>/dev/null || echo "No prisma directory"
-    exit 1
+# Generate Prisma client if needed (should already be built in Docker image)
+if [ ! -d "node_modules/.prisma" ]; then
+    echo "⚠️  Generating Prisma client..."
+    npx prisma generate --schema=src/prisma/schema.prisma 2>&1 || echo "Prisma generate warning (non-fatal)"
 fi
-echo "✅ Prisma schema found"
 
-# Start the server immediately in background so Railway healthcheck passes
-echo "🔥 Starting Node.js server in background..."
-node dist/index.js &
-SERVER_PID=$!
-
-# Give server 3 seconds to bind port
-sleep 3
-
-# Now run migrations (non-blocking for healthcheck)
-echo "📦 Running Prisma db push..."
-npx prisma db push --accept-data-loss 2>&1 || echo "⚠️  Prisma push had issues (non-fatal)"
-
-echo "✅ Migrations complete — server PID $SERVER_PID running"
-
-# Wait for the server process (keep container alive)
-wait $SERVER_PID
+echo "🔥 Starting Node.js server..."
+exec node dist/index.js
