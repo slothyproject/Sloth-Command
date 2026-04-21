@@ -7,21 +7,27 @@ import hashlib
 import hmac
 import json
 import os
+import re
 from datetime import datetime, timezone
 from functools import wraps
 
 import requests
+from sqlalchemy import or_
 
 from flask import Blueprint, abort, jsonify, request, stream_with_context, Response
 from flask_login import current_user, login_required
 
 from dashboard.extensions import db, redis_client
 from dashboard.models import (
+    AIActionProposal,
+    AIConversationMessage,
+    AIConversationThread,
     AuditLog, BotEvent, Guild, GuildCommand, GuildMember,
     GuildSettings, ModerationCase, Notification, Ticket, TicketMessage, User,
 )
 from dashboard.services.bot_state import get_bot_state, push_bot_command
 from dashboard.services.dissident_api import call_dissident_api
+from dashboard.versioning import get_dashboard_commit, get_dashboard_version
 
 api_bp = Blueprint("api", __name__)
 
@@ -51,10 +57,11 @@ def guild_access_required(f):
 
 
 def _audit(action: str, guild_id: int | None = None, target_type: str | None = None,
-           target_id: str | None = None, details: dict | None = None):
+           target_id: str | None = None, details: dict | None = None,
+           actor_id: int | None = None):
     entry = AuditLog(
         action=action,
-        actor_id=current_user.id if current_user.is_authenticated else None,
+        actor_id=actor_id if actor_id is not None else (current_user.id if current_user.is_authenticated else None),
         guild_id=guild_id,
         target_type=target_type,
         target_id=target_id,
@@ -85,6 +92,55 @@ def _notify_admins(type_: str, title: str, body: str = "", link: str = "", guild
         }))
     except Exception:
         pass
+
+
+def _bot_internal_api_key() -> str:
+    return (
+        (os.environ.get("BOT_INTERNAL_API_KEY") or "").strip()
+        or (os.environ.get("DISSIDENT_BOT_API_KEY") or "").strip()
+    )
+
+
+def bot_internal_auth_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        configured = _bot_internal_api_key()
+        if not configured:
+            return jsonify({"error": "BOT_INTERNAL_API_KEY is not configured"}), 503
+
+        presented = (request.headers.get("X-Bot-Api-Key") or "").strip()
+        if not presented or not hmac.compare_digest(presented, configured):
+            return jsonify({"error": "Unauthorized"}), 401
+        return f(*args, **kwargs)
+
+    return decorated
+
+
+def _get_or_create_discord_shadow_user(discord_user_id: str | int | None, username: str | None = None) -> User:
+    discord_id = str(discord_user_id or "").strip()
+    if not discord_id:
+        raise ValueError("discord_user_id is required")
+
+    user = User.query.filter_by(discord_id=discord_id).first()
+    if user:
+        return user
+
+    base_username = f"discord_{discord_id}"
+    candidate = base_username
+    suffix = 1
+    while User.query.filter_by(username=candidate).first():
+        suffix += 1
+        candidate = f"{base_username}_{suffix}"
+
+    user = User(
+        discord_id=discord_id,
+        username=candidate,
+        is_admin=False,
+        is_active=True,
+    )
+    db.session.add(user)
+    db.session.flush()
+    return user
 
 
 def _record_moderation_case(guild: Guild, *, action: str, target_id: str,
@@ -132,6 +188,20 @@ def _set_ticket_status(ticket: Ticket, status: str, actor_name: str | None, reas
 @api_bp.get("/ping")
 def ping():
     return jsonify({"ok": True, "ts": datetime.now(timezone.utc).isoformat()})
+
+
+@api_bp.get("/version")
+def version_info():
+    bot = get_bot_state()
+    return jsonify(
+        {
+            "service": "dissident-central-hub",
+            "dashboard_version": get_dashboard_version(),
+            "dashboard_commit": get_dashboard_commit(),
+            "bot_version": bot.get("version", "unknown"),
+            "ts": datetime.now(timezone.utc).isoformat(),
+        }
+    )
 
 
 @api_bp.get("/public/stats")
@@ -966,18 +1036,440 @@ def notification_read(notif_id: int):
     return jsonify({"ok": True})
 
 
-# ── AI advisor ───────────────────────────────────────────────────
+# ── AI operator ──────────────────────────────────────────────────
 
-@api_bp.post("/ai/advisor")
-@login_required
-def ai_advisor():
-    data = request.get_json() or {}
-    message = (data.get("message") or "").strip()
+AI_CONTEXT_WINDOW = 20
+AI_SUMMARY_TRIGGER = 30
+AI_OPERATOR_RECENT_CASES = 10
+AI_OPERATOR_OPEN_TICKETS = 8
+AI_OPERATOR_COMMAND_LIMIT = 30
+AI_ALLOWED_SETTING_KEYS = {
+    "prefix", "language", "timezone", "mod_log_channel", "automod_enabled",
+    "antinuke_enabled", "max_warns", "warn_action", "welcome_channel",
+    "welcome_message", "farewell_channel", "ticket_channel", "ticket_category", "ticket_role",
+    "leveling_enabled", "level_channel", "xp_multiplier", "log_channel",
+    "log_joins", "log_leaves", "log_moderation", "log_messages",
+}
+AI_ALLOWED_BOT_COMMANDS = {"sync_guilds", "reload_config", "clear_cache", "reload_cog", "restart_cog"}
+AI_ALLOWED_COMMAND_UPDATE_KEYS = {"is_enabled", "cooldown_seconds", "response_text"}
+AI_ALLOWED_MODERATION_ACTIONS = {"ban", "kick", "mute", "unban", "unmute", "warn"}
+
+
+def _thread_access_check(thread: AIConversationThread) -> bool:
+    if current_user.is_admin:
+        return True
+    if thread.user_id == current_user.id:
+        return True
+    if thread.guild_id and thread.guild:
+        return current_user.can_manage(thread.guild)
+    return False
+
+
+def _title_from_message(message: str) -> str:
+    raw = " ".join(message.split())[:80].strip()
+    return raw if raw else "New AI Conversation"
+
+
+def _build_curated_research_notes() -> list[dict]:
+    curated = [
+        {
+            "title": "Discord server onboarding",
+            "summary": "Use a clear welcome channel, server rules, role-selection, and a short getting-started checklist.",
+            "url": "https://discord.com/safety",
+        },
+        {
+            "title": "Moderation and trust",
+            "summary": "Define staff roles, escalation paths, automod baselines, and transparent enforcement policies.",
+            "url": "https://discord.com/moderation",
+        },
+        {
+            "title": "Community structure",
+            "summary": "Keep channel taxonomy simple, separate announcements/support/social, and avoid too many hidden channels.",
+            "url": "https://discord.com/community",
+        },
+        {
+            "title": "Support and ticket flow",
+            "summary": "Set ticket intake templates, SLAs, and clear ticket states (open/resolved/closed).",
+            "url": "https://support.discord.com",
+        },
+    ]
+    return curated
+
+
+def _compute_guild_health(
+    recent_cases: list,
+    open_tickets: list,
+    command_rows: list,
+    settings: dict,
+) -> tuple[int, list[str]]:
+    """Return a rough health score (0-100) and a list of anomaly strings."""
+    score = 100
+    anomalies: list[str] = []
+
+    punitive = [c for c in recent_cases if c.action in ("ban", "kick", "mute", "warn")]
+    if len(punitive) >= 6:
+        score -= 25
+        anomalies.append(f"moderation_spike: {len(punitive)} punitive actions in recent cases")
+    elif len(punitive) >= 3:
+        score -= 10
+        anomalies.append(f"elevated_moderation: {len(punitive)} punitive actions in recent cases")
+
+    unassigned = sum(1 for t in open_tickets if not t.assigned_to)
+    if unassigned >= 4:
+        score -= 20
+        anomalies.append(f"unassigned_tickets: {unassigned} open tickets have no assignee")
+    elif unassigned >= 2:
+        score -= 8
+        anomalies.append(f"some_unassigned_tickets: {unassigned} open tickets without assignee")
+
+    if not settings:
+        score -= 15
+        anomalies.append("no_settings: guild has no configured hub settings")
+    else:
+        critical = {"mod_log_channel", "automod_enabled", "log_channel"}
+        missing_critical = critical - set(settings.keys())
+        if missing_critical:
+            score -= 10
+            anomalies.append(f"missing_critical_settings: {', '.join(sorted(missing_critical))}")
+
+    if command_rows:
+        disabled = sum(1 for c in command_rows if not c.is_enabled)
+        ratio = disabled / len(command_rows)
+        if ratio > 0.7:
+            score -= 10
+            anomalies.append(f"commands_mostly_disabled: {disabled}/{len(command_rows)} commands disabled")
+
+    return max(score, 0), anomalies
+
+
+def _build_guild_operator_context(guild: Guild | None) -> str:
+    if not guild:
+        return "No guild context is attached to this thread. Ask clarifying questions before proposing server-specific changes."
+
+    settings = _settings_dict(guild.settings) if guild.settings else {}
+    settings = {
+        key: value
+        for key, value in settings.items()
+        if value not in (None, "", [], {}, False)
+    }
+
+    recent_cases = guild.mod_cases.order_by(ModerationCase.created_at.desc()).limit(AI_OPERATOR_RECENT_CASES).all()
+    open_tickets = guild.tickets.filter_by(status="open").order_by(Ticket.updated_at.desc()).limit(AI_OPERATOR_OPEN_TICKETS).all()
+    command_rows = GuildCommand.query.filter_by(guild_id=guild.id).order_by(GuildCommand.command_name.asc()).limit(AI_OPERATOR_COMMAND_LIMIT).all()
+
+    health_score, anomalies = _compute_guild_health(recent_cases, open_tickets, command_rows, settings)
+    anomaly_line = " | ".join(anomalies) or "none"
+
+    recent_case_lines = [
+        f"#{case.case_number} {case.action} target={case.target_name or case.target_id} reason={case.reason or 'none'} active={case.is_active}"
+        for case in recent_cases
+    ] or ["none"]
+
+    open_ticket_lines = [
+        f"#{ticket.ticket_number} subject={ticket.subject or 'unspecified'} priority={ticket.priority} assigned={ticket.assigned_to or 'unassigned'}"
+        for ticket in open_tickets
+    ] or ["none"]
+
+    enabled_commands = [cmd.command_name for cmd in command_rows if cmd.is_enabled]
+    disabled_commands = [cmd.command_name for cmd in command_rows if not cmd.is_enabled]
+    command_summary = (
+        f"enabled={len(enabled_commands)} disabled={len(disabled_commands)}"
+        + (f" disabled_list={','.join(disabled_commands[:10])}" if disabled_commands else "")
+    )
+
+    bot_state = get_bot_state()
+    bot_guild = next(
+        (item for item in bot_state.get("guilds", []) if str(item.get("id")) == guild.discord_id),
+        {},
+    )
+
+    return (
+        f"Guild profile:\n"
+        f"- name: {guild.name}\n"
+        f"- discord_id: {guild.discord_id}\n"
+        f"- members: {guild.member_count}\n"
+        f"- channels: {guild.channel_count}\n"
+        f"- roles: {guild.role_count}\n"
+        f"- owner_discord_id: {guild.owner_discord_id or 'unknown'}\n"
+        f"- bot_joined_at: {guild.bot_joined_at.isoformat() if guild.bot_joined_at else 'unknown'}\n"
+        f"- bot_seen_member_count: {bot_guild.get('member_count', guild.member_count)}\n"
+        f"- health_score: {health_score}/100\n"
+        f"- anomalies: {anomaly_line}\n"
+        f"- configured_settings: {json.dumps(settings, ensure_ascii=True)}\n"
+        f"- recent_moderation ({len(recent_cases)}): {' | '.join(recent_case_lines)}\n"
+        f"- open_tickets ({len(open_tickets)}): {' | '.join(open_ticket_lines)}\n"
+        f"- commands: {command_summary}"
+    )
+
+
+def _build_operator_system_prompt(*, mode: str, research_notes: list[dict], guild_context: str, thread_summary: str | None) -> str:
+    prompt = (
+        "You are Dissident Central Operator, a central-hub-native operations copilot for Discord communities. "
+        "Think like a senior operator, community architect, and safety-minded automation planner. "
+        "Your responses must be grounded in the actual Central Hub state when guild context is supplied. "
+        "Do not behave like a rigid questionnaire or generic chatbot. Diagnose the current state, identify leverage, and recommend the smallest effective next move. "
+        "Prefer concrete, rollout-safe plans with rationale, risks, and validation steps."
+    )
+
+    if mode == "incident":
+        prompt += (
+            " INCIDENT MODE: An active incident is in progress. Skip all discovery questions. "
+            "Immediately triage: (1) identify scope and severity, (2) propose containment actions, "
+            "(3) draft a calm member-facing communication, (4) outline post-incident steps. "
+            "Be direct, fast, and decisive. Every second counts."
+        )
+    elif mode == "interview":
+        prompt += (
+            " In interview mode, drive discovery adaptively. Ask only the most valuable next question, based on what is still missing, and keep momentum high."
+        )
+    else:
+        prompt += " In ask mode, answer decisively and use the supplied hub context before asking follow-up questions."
+
+    prompt += (
+        " You can propose Central Hub actions, but you must never imply they already executed. "
+        "When a change is directly actionable through the hub, append an XML block exactly like "
+        '<ACTION_PROPOSALS>{"proposals":[{"action_type":"update_guild_settings","payload":{...},"rationale":"..."}]}</ACTION_PROPOSALS>. '
+        "Supported action types: update_guild_settings, update_command, moderation_action, bot_command, create_ticket, close_ticket."
+    )
+
+    if thread_summary:
+        prompt += f"\n\nConversation continuity:\n{thread_summary.strip()}"
+
+    if guild_context:
+        prompt += f"\n\nCentral Hub context:\n{guild_context.strip()}"
+
+    research_block = "\n".join(
+        f"- {note.get('title')}: {note.get('summary')} (source: {note.get('url')})"
+        for note in research_notes
+    )
+    if research_block:
+        prompt += f"\n\nResearch notes:\n{research_block}"
+
+    return prompt
+
+
+def _build_live_research_notes(query: str) -> list[dict]:
+    notes = []
+    try:
+        params = {
+            "q": f"best discord server setup practices {query}",
+            "format": "json",
+            "no_redirect": "1",
+            "no_html": "1",
+            "skip_disambig": "1",
+        }
+        resp = requests.get("https://api.duckduckgo.com/", params=params, timeout=12)
+        if resp.status_code >= 400:
+            return notes
+        payload = resp.json()
+
+        abstract = (payload.get("AbstractText") or "").strip()
+        abstract_url = (payload.get("AbstractURL") or "").strip()
+        if abstract:
+            notes.append({
+                "title": payload.get("Heading") or "DuckDuckGo abstract",
+                "summary": abstract,
+                "url": abstract_url or "https://duckduckgo.com/",
+            })
+
+        related = payload.get("RelatedTopics") or []
+        for item in related:
+            if len(notes) >= 5:
+                break
+            if "Text" in item and "FirstURL" in item:
+                notes.append({
+                    "title": item.get("Text", "").split(" - ")[0][:120],
+                    "summary": item.get("Text", "")[:280],
+                    "url": item.get("FirstURL", "https://duckduckgo.com/"),
+                })
+            topics = item.get("Topics") if isinstance(item, dict) else None
+            if topics:
+                for sub in topics:
+                    if len(notes) >= 5:
+                        break
+                    if "Text" in sub and "FirstURL" in sub:
+                        notes.append({
+                            "title": sub.get("Text", "").split(" - ")[0][:120],
+                            "summary": sub.get("Text", "")[:280],
+                            "url": sub.get("FirstURL", "https://duckduckgo.com/"),
+                        })
+    except Exception:
+        return []
+    return notes
+
+
+def _maybe_refresh_thread_summary(thread: AIConversationThread):
+    if thread.message_count < AI_SUMMARY_TRIGGER:
+        return
+    # Build a structured continuity summary: user goals + key operator advice.
+    all_msgs = thread.messages.order_by(AIConversationMessage.created_at.asc()).limit(40).all()
+
+    user_lines = [
+        f"  - {m.content[:150].strip()}"
+        for m in all_msgs
+        if m.role == "user"
+    ][:6]
+
+    # Extract assistant advice: prefer sentences containing action verbs
+    action_keywords = ("enable", "disable", "set", "configure", "add", "remove", "ban", "kick", "create", "close", "update", "check", "audit", "fix", "recommend")
+    assistant_lines = []
+    for m in all_msgs:
+        if m.role != "assistant":
+            continue
+        first_sentence = (m.content.split(". ")[0] or m.content)[:160].strip()
+        if any(kw in first_sentence.lower() for kw in action_keywords):
+            assistant_lines.append(f"  - {first_sentence}")
+    # Fall back to last 4 assistant messages if none matched action keywords
+    if not assistant_lines:
+        assistant_lines = [
+            f"  - {m.content[:160].strip()}"
+            for m in all_msgs
+            if m.role == "assistant"
+        ][-4:]
+    else:
+        assistant_lines = assistant_lines[-5:]
+
+    lines = ["User requests so far:"] + (user_lines or ["  - (none)"])
+    lines += ["Key operator guidance:"] + (assistant_lines or ["  - (none)"])
+    thread.summary = "\n".join(lines)
+
+
+def _extract_action_proposals(content: str) -> tuple[str, list[dict]]:
+    proposals: list[dict] = []
+    match = re.search(r"<ACTION_PROPOSALS>(.*?)</ACTION_PROPOSALS>", content, flags=re.DOTALL | re.IGNORECASE)
+    if not match:
+        return content.strip(), proposals
+
+    payload_raw = match.group(1).strip()
+    cleaned_content = (content[:match.start()] + content[match.end():]).strip()
+
+    try:
+        parsed = json.loads(payload_raw)
+        if isinstance(parsed, dict):
+            parsed = parsed.get("proposals", [])
+        if isinstance(parsed, list):
+            for item in parsed:
+                if not isinstance(item, dict):
+                    continue
+                action_type = (item.get("action_type") or "").strip()
+                payload = item.get("payload") or {}
+                rationale = (item.get("rationale") or "").strip()
+                if not action_type:
+                    continue
+                proposals.append({
+                    "action_type": action_type,
+                    "payload": payload if isinstance(payload, dict) else {},
+                    "rationale": rationale,
+                })
+    except Exception:
+        return content.strip(), []
+
+    return cleaned_content, proposals
+
+
+def _proposal_is_allowed(action_type: str, payload: dict) -> tuple[bool, str | None]:
+    if action_type == "update_guild_settings":
+        settings = payload.get("settings")
+        if not isinstance(settings, dict):
+            return False, "settings must be an object"
+        invalid = [k for k in settings.keys() if k not in AI_ALLOWED_SETTING_KEYS]
+        if invalid:
+            return False, f"unsupported setting keys: {', '.join(invalid)}"
+        return True, None
+
+    if action_type == "update_command":
+        command_name = (payload.get("command_name") or "").strip()
+        if not command_name:
+            return False, "command_name is required"
+        changes = payload.get("changes")
+        if not isinstance(changes, dict):
+            return False, "changes must be an object"
+        invalid = [key for key in changes.keys() if key not in AI_ALLOWED_COMMAND_UPDATE_KEYS]
+        if invalid:
+            return False, f"unsupported command update keys: {', '.join(invalid)}"
+        if "cooldown_seconds" in changes:
+            try:
+                int(changes["cooldown_seconds"])
+            except (TypeError, ValueError):
+                return False, "cooldown_seconds must be an integer"
+        return True, None
+
+    if action_type == "moderation_action":
+        action = (payload.get("action") or "").strip()
+        user_id = str(payload.get("user_id") or "").strip()
+        if action not in AI_ALLOWED_MODERATION_ACTIONS:
+            return False, f"unsupported moderation action: {action}"
+        if not user_id:
+            return False, "user_id is required"
+        return True, None
+
+    if action_type == "bot_command":
+        cmd = (payload.get("command") or "").strip()
+        if cmd not in AI_ALLOWED_BOT_COMMANDS:
+            return False, f"unsupported bot command: {cmd}"
+        return True, None
+
+    if action_type == "create_ticket":
+        subject = (payload.get("subject") or "").strip()
+        if not subject:
+            return False, "subject is required for create_ticket"
+        return True, None
+
+    if action_type == "close_ticket":
+        ticket_id = payload.get("ticket_id")
+        if not ticket_id:
+            return False, "ticket_id is required for close_ticket"
+        return True, None
+
+    return False, f"unsupported action_type: {action_type}"
+
+
+def _run_ai_operator_request(
+    actor_user: User,
+    *,
+    message: str,
+    mode: str,
+    source: str,
+    requested_research_mode: str,
+    guild: Guild | None,
+    thread_id: int | None,
+    allow_thread_access,
+    allow_guild_access,
+    allow_live_research: bool,
+    message_metadata: dict | None = None,
+) -> tuple[dict, int]:
     if not message:
-        return jsonify({"error": "message is required"}), 400
+        return {"error": "message is required"}, 400
 
-    mode = (data.get("mode") or "ask").strip().lower()
-    guild_id = data.get("guild_id")
+    thread = None
+    if thread_id:
+        thread = AIConversationThread.query.get(thread_id)
+        if not thread:
+            return {"error": "Thread not found"}, 404
+        if not allow_thread_access(thread):
+            return {"error": "Forbidden"}, 403
+        guild = thread.guild
+    else:
+        if guild and not allow_guild_access(guild):
+            return {"error": "Forbidden"}, 403
+
+        research_mode = requested_research_mode if requested_research_mode in {"curated", "live"} else "curated"
+        if research_mode == "live" and not allow_live_research:
+            research_mode = "curated"
+
+        thread = AIConversationThread(
+            guild_id=guild.id if guild else None,
+            user_id=actor_user.id,
+            title=_title_from_message(message),
+            mode=mode if mode in {"ask", "interview", "incident"} else "ask",
+            source=source if source in {"dashboard", "discord"} else "dashboard",
+            research_mode=research_mode,
+        )
+        db.session.add(thread)
+        db.session.flush()
+
+    if guild is None and thread.guild_id:
+        guild = Guild.query.get(thread.guild_id)
 
     base_url = (os.environ.get("OLLAMA_BASE_URL") or "").strip().rstrip("/")
     model = (os.environ.get("OLLAMA_MODEL") or "kimi-k2.6:cloud").strip()
@@ -985,37 +1477,57 @@ def ai_advisor():
     timeout = int((os.environ.get("OLLAMA_TIMEOUT_SECONDS") or "120").strip() or 120)
 
     if not base_url:
-        return jsonify({"error": "OLLAMA_BASE_URL is not configured"}), 503
+        return {"error": "OLLAMA_BASE_URL is not configured"}, 503
 
-    system_prompt = (
-        "You are a Discord server architecture advisor. "
-        "Produce practical, actionable setup recommendations for channels, roles, permissions, onboarding, moderation, and ticketing. "
-        "When possible, return a phased implementation checklist."
+    if thread.research_mode == "live" and not allow_live_research:
+        thread.research_mode = "curated"
+
+    if mode in {"ask", "interview", "incident"} and thread.mode != mode:
+        thread.mode = mode
+
+    if source in {"dashboard", "discord"} and thread.source != source:
+        thread.source = source
+
+    research_notes = _build_curated_research_notes()
+    if thread.research_mode == "live":
+        live_notes = _build_live_research_notes(message)
+        if live_notes:
+            research_notes = live_notes
+
+    guild_context = _build_guild_operator_context(guild) if guild and allow_guild_access(guild) else ""
+    system_prompt = _build_operator_system_prompt(
+        mode=thread.mode,
+        research_notes=research_notes,
+        guild_context=guild_context,
+        thread_summary=thread.summary,
     )
+    user_prompt = f"Operator request:\n{message}".strip()
 
-    if mode == "interview":
-        system_prompt += (
-            " Start by asking 5-8 focused discovery questions before giving the final plan. "
-            "Do not assume requirements not provided."
-        )
+    user_message = AIConversationMessage(
+        thread_id=thread.id,
+        role="user",
+        content=message,
+        source=source if source in {"dashboard", "discord"} else "dashboard",
+        metadata={
+            "guild_id": thread.guild_id,
+            "mode": thread.mode,
+            **(message_metadata or {}),
+        },
+    )
+    db.session.add(user_message)
+    db.session.flush()
 
-    guild_context = ""
-    if guild_id:
-        guild = Guild.query.get(guild_id)
-        if guild and current_user.can_manage(guild):
-            guild_context = (
-                f"Guild context: name={guild.name}, members={guild.member_count}, "
-                f"channels={guild.channel_count}, roles={guild.role_count}."
-            )
+    historical_messages = thread.messages.order_by(AIConversationMessage.created_at.desc()).limit(AI_CONTEXT_WINDOW).all()
+    historical_messages.reverse()
 
-    user_prompt = f"{guild_context}\n\nUser request:\n{message}".strip()
+    llm_messages = [{"role": "system", "content": system_prompt}]
+    for historical_message in historical_messages:
+        llm_messages.append({"role": historical_message.role, "content": historical_message.content})
+    llm_messages.append({"role": "user", "content": user_prompt})
 
     payload = {
         "model": model,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ],
+        "messages": llm_messages,
         "temperature": 0.4,
         "max_tokens": 1200,
     }
@@ -1033,35 +1545,408 @@ def ai_advisor():
             timeout=timeout,
         )
     except requests.RequestException as exc:
-        return jsonify({"error": f"AI upstream request failed: {exc}"}), 502
+        return {"error": f"AI upstream request failed: {exc}"}, 502
 
     if response.status_code >= 400:
-        detail = response.text[:500]
-        return jsonify({
+        return {
             "error": f"AI upstream error {response.status_code}",
-            "detail": detail,
-        }), 502
+            "detail": response.text[:500],
+        }, 502
 
     try:
         body = response.json()
     except ValueError:
-        return jsonify({"error": "AI upstream returned non-JSON response"}), 502
+        return {"error": "AI upstream returned non-JSON response"}, 502
 
     choices = body.get("choices") or []
     content = ""
     if choices:
         content = ((choices[0].get("message") or {}).get("content") or "").strip()
-
     if not content:
         content = "No response content returned by AI provider."
 
-    return jsonify({
+    clean_content, extracted_proposals = _extract_action_proposals(content)
+    if not clean_content:
+        clean_content = "No response content returned by AI provider."
+
+    assistant_message = AIConversationMessage(
+        thread_id=thread.id,
+        role="assistant",
+        content=clean_content,
+        source="advisor",
+        metadata={
+            "model": model,
+            "mode": thread.mode,
+            "research_mode": thread.research_mode,
+            "research_notes": research_notes,
+            **(message_metadata or {}),
+        },
+    )
+    db.session.add(assistant_message)
+    db.session.flush()
+
+    created_proposals = []
+    for proposal_data in extracted_proposals:
+        action_type = proposal_data["action_type"]
+        proposal_payload = proposal_data.get("payload") or {}
+        ok, err = _proposal_is_allowed(action_type, proposal_payload)
+        if not ok:
+            continue
+        proposal = AIActionProposal(
+            thread_id=thread.id,
+            guild_id=thread.guild_id,
+            proposed_by_msg=assistant_message.id,
+            action_type=action_type,
+            payload=proposal_payload,
+            rationale=proposal_data.get("rationale"),
+            status="pending",
+        )
+        db.session.add(proposal)
+        db.session.flush()
+        created_proposals.append(proposal.to_dict())
+
+    thread.message_count = thread.messages.count()
+    thread.updated_at = datetime.now(timezone.utc)
+    _maybe_refresh_thread_summary(thread)
+    db.session.commit()
+
+    _audit(
+        "ai_operator_message",
+        guild_id=thread.guild_id,
+        target_type="ai_thread",
+        target_id=str(thread.id),
+        details={
+            "mode": thread.mode,
+            "research_mode": thread.research_mode,
+            "proposals": len(created_proposals),
+            "source": thread.source,
+        },
+        actor_id=actor_user.id,
+    )
+
+    return {
         "ok": True,
-        "response": content,
+        "response": clean_content,
         "model": model,
-        "endpoint": endpoint,
-        "mode": mode,
+        "mode": thread.mode,
+        "thread": thread.to_dict(),
+        "assistant_message": assistant_message.to_dict(),
+        "research_mode": thread.research_mode,
+        "research_notes": research_notes,
+        "proposals": created_proposals,
+    }, 200
+
+
+@api_bp.get("/ai/threads")
+@login_required
+def ai_threads_list():
+    guild_id = request.args.get("guild_id", type=int)
+
+    if current_user.is_admin:
+        q = AIConversationThread.query
+    else:
+        q = AIConversationThread.query.filter(
+            or_(
+                AIConversationThread.user_id == current_user.id,
+                AIConversationThread.guild_id.in_([m.guild_id for m in GuildMember.query.filter_by(user_id=current_user.id)]),
+            )
+        )
+
+    if guild_id:
+        q = q.filter_by(guild_id=guild_id)
+
+    threads = q.order_by(AIConversationThread.updated_at.desc()).limit(100).all()
+    return jsonify([t.to_dict() for t in threads])
+
+
+@api_bp.post("/ai/threads")
+@login_required
+def ai_threads_create():
+    data = request.get_json(silent=True) or {}
+    guild_id = data.get("guild_id")
+    mode = (data.get("mode") or "ask").strip().lower()
+    source = (data.get("source") or "dashboard").strip().lower()
+    title = (data.get("title") or "").strip()
+    research_mode = (data.get("research_mode") or "curated").strip().lower()
+
+    if mode not in {"ask", "interview"}:
+        return jsonify({"error": "mode must be ask or interview"}), 400
+    if source not in {"dashboard", "discord"}:
+        source = "dashboard"
+    if research_mode not in {"curated", "live"}:
+        research_mode = "curated"
+
+    guild = None
+    if guild_id is not None:
+        guild = Guild.query.get(guild_id)
+        if not guild:
+            return jsonify({"error": "Guild not found"}), 404
+        if not current_user.can_manage(guild):
+            return jsonify({"error": "Forbidden"}), 403
+
+    if research_mode == "live":
+        live_enabled = (os.environ.get("AI_LIVE_RESEARCH_ENABLED") or "").strip().lower() in {"1", "true", "yes"}
+        if not live_enabled or not current_user.is_admin:
+            research_mode = "curated"
+
+    thread = AIConversationThread(
+        guild_id=guild.id if guild else None,
+        user_id=current_user.id,
+        title=title or "New AI Conversation",
+        mode=mode,
+        source=source,
+        research_mode=research_mode,
+    )
+    db.session.add(thread)
+    db.session.commit()
+    return jsonify({"ok": True, "thread": thread.to_dict()})
+
+
+@api_bp.get("/ai/threads/<int:thread_id>/messages")
+@login_required
+def ai_thread_messages(thread_id: int):
+    thread = AIConversationThread.query.get_or_404(thread_id)
+    if not _thread_access_check(thread):
+        return jsonify({"error": "Forbidden"}), 403
+
+    messages = thread.messages.order_by(AIConversationMessage.created_at.asc()).all()
+    return jsonify({
+        "thread": thread.to_dict(),
+        "messages": [m.to_dict() for m in messages],
     })
+
+
+@api_bp.get("/ai/threads/<int:thread_id>/proposals")
+@login_required
+def ai_thread_proposals(thread_id: int):
+    thread = AIConversationThread.query.get_or_404(thread_id)
+    if not _thread_access_check(thread):
+        return jsonify({"error": "Forbidden"}), 403
+    proposals = thread.proposals.order_by(AIActionProposal.created_at.desc()).all()
+    return jsonify([p.to_dict() for p in proposals])
+
+@api_bp.post("/ai/advisor")
+@api_bp.post("/ai/operator")
+@login_required
+def ai_advisor():
+    data = request.get_json() or {}
+    guild = None
+    guild_id = data.get("guild_id")
+    if guild_id is not None:
+        guild = Guild.query.get(guild_id)
+        if not guild:
+            return jsonify({"error": "Guild not found"}), 404
+
+    live_enabled = (os.environ.get("AI_LIVE_RESEARCH_ENABLED") or "").strip().lower() in {"1", "true", "yes"}
+    payload, status = _run_ai_operator_request(
+        current_user,
+        message=(data.get("message") or "").strip(),
+        mode=(data.get("mode") or "ask").strip().lower(),
+        source=(data.get("source") or "dashboard").strip().lower(),
+        requested_research_mode=(data.get("research_mode") or "curated").strip().lower(),
+        guild=guild,
+        thread_id=data.get("thread_id"),
+        allow_thread_access=_thread_access_check,
+        allow_guild_access=current_user.can_manage,
+        allow_live_research=live_enabled and current_user.is_admin,
+    )
+    return jsonify(payload), status
+
+
+@api_bp.post("/internal/ai/discord-advisor")
+@api_bp.post("/internal/ai/discord-operator")
+@bot_internal_auth_required
+def internal_ai_discord_advisor():
+    data = request.get_json(silent=True) or {}
+
+    guild = None
+    guild_id = data.get("guild_id")
+    guild_discord_id = (data.get("guild_discord_id") or "").strip()
+    if guild_id is not None:
+        guild = Guild.query.get(guild_id)
+    elif guild_discord_id:
+        guild = Guild.query.filter_by(discord_id=guild_discord_id).first()
+
+    if (guild_id is not None or guild_discord_id) and not guild:
+        return jsonify({"error": "Guild not found"}), 404
+
+    try:
+        actor_user = _get_or_create_discord_shadow_user(
+            data.get("discord_user_id"),
+            data.get("discord_username"),
+        )
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    live_enabled = (os.environ.get("AI_LIVE_RESEARCH_ENABLED") or "").strip().lower() in {"1", "true", "yes"}
+    payload, status = _run_ai_operator_request(
+        actor_user,
+        message=(data.get("message") or "").strip(),
+        mode=(data.get("mode") or "ask").strip().lower(),
+        source="discord",
+        requested_research_mode=(data.get("research_mode") or "curated").strip().lower(),
+        guild=guild,
+        thread_id=data.get("thread_id"),
+        allow_thread_access=lambda thread: thread.user_id == actor_user.id or (guild is not None and thread.guild_id == guild.id),
+        allow_guild_access=lambda resolved_guild: guild is not None and resolved_guild.id == guild.id,
+        allow_live_research=live_enabled,
+        message_metadata={
+            "discord_user_id": str(data.get("discord_user_id") or ""),
+            "discord_username": data.get("discord_username"),
+            "channel_id": str(data.get("channel_id") or ""),
+        },
+    )
+    return jsonify(payload), status
+
+
+@api_bp.post("/ai/proposals/<int:proposal_id>/approve")
+@login_required
+def ai_approve_proposal(proposal_id: int):
+    proposal = AIActionProposal.query.get_or_404(proposal_id)
+    thread = proposal.thread
+    if not _thread_access_check(thread):
+        return jsonify({"error": "Forbidden"}), 403
+    if proposal.status not in {"pending", "failed"}:
+        return jsonify({"error": f"Proposal is {proposal.status}"}), 400
+
+    guild = Guild.query.get(proposal.guild_id) if proposal.guild_id else None
+    if guild and not current_user.can_manage(guild):
+        return jsonify({"error": "Forbidden"}), 403
+
+    proposal.status = "approved"
+    proposal.approved_by = current_user.id
+    proposal.approved_at = datetime.now(timezone.utc)
+
+    try:
+        if proposal.action_type == "update_guild_settings":
+            if not guild:
+                raise ValueError("Guild context is required for settings updates")
+
+            if not guild.settings:
+                guild.settings = GuildSettings(guild_id=guild.id)
+                db.session.add(guild.settings)
+
+            settings = proposal.payload.get("settings") or {}
+            changed = {}
+            for key, val in settings.items():
+                if key in AI_ALLOWED_SETTING_KEYS and hasattr(guild.settings, key):
+                    setattr(guild.settings, key, val)
+                    changed[key] = val
+
+            push_bot_command("update_guild_settings", {
+                "guild_id": guild.discord_id,
+                "settings": changed,
+            })
+
+        elif proposal.action_type == "update_command":
+            if not guild:
+                raise ValueError("Guild context is required for command updates")
+
+            command_name = (proposal.payload.get("command_name") or "").strip()
+            changes = proposal.payload.get("changes") if isinstance(proposal.payload.get("changes"), dict) else {}
+            if not command_name:
+                raise ValueError("command_name is required")
+
+            command_row = GuildCommand.query.filter_by(guild_id=guild.id, command_name=command_name).first()
+            if not command_row:
+                command_row = GuildCommand(guild_id=guild.id, command_name=command_name)
+                db.session.add(command_row)
+
+            if "is_enabled" in changes:
+                command_row.is_enabled = bool(changes["is_enabled"])
+            if "cooldown_seconds" in changes:
+                command_row.cooldown_seconds = int(changes["cooldown_seconds"])
+
+            push_bot_command("update_command", {
+                "guild_id": guild.discord_id,
+                "command": command_name,
+                "enabled": command_row.is_enabled,
+                "cooldown": command_row.cooldown_seconds,
+            })
+
+        elif proposal.action_type == "moderation_action":
+            if not guild:
+                raise ValueError("Guild context is required for moderation actions")
+
+            action = (proposal.payload.get("action") or "").strip().lower()
+            target_id = str(proposal.payload.get("user_id") or "").strip()
+            if action not in AI_ALLOWED_MODERATION_ACTIONS:
+                raise ValueError(f"Unsupported moderation action: {action}")
+            if not target_id:
+                raise ValueError("user_id is required")
+
+            status, response = call_dissident_api(
+                "POST",
+                f"moderation/{action}",
+                current_user,
+                json_payload={
+                    "guildId": guild.discord_id,
+                    "userId": target_id,
+                    "reason": proposal.payload.get("reason"),
+                    "duration": proposal.payload.get("duration"),
+                    "deleteMessages": bool(proposal.payload.get("delete_messages")),
+                },
+            )
+            if status >= 400:
+                raise ValueError((response or {}).get("error") or f"moderation API returned {status}")
+
+            _record_moderation_case(
+                guild,
+                action=action,
+                target_id=target_id,
+                target_name=proposal.payload.get("target_name"),
+                reason=proposal.payload.get("reason"),
+                moderator_id=current_user.discord_id,
+                moderator_name=current_user.username,
+                duration=str(proposal.payload.get("duration")) if proposal.payload.get("duration") else None,
+            )
+
+        elif proposal.action_type == "bot_command":
+            if not current_user.is_admin:
+                raise PermissionError("Admin required to execute bot commands")
+            cmd = (proposal.payload.get("command") or "").strip()
+            if cmd not in AI_ALLOWED_BOT_COMMANDS:
+                raise ValueError(f"Unsupported command: {cmd}")
+            payload = proposal.payload.get("payload") if isinstance(proposal.payload.get("payload"), dict) else {}
+            push_bot_command(cmd, payload)
+        else:
+            raise ValueError(f"Unsupported action_type: {proposal.action_type}")
+
+        proposal.status = "executed"
+        proposal.executed_at = datetime.now(timezone.utc)
+        proposal.error = None
+        db.session.commit()
+
+        _audit(
+            "ai_proposal_executed",
+            guild_id=proposal.guild_id,
+            target_type="ai_proposal",
+            target_id=str(proposal.id),
+            details={"action_type": proposal.action_type},
+        )
+        return jsonify({"ok": True, "proposal": proposal.to_dict()})
+    except Exception as exc:
+        proposal.status = "failed"
+        proposal.error = str(exc)
+        db.session.commit()
+        return jsonify({"error": str(exc), "proposal": proposal.to_dict()}), 400
+
+
+@api_bp.post("/ai/proposals/<int:proposal_id>/reject")
+@login_required
+def ai_reject_proposal(proposal_id: int):
+    proposal = AIActionProposal.query.get_or_404(proposal_id)
+    thread = proposal.thread
+    if not _thread_access_check(thread):
+        return jsonify({"error": "Forbidden"}), 403
+    if proposal.status != "pending":
+        return jsonify({"error": f"Proposal is {proposal.status}"}), 400
+
+    proposal.status = "rejected"
+    proposal.approved_by = current_user.id
+    proposal.approved_at = datetime.now(timezone.utc)
+    db.session.commit()
+    return jsonify({"ok": True, "proposal": proposal.to_dict()})
 
 
 # ── Real-time SSE ────────────────────────────────────────────────
