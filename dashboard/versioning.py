@@ -50,13 +50,14 @@ def get_dashboard_commit() -> str:
         if value and value != "unknown":
             return value[:7]
 
-    # Try reading from commit.txt (created by Dockerfile at build time)
+    # Try reading from commit files (created by Dockerfile at build time)
     try:
-        commit_file = Path("/tmp/commit.txt")
-        if commit_file.exists():
-            commit = commit_file.read_text(encoding="utf-8").strip()
-            if commit and commit != "unknown":
-                return commit[:7]
+        for commit_path in ("/tmp/commit.txt", "/app/commit.txt", "commit.txt"):
+            commit_file = Path(commit_path)
+            if commit_file.exists():
+                commit = commit_file.read_text(encoding="utf-8").strip()
+                if commit and commit != "unknown":
+                    return commit[:7]
     except Exception:
         pass
 
@@ -93,42 +94,4 @@ def get_dashboard_version() -> str:
     if commit == "unknown" or "+" in base:
         return base
 
-    return f"{base}+{commit}"
-
-
-_ROOT = Path(__file__).resolve().parents[1]
-_DEFAULT_BASE = "1.0.0"
-
-
-def get_dashboard_commit() -> str:
-    for env_key in ("RAILWAY_GIT_COMMIT_SHA", "GIT_COMMIT", "SOURCE_COMMIT"):
-        value = (os.environ.get(env_key) or "").strip()
-        if value:
-            return value[:7]
-
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--short", "HEAD"],
-            capture_output=True,
-            text=True,
-            cwd=_ROOT,
-            check=False,
-        )
-        commit = (result.stdout or "").strip()
-        if commit:
-            return commit
-    except Exception:
-        pass
-
-    return "unknown"
-
-
-def get_dashboard_version() -> str:
-    base = (os.environ.get("HUB_VERSION") or os.environ.get("APP_VERSION") or "").strip()
-    if not base:
-        base = _DEFAULT_BASE
-
-    commit = get_dashboard_commit()
-    if commit == "unknown" or "+" in base:
-        return base
     return f"{base}+{commit}"
