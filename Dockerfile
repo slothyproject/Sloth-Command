@@ -6,7 +6,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PORT=8080
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl gcc libpq-dev \
+    curl gcc libpq-dev git \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
