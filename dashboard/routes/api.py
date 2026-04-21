@@ -20,6 +20,7 @@ from dashboard.models import (
     User, UserAIProviderCredential, UserAIProviderUsageStat,
 )
 from dashboard.services.bot_state import get_bot_state, push_bot_command
+from dashboard.services.dissident_api import call_dissident_api
 from dashboard.services.ai_provider import (
     SUPPORTED_AI_PROVIDERS,
     mask_api_key,
@@ -681,6 +682,109 @@ def guild_moderation(guild_id: int):
         "per_page": per_page,
         "cases": [c.to_dict() for c in cases.items],
     })
+
+
+@api_bp.post("/guilds/<int:guild_id>/moderation/actions")
+@login_required
+@guild_access_required
+def guild_moderation_action(guild_id: int):
+    """Execute a moderation action via the Dissident bot backend."""
+    if not getattr(current_user, "discord_id", None):
+        return jsonify({"error": "A Discord-linked account is required for moderation actions"}), 400
+
+    guild = Guild.query.get_or_404(guild_id)
+    data = request.get_json(silent=True) or {}
+    action = str(data.get("action", "ban")).lower()
+    user_id = str(data.get("user_id", ""))
+    target_name = data.get("target_name")
+    reason = data.get("reason")
+    delete_messages = bool(data.get("delete_messages", False))
+
+    if not user_id:
+        return jsonify({"error": "user_id is required"}), 400
+
+    json_payload = {
+        "guildId": guild.discord_id,
+        "userId": user_id,
+        "reason": reason,
+        "deleteMessages": delete_messages,
+    }
+
+    status, result = call_dissident_api("POST", "moderation/ban", current_user, json_payload=json_payload)
+
+    if status < 300:
+        case_num = ModerationCase.query.filter_by(guild_id=guild_id).count() + 1
+        case = ModerationCase(
+            guild_id=guild_id,
+            case_number=case_num,
+            action=action,
+            target_id=user_id,
+            target_name=target_name,
+            moderator_id=str(current_user.discord_id),
+            moderator_name=current_user.username,
+            reason=reason,
+        )
+        db.session.add(case)
+        db.session.commit()
+
+    return jsonify(result), status
+
+
+@api_bp.get("/moderation/global-bans")
+@login_required
+def get_global_bans():
+    """List global bans stored in the hub."""
+    cases = ModerationCase.query.filter_by(action="global_ban").order_by(
+        ModerationCase.created_at.desc()
+    ).limit(100).all()
+    return jsonify([c.to_dict() for c in cases])
+
+
+@api_bp.post("/moderation/global-bans")
+@login_required
+def create_global_ban():
+    """Create a cross-server ban via the Dissident bot backend."""
+    data = request.get_json(silent=True) or {}
+    user_id = str(data.get("user_id", ""))
+    username = data.get("username", "")
+    reason = data.get("reason", "")
+    evidence = data.get("evidence", "")
+    source_guild_id = data.get("source_guild_id")
+    delete_messages = bool(data.get("delete_messages", False))
+
+    if not user_id:
+        return jsonify({"error": "user_id is required"}), 400
+
+    guild = Guild.query.get(source_guild_id) if source_guild_id else None
+    source_guild_discord_id = guild.discord_id if guild else None
+
+    json_payload = {
+        "userId": user_id,
+        "username": username,
+        "reason": reason,
+        "evidence": evidence,
+        "sourceGuildId": source_guild_discord_id,
+        "deleteMessages": delete_messages,
+    }
+
+    status, result = call_dissident_api("POST", "moderation/global-ban", current_user, json_payload=json_payload)
+
+    if status < 300:
+        case_num = ModerationCase.query.filter_by(guild_id=source_guild_id).count() + 1 if source_guild_id else 1
+        case = ModerationCase(
+            guild_id=source_guild_id,
+            case_number=case_num,
+            action="global_ban",
+            target_id=user_id,
+            target_name=username or None,
+            moderator_id=str(getattr(current_user, "discord_id", "") or "") or None,
+            moderator_name=current_user.username,
+            reason=reason,
+        )
+        db.session.add(case)
+        db.session.commit()
+
+    return jsonify(result), status
 
 
 @api_bp.get("/moderation/recent")
