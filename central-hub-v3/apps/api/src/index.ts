@@ -755,14 +755,23 @@ process.on('SIGTERM', async () => {
   process.exit(0);
 });
 
-// Handle uncaught errors
+// Handle uncaught errors — log but don't exit for non-fatal queue/redis errors
 process.on('uncaughtException', async (error) => {
+  const msg = error?.message || String(error);
+  
+  // Bull/ioredis config errors are logged but non-fatal — server keeps running
+  if (msg.includes('enableReadyCheck') || msg.includes('maxRetriesPerRequest') ||
+      msg.includes('bclient') || msg.includes('Queue')) {
+    console.warn('⚠️ Non-fatal queue error (ignored):', msg);
+    return;
+  }
+  
   console.error('Uncaught Exception:', error);
-  monitoringScheduler.stopScheduler();
-  await closeQueues();
-  await closeNeo4j();
-  await closeRedis();
-  await prisma.$disconnect();
+  try { monitoringScheduler.stopScheduler(); } catch {}
+  try { await closeQueues(); } catch {}
+  try { await closeNeo4j(); } catch {}
+  try { await closeRedis(); } catch {}
+  try { await prisma.$disconnect(); } catch {}
   process.exit(1);
 });
 
