@@ -17,6 +17,7 @@ from dashboard.extensions import db
 from dashboard.routes.api import api_bp
 from dashboard.routes.auth import auth_bp
 from dashboard.routes.core import core_bp
+from dashboard.versioning import get_dashboard_version
 
 log = logging.getLogger(__name__)
 
@@ -75,7 +76,6 @@ def create_app(config: dict | None = None) -> Flask:
     # ── Health endpoint ─────────────────────────────────────────
     @app.get("/health")
     def health():
-        from dashboard.versioning import get_dashboard_version
         return {"status": "ok", "service": "dissident-central-hub", "version": get_dashboard_version()}
 
     # ── DB init ─────────────────────────────────────────────────
