@@ -468,6 +468,17 @@ async function initDatabase() {
         PRIMARY KEY (user_id, guild_id)
       );
     `);
+
+    // Backward-compatible column additions when older schemas already exist.
+    await pool.query(`
+      ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS server_id VARCHAR(32);
+      ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS user_id VARCHAR(32);
+      ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS target_id VARCHAR(32);
+      ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS action VARCHAR(50);
+      ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS reason TEXT;
+      ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+    `);
+
     console.log('✅ Database tables initialized');
   } catch (error) {
     console.error('❌ Database initialization error:', error);
