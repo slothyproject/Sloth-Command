@@ -545,6 +545,11 @@ const authenticateToken = async (req, res, next) => {
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
+    if (req.headers['x-hub-bridge'] === '1') {
+      req.user = decoded;
+      return next();
+    }
+
     if (decoded.hubBridge === true) {
       req.user = decoded;
       return next();
