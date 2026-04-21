@@ -763,17 +763,70 @@ def ticket_messages(ticket_id: int):
 @api_bp.post("/tickets/<int:ticket_id>/close")
 @login_required
 def ticket_close(ticket_id: int):
+    return _ticket_set_status(ticket_id, "closed", None)
+
+
+def _ticket_set_status(ticket_id: int, status: str, reason: str | None):
     ticket = Ticket.query.get_or_404(ticket_id)
     guild = Guild.query.get(ticket.guild_id)
     if guild and not current_user.can_manage(guild):
         return jsonify({"error": "Forbidden"}), 403
-    from datetime import datetime, timezone
-    ticket.status = "closed"
-    ticket.closed_by = current_user.username
-    ticket.closed_at = datetime.now(timezone.utc)
+
+    next_status = (status or "").strip().lower()
+    if next_status not in {"open", "resolved", "closed"}:
+        return jsonify({"error": "Invalid status"}), 400
+
+    ticket.status = next_status
+    if next_status == "closed":
+        ticket.closed_by = current_user.username
+        ticket.closed_reason = reason
+        ticket.closed_at = datetime.now(timezone.utc)
+    else:
+        ticket.closed_by = None
+        ticket.closed_reason = None
+        ticket.closed_at = None
+
     db.session.commit()
-    _audit("ticket_close", guild_id=ticket.guild_id, target_type="ticket", target_id=str(ticket_id))
-    return jsonify({"ok": True})
+    _audit(
+        "ticket_status_update",
+        guild_id=ticket.guild_id,
+        target_type="ticket",
+        target_id=str(ticket_id),
+        details={"status": next_status, "reason": reason},
+    )
+    return jsonify({"ok": True, "status": ticket.status, "closed_at": ticket.closed_at.isoformat() if ticket.closed_at else None})
+
+
+@api_bp.post("/tickets/<int:ticket_id>/status")
+@login_required
+def ticket_set_status(ticket_id: int):
+    payload = request.get_json(silent=True) or {}
+    return _ticket_set_status(ticket_id, payload.get("status", ""), payload.get("reason"))
+
+
+@api_bp.post("/tickets/<int:ticket_id>/assign")
+@login_required
+def ticket_assign(ticket_id: int):
+    ticket = Ticket.query.get_or_404(ticket_id)
+    guild = Guild.query.get(ticket.guild_id)
+    if guild and not current_user.can_manage(guild):
+        return jsonify({"error": "Forbidden"}), 403
+
+    payload = request.get_json(silent=True) or {}
+    assignee = str(payload.get("assigned_to") or "").strip()
+    if assignee and len(assignee) > 100:
+        return jsonify({"error": "assigned_to is too long"}), 400
+
+    ticket.assigned_to = assignee or None
+    db.session.commit()
+    _audit(
+        "ticket_assignment_update",
+        guild_id=ticket.guild_id,
+        target_type="ticket",
+        target_id=str(ticket_id),
+        details={"assigned_to": ticket.assigned_to},
+    )
+    return jsonify({"ok": True, "assigned_to": ticket.assigned_to})
 
 # ── Webhook (bot → hub) ──────────────────────────────────────────
 

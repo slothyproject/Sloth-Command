@@ -170,14 +170,14 @@ def ticket_detail(ticket_id: int):
 @login_required
 def tickets():
     if current_user.is_admin:
-        open_tickets = Ticket.query.filter_by(status="open").order_by(
+        open_tickets = Ticket.query.order_by(
             Ticket.created_at.desc()
-        ).limit(50).all()
+        ).limit(100).all()
     else:
         from dashboard.models import GuildMember
         ids = [m.guild_id for m in GuildMember.query.filter_by(user_id=current_user.id)]
         open_tickets = Ticket.query.filter(
-            Ticket.guild_id.in_(ids), Ticket.status == "open"
+            Ticket.guild_id.in_(ids)
         ).order_by(Ticket.created_at.desc()).limit(50).all()
 
     return render_template("pages/tickets.html", tickets=open_tickets, active="tickets")
