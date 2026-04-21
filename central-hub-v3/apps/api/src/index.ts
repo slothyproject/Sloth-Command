@@ -269,6 +269,11 @@ app.use(cors({
 app.use(express.json());
 app.use(discordClientMiddleware);
 
+// Root health check — Railway pings /health during deployment
+app.get('/health', (_req, res) => {
+  res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
 // API Routes
 app.use('/api/ai', aiRoutes);
 app.use('/api/railway', railwayRoutes);
