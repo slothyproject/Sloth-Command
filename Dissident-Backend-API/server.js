@@ -597,15 +597,7 @@ const authenticateToken = async (req, res, next) => {
     );
     
     if (sessionResult.rows.length === 0) {
-      return res.status(403).json({
-        error: 'Invalid or expired session',
-        debug: {
-          userId: decoded.userId,
-          hubBridgeClaim: decoded.hubBridge === true,
-          hubBridgeHeader: req.headers['x-hub-bridge'] === '1',
-          globalAdmin: isGlobalAdminUser(decoded.userId),
-        },
-      });
+      return res.status(403).json({ error: 'Invalid or expired session' });
     }
     
     req.user = decoded;
