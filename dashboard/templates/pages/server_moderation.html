@@ -31,7 +31,7 @@
         Delete the last 7 days of messages when banning
       </label>
       <textarea id="single-reason" class="field__input--inline" rows="3" placeholder="Reason"></textarea>
-      <button class="btn btn--ghost btn--sm" onclick="runSingleAction()">execute action</button>
+      <button id="single-action-button" type="button" class="btn btn--ghost btn--sm" onclick="runSingleAction()">execute action</button>
       <div id="single-action-result" class="t1"></div>
     </div>
   </div>
@@ -55,7 +55,7 @@
         Delete the last 7 days of messages when banning
       </label>
       <textarea id="bulk-reason" class="field__input--inline" rows="3" placeholder="Reason"></textarea>
-      <button class="btn btn--ghost btn--sm" onclick="runBulkAction()">execute bulk action</button>
+      <button id="bulk-action-button" type="button" class="btn btn--ghost btn--sm" onclick="runBulkAction()">execute bulk action</button>
       <div id="bulk-action-result" class="t1"></div>
     </div>
   </div>
@@ -102,6 +102,8 @@ const GUILD_ID = {{ guild.id }};
 let currentAction = '', currentPage = 1;
 let cachedCases = [];
 let memberSearchTimer = null;
+let singleActionInFlight = false;
+let bulkActionInFlight = false;
 
 function escapeHtml(value) {
   return String(value || '')
@@ -142,6 +144,10 @@ function formatApiError(payload) {
 }
 
 async function runSingleAction() {
+  if (singleActionInFlight) {
+    return;
+  }
+
   const action = document.getElementById('single-action').value;
   const payload = {
     action,
@@ -153,24 +159,36 @@ async function runSingleAction() {
   };
 
   const result = document.getElementById('single-action-result');
+  const button = document.getElementById('single-action-button');
+  singleActionInFlight = true;
+  button.disabled = true;
   result.textContent = 'running...';
 
-  const response = await fetch(`/api/guilds/${GUILD_ID}/moderation/actions`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    result.textContent = formatApiError(data);
-    return;
-  }
+  try {
+    const response = await fetch(`/api/guilds/${GUILD_ID}/moderation/actions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      result.textContent = formatApiError(data);
+      return;
+    }
 
-  result.textContent = data.message || `Completed ${action}.`;
-  loadCases(true);
+    result.textContent = data.message || `Completed ${action}.`;
+    loadCases(true);
+  } finally {
+    singleActionInFlight = false;
+    button.disabled = false;
+  }
 }
 
 async function runBulkAction() {
+  if (bulkActionInFlight) {
+    return;
+  }
+
   const action = document.getElementById('bulk-action').value;
   const payload = {
     action,
@@ -181,23 +199,31 @@ async function runBulkAction() {
   };
 
   const result = document.getElementById('bulk-action-result');
+  const button = document.getElementById('bulk-action-button');
+  bulkActionInFlight = true;
+  button.disabled = true;
   result.textContent = 'running...';
 
-  const response = await fetch(`/api/guilds/${GUILD_ID}/moderation/bulk`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    result.textContent = formatApiError(data);
-    return;
-  }
+  try {
+    const response = await fetch(`/api/guilds/${GUILD_ID}/moderation/bulk`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      result.textContent = formatApiError(data);
+      return;
+    }
 
-  const summary = data.summary || { success: 0, failed: 0 };
-  const invalid = (data.invalid || []).length;
-  result.textContent = `Completed ${action}: ${summary.success} succeeded, ${summary.failed} failed, ${invalid} invalid IDs.`;
-  loadCases(true);
+    const summary = data.summary || { success: 0, failed: 0 };
+    const invalid = (data.invalid || []).length;
+    result.textContent = `Completed ${action}: ${summary.success} succeeded, ${summary.failed} failed, ${invalid} invalid IDs.`;
+    loadCases(true);
+  } finally {
+    bulkActionInFlight = false;
+    button.disabled = false;
+  }
 }
 
 function renderCases(items, append=false) {
