@@ -9,9 +9,15 @@
   <h1 class="page-header__title">Ticket #{{ ticket.ticket_number }}</h1>
   <span class="badge badge--{{ 'online' if ticket.status == 'open' else 'default' }}">{{ ticket.status }}</span>
   <span class="badge pri--{{ ticket.priority }}">{{ ticket.priority }}</span>
-  {% if ticket.status == 'open' %}
-    <button class="btn btn--danger btn--sm" style="margin-left:auto" onclick="closeTicket()">Close ticket</button>
-  {% endif %}
+</div>
+
+<div class="card" style="margin-bottom:14px">
+  <div class="card__title">Simple Staff Workflow</div>
+  <div style="font-size:12px;color:var(--text-1);line-height:1.55">
+    1) Assign ticket to yourself.<br>
+    2) Set status to <strong>resolved</strong> when solved.<br>
+    3) Set status to <strong>closed</strong> when fully complete.
+  </div>
 </div>
 
 <div style="display:grid;grid-template-columns:1fr 280px;gap:16px">
@@ -42,6 +48,17 @@
       <div class="card__row"><span class="card__label">Closed</span><span class="card__value">{{ ticket.closed_at.strftime('%d %b %Y %H:%M') }}</span></div>
       <div class="card__row"><span class="card__label">Closed by</span><span class="card__value">{{ ticket.closed_by or '—' }}</span></div>
       {% endif %}
+    </div>
+    <div class="card" style="margin-bottom:12px">
+      <div class="card__title">ACTIONS</div>
+      <div style="display:grid;grid-template-columns:1fr;gap:8px">
+        <button class="btn btn--ghost btn--sm" onclick="setStatus('open')">Set Open</button>
+        <button class="btn btn--primary btn--sm" onclick="setStatus('resolved')">Set Resolved</button>
+        <button class="btn btn--danger btn--sm" onclick="setStatus('closed')">Set Closed</button>
+        <button class="btn btn--ghost btn--sm" onclick="assignToMe()">Assign To Me</button>
+        <button class="btn btn--ghost btn--sm" onclick="clearAssignment()">Clear Assignment</button>
+      </div>
+      <div id="action-feedback" class="td-mono" style="margin-top:8px;min-height:14px"></div>
     </div>
     <div class="card">
       <div class="card__title">SERVER</div>
@@ -80,10 +97,62 @@ function escapeHtml(str) {
 }
 
 async function closeTicket() {
-  if (!confirm('Close this ticket?')) return;
-  // Post close event via hub API
-  const r = await fetch(`/api/tickets/${TICKET_ID}/close`, { method: 'POST' });
-  if ((await r.json()).ok) window.location.reload();
+  await setStatus('closed');
+}
+
+function setActionFeedback(message, isError = false) {
+  const el = document.getElementById('action-feedback');
+  el.textContent = message;
+  el.style.color = isError ? 'var(--danger)' : 'var(--text-1)';
+}
+
+async function setStatus(status) {
+  if (!confirm(`Set this ticket to ${status}?`)) return;
+
+  const res = await fetch(`/api/tickets/${TICKET_ID}/status`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status })
+  });
+  const data = await res.json().catch(() => ({ ok: false, error: 'Request failed' }));
+
+  if (!res.ok || !data.ok) {
+    setActionFeedback(data.error || 'Could not update status', true);
+    return;
+  }
+
+  setActionFeedback(`Status updated to ${status}`);
+  window.location.reload();
+}
+
+async function assignToMe() {
+  const res = await fetch(`/api/tickets/${TICKET_ID}/assign`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ assigned_to: '{{ current_user.username }}' })
+  });
+  const data = await res.json().catch(() => ({ ok: false, error: 'Request failed' }));
+  if (!res.ok || !data.ok) {
+    setActionFeedback(data.error || 'Could not assign ticket', true);
+    return;
+  }
+  setActionFeedback('Assigned to you.');
+  window.location.reload();
+}
+
+async function clearAssignment() {
+  const res = await fetch(`/api/tickets/${TICKET_ID}/assign`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ assigned_to: '' })
+  });
+  const data = await res.json().catch(() => ({ ok: false, error: 'Request failed' }));
+  if (!res.ok || !data.ok) {
+    setActionFeedback(data.error || 'Could not clear assignment', true);
+    return;
+  }
+  setActionFeedback('Assignment cleared.');
+  window.location.reload();
 }
 
 loadMessages();

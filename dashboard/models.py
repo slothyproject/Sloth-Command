@@ -36,6 +36,18 @@ class User(UserMixin, db.Model):
     guild_memberships = db.relationship("GuildMember", back_populates="user", lazy="dynamic")
     audit_logs        = db.relationship("AuditLog", back_populates="actor", lazy="dynamic")
     notifications     = db.relationship("Notification", back_populates="user", lazy="dynamic")
+    ai_provider_credential = db.relationship(
+        "UserAIProviderCredential",
+        back_populates="user",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
+    ai_provider_usage = db.relationship(
+        "UserAIProviderUsageStat",
+        back_populates="user",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
 
     def set_password(self, password: str) -> None:
         self.hashed_password = generate_password_hash(password)
@@ -181,6 +193,83 @@ class GuildMember(db.Model):
 
     guild = db.relationship("Guild", back_populates="members")
     user  = db.relationship("User", back_populates="guild_memberships")
+
+
+class UserAIProviderCredential(db.Model):
+    __tablename__ = "hub_user_ai_providers"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(
+        db.Integer,
+        db.ForeignKey("hub_users.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    provider = db.Column(db.String(40), nullable=False)
+    model = db.Column(db.String(120), nullable=False)
+    base_url = db.Column(db.String(500), nullable=True)
+    encrypted_api_key = db.Column(db.Text, nullable=False)
+    api_key_iv = db.Column(db.String(120), nullable=False)
+    key_hint = db.Column(db.String(32), nullable=True)
+    status = db.Column(db.String(32), nullable=False, default="active")
+    usage_limit_requests_per_hour = db.Column(db.Integer, nullable=False, default=100)
+    last_validated_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    validation_error = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow)
+    updated_at = db.Column(db.DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+    user = db.relationship("User", back_populates="ai_provider_credential")
+
+    def to_dict(self) -> dict:
+        return {
+            "provider": self.provider,
+            "model": self.model,
+            "base_url": self.base_url,
+            "status": self.status,
+            "key_hint": self.key_hint,
+            "usage_limit_requests_per_hour": self.usage_limit_requests_per_hour,
+            "last_validated_at": self.last_validated_at.isoformat() if self.last_validated_at else None,
+            "validation_error": self.validation_error,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+class UserAIProviderUsageStat(db.Model):
+    __tablename__ = "hub_user_ai_provider_usage"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(
+        db.Integer,
+        db.ForeignKey("hub_users.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    current_hour_started_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    requests_this_hour = db.Column(db.Integer, nullable=False, default=0)
+    tokens_this_hour = db.Column(db.Integer, nullable=False, default=0)
+    lifetime_requests = db.Column(db.Integer, nullable=False, default=0)
+    lifetime_tokens = db.Column(db.Integer, nullable=False, default=0)
+    last_used_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    last_command = db.Column(db.String(40), nullable=True)
+    last_error = db.Column(db.Text, nullable=True)
+    updated_at = db.Column(db.DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+    user = db.relationship("User", back_populates="ai_provider_usage")
+
+    def to_dict(self) -> dict:
+        return {
+            "current_hour_started_at": self.current_hour_started_at.isoformat() if self.current_hour_started_at else None,
+            "requests_this_hour": self.requests_this_hour,
+            "tokens_this_hour": self.tokens_this_hour,
+            "lifetime_requests": self.lifetime_requests,
+            "lifetime_tokens": self.lifetime_tokens,
+            "last_used_at": self.last_used_at.isoformat() if self.last_used_at else None,
+            "last_command": self.last_command,
+            "last_error": self.last_error,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
 
 
 # ── Commands ─────────────────────────────────────────────────────

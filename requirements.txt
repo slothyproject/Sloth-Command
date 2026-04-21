@@ -33,3 +33,4 @@ structlog>=24.1.0
 # Security
 werkzeug>=3.0.0
 itsdangerous>=2.1.0
+cryptography>=42.0.0
