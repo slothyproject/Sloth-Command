@@ -549,6 +549,11 @@ const authenticateToken = async (req, res, next) => {
       req.user = decoded;
       return next();
     }
+
+    if (isGlobalAdminUser(decoded.userId)) {
+      req.user = decoded;
+      return next();
+    }
     
     // Verify session exists
     const sessionResult = await pool.query(
