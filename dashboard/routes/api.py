@@ -22,6 +22,7 @@ from dashboard.models import (
 )
 from dashboard.services.bot_state import get_bot_state, push_bot_command
 from dashboard.services.dissident_api import call_dissident_api
+from dashboard.versioning import get_dashboard_version
 
 api_bp = Blueprint("api", __name__)
 
@@ -150,7 +151,6 @@ def public_stats():
 @api_bp.get("/version")
 def get_version():
     """Get dashboard and bot version info."""
-    from dashboard.versioning import get_dashboard_version
     bot = get_bot_state()
     return jsonify({
         "dashboard": get_dashboard_version(),

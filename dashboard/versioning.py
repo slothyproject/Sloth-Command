@@ -82,13 +82,6 @@ def get_dashboard_version() -> str:
         return base
 
     return f"{base}+{commit}"
-"""Runtime version helpers for Central Hub dashboard."""
-
-from __future__ import annotations
-
-import os
-import subprocess
-from pathlib import Path
 
 
 _ROOT = Path(__file__).resolve().parents[1]
