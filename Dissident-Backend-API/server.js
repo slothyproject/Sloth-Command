@@ -69,7 +69,12 @@ function isGlobalAdminUser(userId) {
 
 function getDeploymentDiagnostics() {
   return {
-    deploymentVersion: '2.1.1-route-parity',
+    deploymentVersion: '2.1.2-bridge-auth',
+    authModes: {
+      allowHubBridgeHeader: true,
+      allowHubBridgeClaim: true,
+      allowGlobalAdminJwt: true,
+    },
     moderationRoutes: {
       ban: '/api/moderation/ban',
       bulk: '/api/moderation/bulk',
