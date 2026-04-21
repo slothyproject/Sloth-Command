@@ -40,7 +40,7 @@ def _route_missing_error(path: str) -> dict | None:
         "moderation/global-bans",
         "moderation/global-ban",
     }
-    if normalized in critical_paths or normalized.startswith("moderation/global-ban/"):
+    if normalized in critical_paths:
         return {
             "error": "Dissident API deployment is missing required moderation routes",
             "missing_route": f"/api/{normalized}",
