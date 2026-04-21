@@ -38,6 +38,7 @@ def create_app(config: dict | None = None) -> Flask:
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE="Lax",
         WTF_CSRF_TIME_LIMIT=3600,
+        RATELIMIT_STORAGE_URI=os.environ.get("REDIS_URL") or "memory://",
     )
     if config:
         app.config.update(config)
@@ -95,39 +96,42 @@ def _run_migrations(app: Flask) -> None:
 
         def existing_cols(table):
             if table not in existing_tables:
-                return set()
+                return None
             return {c["name"] for c in inspector.get_columns(table)}
 
         migrations = []
 
         # hub_users
         ucols = existing_cols("hub_users")
-        if "discriminator" not in ucols:
-            migrations.append("ALTER TABLE hub_users ADD COLUMN discriminator VARCHAR(10)")
-        if "avatar" not in ucols:
-            migrations.append("ALTER TABLE hub_users ADD COLUMN avatar VARCHAR(200)")
-        if "email" not in ucols:
-            migrations.append("ALTER TABLE hub_users ADD COLUMN email VARCHAR(200)")
+        if ucols is not None:
+            if "discriminator" not in ucols:
+                migrations.append("ALTER TABLE hub_users ADD COLUMN discriminator VARCHAR(10)")
+            if "avatar" not in ucols:
+                migrations.append("ALTER TABLE hub_users ADD COLUMN avatar VARCHAR(200)")
+            if "email" not in ucols:
+                migrations.append("ALTER TABLE hub_users ADD COLUMN email VARCHAR(200)")
 
         # hub_guilds
         gcols = existing_cols("hub_guilds")
-        if "banner" not in gcols:
-            migrations.append("ALTER TABLE hub_guilds ADD COLUMN banner VARCHAR(200)")
-        if "owner_discord_id" not in gcols:
-            migrations.append("ALTER TABLE hub_guilds ADD COLUMN owner_discord_id VARCHAR(32)")
-        if "channel_count" not in gcols:
-            migrations.append("ALTER TABLE hub_guilds ADD COLUMN channel_count INTEGER DEFAULT 0")
-        if "role_count" not in gcols:
-            migrations.append("ALTER TABLE hub_guilds ADD COLUMN role_count INTEGER DEFAULT 0")
-        if "bot_joined_at" not in gcols:
-            migrations.append("ALTER TABLE hub_guilds ADD COLUMN bot_joined_at TIMESTAMPTZ DEFAULT NOW()")
+        if gcols is not None:
+            if "banner" not in gcols:
+                migrations.append("ALTER TABLE hub_guilds ADD COLUMN banner VARCHAR(200)")
+            if "owner_discord_id" not in gcols:
+                migrations.append("ALTER TABLE hub_guilds ADD COLUMN owner_discord_id VARCHAR(32)")
+            if "channel_count" not in gcols:
+                migrations.append("ALTER TABLE hub_guilds ADD COLUMN channel_count INTEGER DEFAULT 0")
+            if "role_count" not in gcols:
+                migrations.append("ALTER TABLE hub_guilds ADD COLUMN role_count INTEGER DEFAULT 0")
+            if "bot_joined_at" not in gcols:
+                migrations.append("ALTER TABLE hub_guilds ADD COLUMN bot_joined_at TIMESTAMPTZ DEFAULT NOW()")
 
         # hub_audit_log
         acols = existing_cols("hub_audit_log")
-        if "guild_id" not in acols:
-            migrations.append("ALTER TABLE hub_audit_log ADD COLUMN guild_id INTEGER")
-        if "details" not in acols:
-            migrations.append("ALTER TABLE hub_audit_log ADD COLUMN details JSONB")
+        if acols is not None:
+            if "guild_id" not in acols:
+                migrations.append("ALTER TABLE hub_audit_log ADD COLUMN guild_id INTEGER")
+            if "details" not in acols:
+                migrations.append("ALTER TABLE hub_audit_log ADD COLUMN details JSONB")
 
         if not migrations:
             log.info("Schema up to date — no migrations needed")

@@ -87,7 +87,11 @@ DISCORD_CLIENT_SECRET
 DISCORD_REDIRECT_URI
 ADMIN_USER          Initial admin account username
 ADMIN_PASS          Initial admin account password
+BOT_INTERNAL_API_KEY Shared secret for backend access to internal Hub AI routes
+AI_PROVIDER_ENCRYPTION_KEY Base64 32-byte AES-GCM key for stored per-user AI secrets
 ```
+
+For the Discord bot runtime, also set `HUB_API_BASE_URL` to the public Hub origin and reuse the same `BOT_INTERNAL_API_KEY` there. If `BOT_INTERNAL_API_KEY` is absent, the current bridge falls back to `WEBHOOK_SECRET`, but the dedicated key is the intended production setup.
 
 ---
 

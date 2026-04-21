@@ -8,6 +8,59 @@
   <span class="page-header__sub">// {{ guild.name }}</span>
 </div>
 
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;margin-bottom:16px">
+  <div class="card" style="padding:16px">
+    <div class="card__title" style="margin-bottom:12px">RUN ACTION</div>
+    <div class="t1" style="margin-bottom:12px">Search a member or paste a Discord user ID, then run a moderation action.</div>
+    <div style="display:grid;gap:10px">
+      <input id="member-search" class="field__input--inline" type="search" placeholder="Search member by name or ID">
+      <div id="member-search-results" style="display:grid;gap:6px"></div>
+      <input id="target-user-id" class="field__input--inline" type="text" placeholder="Discord user ID">
+      <input id="target-user-name" class="field__input--inline" type="text" placeholder="Display name (optional)">
+      <select id="single-action" class="field__input--inline">
+        <option value="ban">Ban</option>
+        <option value="kick">Kick</option>
+        <option value="mute">Mute</option>
+        <option value="unmute">Unmute</option>
+        <option value="warn">Warn</option>
+        <option value="unban">Unban</option>
+      </select>
+      <input id="single-duration" class="field__input--inline" type="number" min="1" placeholder="Mute duration in seconds">
+      <label class="t1" style="display:flex;gap:8px;align-items:center">
+        <input id="single-delete-messages" type="checkbox">
+        Delete the last 7 days of messages when banning
+      </label>
+      <textarea id="single-reason" class="field__input--inline" rows="3" placeholder="Reason"></textarea>
+      <button id="single-action-button" type="button" class="btn btn--ghost btn--sm" onclick="runSingleAction()">execute action</button>
+      <div id="single-action-result" class="t1"></div>
+    </div>
+  </div>
+
+  <div class="card" style="padding:16px">
+    <div class="card__title" style="margin-bottom:12px">BULK ACTION</div>
+    <div class="t1" style="margin-bottom:12px">Run the same action across many users. Separate IDs with commas, spaces, or new lines.</div>
+    <div style="display:grid;gap:10px">
+      <textarea id="bulk-user-ids" class="field__input--inline" rows="6" placeholder="Discord user IDs"></textarea>
+      <select id="bulk-action" class="field__input--inline">
+        <option value="ban">Ban</option>
+        <option value="kick">Kick</option>
+        <option value="mute">Mute</option>
+        <option value="unmute">Unmute</option>
+        <option value="warn">Warn</option>
+        <option value="unban">Unban</option>
+      </select>
+      <input id="bulk-duration" class="field__input--inline" type="number" min="1" placeholder="Mute duration in seconds">
+      <label class="t1" style="display:flex;gap:8px;align-items:center">
+        <input id="bulk-delete-messages" type="checkbox">
+        Delete the last 7 days of messages when banning
+      </label>
+      <textarea id="bulk-reason" class="field__input--inline" rows="3" placeholder="Reason"></textarea>
+      <button id="bulk-action-button" type="button" class="btn btn--ghost btn--sm" onclick="runBulkAction()">execute bulk action</button>
+      <div id="bulk-action-result" class="t1"></div>
+    </div>
+  </div>
+</div>
+
 <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
   <button class="btn btn--ghost btn--sm active-filter" data-filter="" onclick="filterCases('')">All</button>
   <button class="btn btn--ghost btn--sm" data-filter="warn"  onclick="filterCases('warn')">Warns</button>
@@ -48,6 +101,130 @@
 const GUILD_ID = {{ guild.id }};
 let currentAction = '', currentPage = 1;
 let cachedCases = [];
+let memberSearchTimer = null;
+let singleActionInFlight = false;
+let bulkActionInFlight = false;
+
+function escapeHtml(value) {
+  return String(value || '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
+async function searchMembers() {
+  const query = document.getElementById('member-search').value.trim();
+  const results = document.getElementById('member-search-results');
+  if (!query) {
+    results.innerHTML = '';
+    return;
+  }
+
+  const members = await fetch(`/api/guilds/${GUILD_ID}/moderation/member-search?query=${encodeURIComponent(query)}`)
+    .then(r => r.json())
+    .catch(() => []);
+
+  results.innerHTML = (members || []).map(member => `
+    <button type="button" class="btn btn--ghost btn--sm" style="justify-content:flex-start" onclick="selectMember('${member.id}', '${escapeHtml(member.username)}')">
+      ${escapeHtml(member.username)} <span class="t1" style="margin-left:8px">${member.id}</span>
+    </button>
+  `).join('') || '<div class="t1">No members found</div>';
+}
+
+function selectMember(userId, username) {
+  document.getElementById('target-user-id').value = userId;
+  document.getElementById('target-user-name').value = username;
+  document.getElementById('member-search-results').innerHTML = '';
+}
+
+function formatApiError(payload) {
+  return payload?.error || payload?.message || 'Request failed';
+}
+
+async function runSingleAction() {
+  if (singleActionInFlight) {
+    return;
+  }
+
+  const action = document.getElementById('single-action').value;
+  const payload = {
+    action,
+    user_id: document.getElementById('target-user-id').value.trim(),
+    target_name: document.getElementById('target-user-name').value.trim(),
+    reason: document.getElementById('single-reason').value.trim(),
+    duration: document.getElementById('single-duration').value,
+    delete_messages: document.getElementById('single-delete-messages').checked,
+  };
+
+  const result = document.getElementById('single-action-result');
+  const button = document.getElementById('single-action-button');
+  singleActionInFlight = true;
+  button.disabled = true;
+  result.textContent = 'running...';
+
+  try {
+    const response = await fetch(`/api/guilds/${GUILD_ID}/moderation/actions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      result.textContent = formatApiError(data);
+      return;
+    }
+
+    result.textContent = data.message || `Completed ${action}.`;
+    loadCases(true);
+  } finally {
+    singleActionInFlight = false;
+    button.disabled = false;
+  }
+}
+
+async function runBulkAction() {
+  if (bulkActionInFlight) {
+    return;
+  }
+
+  const action = document.getElementById('bulk-action').value;
+  const payload = {
+    action,
+    user_ids: document.getElementById('bulk-user-ids').value,
+    reason: document.getElementById('bulk-reason').value.trim(),
+    duration: document.getElementById('bulk-duration').value,
+    delete_messages: document.getElementById('bulk-delete-messages').checked,
+  };
+
+  const result = document.getElementById('bulk-action-result');
+  const button = document.getElementById('bulk-action-button');
+  bulkActionInFlight = true;
+  button.disabled = true;
+  result.textContent = 'running...';
+
+  try {
+    const response = await fetch(`/api/guilds/${GUILD_ID}/moderation/bulk`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      result.textContent = formatApiError(data);
+      return;
+    }
+
+    const summary = data.summary || { success: 0, failed: 0 };
+    const invalid = (data.invalid || []).length;
+    result.textContent = `Completed ${action}: ${summary.success} succeeded, ${summary.failed} failed, ${invalid} invalid IDs.`;
+    loadCases(true);
+  } finally {
+    bulkActionInFlight = false;
+    button.disabled = false;
+  }
+}
 
 function renderCases(items, append=false) {
   const body = document.getElementById('cases-body');
@@ -114,6 +291,10 @@ function filterCases(action) {
 
 function loadMore() { currentPage++; loadCases(false); }
 document.getElementById('case-search').addEventListener('input', applySearch);
+document.getElementById('member-search').addEventListener('input', () => {
+  clearTimeout(memberSearchTimer);
+  memberSearchTimer = setTimeout(searchMembers, 250);
+});
 loadCases(true);
 </script>
 {% endblock %}
