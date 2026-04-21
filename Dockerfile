@@ -3,10 +3,19 @@ FROM python:3.12-slim
 # Install git temporarily to extract commit SHA
 RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
 
-# Create app directory and extract commit SHA from git before COPY excludes .git
 WORKDIR /app
-COPY .git .git 2>/dev/null || true
-RUN git rev-parse --short HEAD > /tmp/commit.txt 2>/dev/null || echo "unknown" > /tmp/commit.txt
+
+# Copy everything including .git
+COPY . .
+
+# Extract commit SHA from git
+RUN if [ -d .git ]; then \
+      git rev-parse --short HEAD > /tmp/commit.txt; \
+    else \
+      echo "unknown" > /tmp/commit.txt; \
+    fi
+
+# Clean up .git
 RUN rm -rf .git && apt-get purge -y git && apt-get autoremove -y
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -17,8 +26,6 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl gcc libpq-dev \
     && rm -rf /var/lib/apt/lists/*
-
-WORKDIR /app
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
