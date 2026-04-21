@@ -48,3 +48,6 @@ DISSIDENT_STATUS*
 
 # Railway local
 .railway/
+
+# Auto-generated deploy artifact
+commit.txt
