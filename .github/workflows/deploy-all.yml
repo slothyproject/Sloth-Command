@@ -109,7 +109,7 @@ jobs:
           curl -s https://dissidenttokens.mastertibbles.co.uk | head -20 || echo "Vault check pending"
 
   notify:
-    needs: [deploy-backend, deploy-frontend, deploy-vault]
+    needs: [deploy-backend, deploy-frontend]
     runs-on: ubuntu-latest
     if: always()
     steps:
@@ -118,4 +118,3 @@ jobs:
           echo "Deployment Status:"
           echo "Backend: ${{ needs.deploy-backend.result }}"
           echo "Frontend: ${{ needs.deploy-frontend.result }}"
-          echo "Vault: ${{ needs.deploy-vault.result }}"
