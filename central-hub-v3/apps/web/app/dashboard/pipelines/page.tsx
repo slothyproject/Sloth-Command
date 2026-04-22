@@ -151,11 +151,13 @@ export default function PipelinesPage() {
 
   const { data: pipelines, isLoading: isLoadingPipelines } = usePipelines();
   const { data: selectedPipelineData, isLoading: isLoadingPipeline } =
-    usePipeline(selectedPipeline);
+    usePipeline(selectedPipeline || '');
+  const selectedPipelineDataAny = selectedPipelineData as any;
   const { data: pipelineLogs, isLoading: isLoadingLogs } = usePipelineLogs(
-    selectedPipeline,
-    selectedPipelineData?.runs?.[0]?.id
+    selectedPipeline || '',
+    !!selectedPipeline
   );
+  const pipelineLogsAny = pipelineLogs as any;
   const { data: repositories } = useRepositories();
   const { data: branches } = useRepositoryBranches(selectedRepo);
 
@@ -167,9 +169,9 @@ export default function PipelinesPage() {
   const handleTrigger = async () => {
     try {
       await triggerPipeline.mutateAsync({
-        repositoryId: selectedRepo,
+        serviceId: selectedRepo,
         branch: selectedBranch,
-        commit: manualCommit || undefined,
+        commitSha: manualCommit || undefined,
       });
       toast({
         title: "Pipeline triggered",
@@ -188,11 +190,7 @@ export default function PipelinesPage() {
   const handleCancel = async () => {
     if (!selectedRun) return;
     try {
-      await cancelPipeline.mutateAsync({
-        pipelineId: selectedPipeline!,
-        runId: selectedRun.id,
-        reason: cancelReason,
-      });
+      await cancelPipeline.mutateAsync(selectedPipeline!);
       toast({
         title: "Pipeline cancelled",
         description: "The pipeline has been stopped",
@@ -209,10 +207,7 @@ export default function PipelinesPage() {
 
   const handleApprove = async (runId: string) => {
     try {
-      await approvePipeline.mutateAsync({
-        pipelineId: selectedPipeline!,
-        runId,
-      });
+      await approvePipeline.mutateAsync(selectedPipeline!);
       toast({
         title: "Pipeline approved",
         description: "Deployment will proceed",
@@ -230,7 +225,7 @@ export default function PipelinesPage() {
     try {
       await rollbackPipeline.mutateAsync({
         pipelineId: selectedPipeline!,
-        targetRunId,
+        toPipelineId: targetRunId,
       });
       toast({
         title: "Rollback initiated",
@@ -246,20 +241,21 @@ export default function PipelinesPage() {
     }
   };
 
-  const filteredPipelines = pipelines?.filter((pipeline: PipelineRun) => {
+  const filteredPipelines = (pipelines as any[] | undefined)?.filter((pipeline: any) => {
     if (activeTab === "all") return true;
-    if (activeTab === "running") return pipeline.status === "running";
-    if (activeTab === "success") return pipeline.status === "success";
+    if (activeTab === "running")
+      return pipeline.status === "deploying" || pipeline.status === "building" || pipeline.status === "testing";
+    if (activeTab === "success") return pipeline.status === "completed";
     if (activeTab === "failed") return pipeline.status === "failed";
     return true;
   });
 
   const runningCount =
-    pipelines?.filter((p: PipelineRun) => p.status === "running").length || 0;
+    (pipelines as any[] | undefined)?.filter((p: any) => p.status === "deploying" || p.status === "building" || p.status === "testing").length || 0;
   const successCount =
-    pipelines?.filter((p: PipelineRun) => p.status === "success").length || 0;
+    (pipelines as any[] | undefined)?.filter((p: any) => p.status === "completed").length || 0;
   const failedCount =
-    pipelines?.filter((p: PipelineRun) => p.status === "failed").length || 0;
+    (pipelines as any[] | undefined)?.filter((p: any) => p.status === "failed").length || 0;
 
   return (
     <div className="space-y-6">
@@ -419,7 +415,7 @@ export default function PipelinesPage() {
                       </td>
                     </tr>
                   ) : (
-                    filteredPipelines?.map((run: PipelineRun) => (
+                    filteredPipelines?.map((run: any) => (
                       <tr
                         key={run.id}
                         className="border-b border-gray-800 hover:bg-[#1f232b]"
@@ -586,7 +582,7 @@ export default function PipelinesPage() {
         </TabsContent>
       </Tabs>
 
-      {selectedPipelineData && (
+      {selectedPipelineDataAny && (
         <Card className="border-gray-800 bg-[#1a1d24] p-6">
           <div className="mb-4 flex items-center justify-between">
             <div className="flex items-center gap-4">
@@ -600,20 +596,20 @@ export default function PipelinesPage() {
               </Button>
               <div>
                 <h3 className="text-lg font-semibold text-white">
-                  Pipeline: {selectedPipelineData.name}
+                  Pipeline: {selectedPipelineDataAny.name}
                 </h3>
                 <p className="text-sm text-gray-400">
-                  {selectedPipelineData.service.name} • Run #{selectedPipelineData.runs?.[0]?.id?.slice(-6)}
+                  {selectedPipelineDataAny.service?.name} • Run #{selectedPipelineDataAny.runs?.[0]?.id?.slice(-6)}
                 </p>
               </div>
             </div>
             <div className="flex items-center gap-2">
-              {selectedPipelineData.runs?.[0]?.status === "running" && (
+              {selectedPipelineDataAny.runs?.[0]?.status === "running" && (
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={() => {
-                    setSelectedRun(selectedPipelineData.runs[0]);
+                    setSelectedRun(selectedPipelineDataAny.runs[0]);
                     setShowCancelDialog(true);
                   }}
                   className="border-red-500/50 text-red-400 hover:bg-red-500/10"
@@ -622,12 +618,12 @@ export default function PipelinesPage() {
                   Cancel
                 </Button>
               )}
-              {selectedPipelineData.runs?.[0]?.status === "waiting" && (
+              {selectedPipelineDataAny.runs?.[0]?.status === "waiting" && (
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={() =>
-                    handleApprove(selectedPipelineData.runs[0].id)
+                    handleApprove(selectedPipelineDataAny.runs[0].id)
                   }
                   className="border-green-500/50 text-green-400 hover:bg-green-500/10"
                 >
@@ -648,7 +644,7 @@ export default function PipelinesPage() {
           </div>
 
           <div className="space-y-4">
-            {selectedPipelineData.runs?.[0]?.stages?.map((stage: PipelineStage) => (
+            {selectedPipelineDataAny.runs?.[0]?.stages?.map((stage: PipelineStage) => (
               <div
                 key={stage.id}
                 className="rounded-lg border border-gray-800 bg-[#14161c]"
@@ -694,9 +690,9 @@ export default function PipelinesPage() {
                         <div className="flex items-center justify-center py-4">
                           <RefreshCw className="h-6 w-6 animate-spin text-blue-500" />
                         </div>
-                      ) : pipelineLogs?.[stage.id]?.length > 0 ? (
+                      ) : pipelineLogsAny?.[stage.id]?.length > 0 ? (
                         <div className="max-h-96 space-y-1 overflow-y-auto">
-                          {pipelineLogs[stage.id].map((log: string, i: number) => (
+                          {pipelineLogsAny[stage.id].map((log: string, i: number) => (
                             <div key={i} className="flex gap-2">
                               <span className="text-gray-600">
                                 [{new Date().toISOString().split("T")[1].slice(0, 8)}]
@@ -872,7 +868,7 @@ export default function PipelinesPage() {
           </DialogHeader>
           <div className="py-4">
             <div className="max-h-64 space-y-2 overflow-y-auto">
-              {selectedPipelineData?.runs
+              {selectedPipelineDataAny?.runs
                 ?.filter((r: PipelineRun) => r.status === "success")
                 .slice(0, 10)
                 .map((run: PipelineRun) => (

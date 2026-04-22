@@ -169,6 +169,13 @@ apiClient.interceptors.response.use(
 // ============================================================================
 
 export const api = {
+  // Low-level HTTP helpers for legacy call sites
+  get: (url: string, config?: unknown) => apiClient.get(url, config as any),
+  post: (url: string, data?: unknown, config?: unknown) => apiClient.post(url, data, config as any),
+  put: (url: string, data?: unknown, config?: unknown) => apiClient.put(url, data, config as any),
+  patch: (url: string, data?: unknown, config?: unknown) => apiClient.patch(url, data, config as any),
+  delete: (url: string, config?: unknown) => apiClient.delete(url, config as any),
+
   // Services
   services: {
     list: () => apiClient.get('/services'),
@@ -201,6 +208,23 @@ export const api = {
       apiClient.get(`/services/${serviceId}/deployments/${deploymentId}`),
     logs: (serviceId: string, deploymentId: string) => 
       apiClient.get(`/services/${serviceId}/deployments/${deploymentId}/logs`),
+    getConfigs: () => apiClient.get('/deployments/configs'),
+    updateConfig: (serviceId: string, config: unknown) => apiClient.put(`/deployments/configs/${serviceId}`, config),
+    getStatus: (serviceId: string) => apiClient.get(`/deployments/status/${serviceId}`),
+    trigger: (serviceId: string, options?: unknown) =>
+      apiClient.post(`/deployments/trigger/${serviceId}`, options),
+    getHistory: (serviceId: string, limit?: number) =>
+      apiClient.get(`/deployments/history/${serviceId}`, { params: { limit } }),
+    getPipeline: (pipelineId: string) =>
+      apiClient.get(`/deployments/pipelines/${pipelineId}`),
+    cancel: (pipelineId: string) =>
+      apiClient.post(`/deployments/pipelines/${pipelineId}/cancel`),
+    approve: (pipelineId: string) =>
+      apiClient.post(`/deployments/pipelines/${pipelineId}/approve`),
+    rollback: (pipelineId: string, toPipelineId: string) =>
+      apiClient.post(`/deployments/pipelines/${pipelineId}/rollback`, { toPipelineId }),
+    webhook: (serviceId: string, payload: unknown) =>
+      apiClient.post(`/deployments/webhook/${serviceId}`, payload),
   },
   
   // AI
@@ -241,6 +265,7 @@ export const api = {
     
     // Get all active plans
     getPlans: () => apiClient.get('/agents/plans'),
+    getActivePlans: () => apiClient.get('/agents/plans'),
     
     // Get specific plan details
     getPlan: (planId: string) => apiClient.get(`/agents/plans/${planId}`),
@@ -340,6 +365,9 @@ export const api = {
     // Manual issue detection
     detectIssues: (serviceId: string, healthData: HealthData) => 
       apiClient.post('/healing/detect', { serviceId, healthData }),
+
+    // Run global auto-heal cycle
+    runAutoHeal: () => apiClient.post('/healing/auto-heal'),
   },
 
   // ============================================================================
@@ -532,6 +560,10 @@ export const api = {
     
     createDeploymentConfig: (config: CICDDeploymentConfig) => 
       apiClient.post('/cicd/deployments', config),
+
+    // Service-level config compatibility
+    getConfig: (serviceId: string) => apiClient.get(`/cicd/config/${serviceId}`),
+    updateConfig: (serviceId: string, config: unknown) => apiClient.put(`/cicd/config/${serviceId}`, config),
   },
 
   // ============================================================================
@@ -673,7 +705,7 @@ export const api = {
   // DEPLOYMENTS API
   // ============================================================================
   
-  deployments: {
+  deploymentConfig: {
     // Get deployment configs
     getConfigs: () => apiClient.get('/deployments/configs'),
     
@@ -780,8 +812,8 @@ export const api = {
     get: (id: string) => apiClient.get(`/pipelines/${id}`),
     
     // Trigger pipeline
-    trigger: (serviceId: string, config?: unknown) => 
-      apiClient.post('/pipelines', { serviceId, ...config }),
+    trigger: (serviceId: string, config?: Record<string, unknown>) => 
+      apiClient.post('/pipelines', { serviceId, ...(config || {}) }),
     
     // Cancel pipeline
     cancel: (id: string) => apiClient.post(`/pipelines/${id}/cancel`),
@@ -823,7 +855,7 @@ export const api = {
   // CI/CD CONFIG API
   // ============================================================================
   
-  cicd: {
+  cicdConfig: {
     // Get CI/CD configuration for service
     getConfig: (serviceId: string) => apiClient.get(`/cicd/config/${serviceId}`),
     

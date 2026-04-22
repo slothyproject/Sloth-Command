@@ -436,10 +436,7 @@ export function useDeploymentPipeline(pipelineId: string) {
       return response.data as DeploymentPipeline;
     },
     enabled: !!pipelineId,
-    refetchInterval: (data) => {
-      if (data?.status === 'completed' || data?.status === 'failed') return false;
-      return 2000; // Poll every 2 seconds while active
-    },
+    refetchInterval: 2000,
   });
 }
 

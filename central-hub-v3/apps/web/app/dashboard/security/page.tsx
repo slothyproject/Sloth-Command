@@ -200,11 +200,11 @@ export default function SecurityDashboardPage() {
             <div className="glass-card p-6">
               <h3 className="text-sm font-medium text-slate-400 mb-4">Vulnerability Breakdown</h3>
               <div className="space-y-3">
-                <SeverityRow severity="critical" count={stats?.critical || 0} total={stats?.total || 1} />
-                <SeverityRow severity="high" count={stats?.high || 0} total={stats?.total || 1} />
-                <SeverityRow severity="medium" count={stats?.medium || 0} total={stats?.total || 1} />
-                <SeverityRow severity="low" count={stats?.low || 0} total={stats?.total || 1} />
-                <SeverityRow severity="info" count={stats?.info || 0} total={stats?.total || 1} />
+                <SeverityRow severity="critical" count={stats?.critical || 0} total={stats?.totalVulnerabilities || 1} />
+                <SeverityRow severity="high" count={stats?.high || 0} total={stats?.totalVulnerabilities || 1} />
+                <SeverityRow severity="medium" count={stats?.medium || 0} total={stats?.totalVulnerabilities || 1} />
+                <SeverityRow severity="low" count={stats?.low || 0} total={stats?.totalVulnerabilities || 1} />
+                <SeverityRow severity="info" count={0} total={stats?.totalVulnerabilities || 1} />
               </div>
             </div>
 
@@ -817,24 +817,22 @@ function EventsSkeleton() {
 // ============================================================================
 
 function calculateSecurityScore(stats?: SecurityDashboard['summary']): number {
-  if (!stats || stats.total === 0) return 100;
+  if (!stats || stats.totalVulnerabilities === 0) return 100;
 
   const weights = {
     critical: 40,
     high: 25,
     medium: 15,
     low: 10,
-    info: 5,
   };
 
   const maxDeduction = Object.values(weights).reduce((a, b) => a + b, 0);
   let deduction = 0;
 
-  deduction += (stats.critical / Math.max(stats.total, 1)) * weights.critical;
-  deduction += (stats.high / Math.max(stats.total, 1)) * weights.high;
-  deduction += (stats.medium / Math.max(stats.total, 1)) * weights.medium;
-  deduction += (stats.low / Math.max(stats.total, 1)) * weights.low;
-  deduction += (stats.info / Math.max(stats.total, 1)) * weights.info;
+  deduction += (stats.critical / Math.max(stats.totalVulnerabilities, 1)) * weights.critical;
+  deduction += (stats.high / Math.max(stats.totalVulnerabilities, 1)) * weights.high;
+  deduction += (stats.medium / Math.max(stats.totalVulnerabilities, 1)) * weights.medium;
+  deduction += (stats.low / Math.max(stats.totalVulnerabilities, 1)) * weights.low;
 
   return Math.max(0, Math.round(100 - deduction));
 }

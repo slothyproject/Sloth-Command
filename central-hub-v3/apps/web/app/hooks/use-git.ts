@@ -230,13 +230,7 @@ export function usePipeline(id: string) {
       return response.data as DeploymentPipeline;
     },
     enabled: !!id,
-    refetchInterval: (data) => {
-      if (!data) return false;
-      if (data.status === 'completed' || data.status === 'failed' || data.status === 'cancelled') {
-        return false;
-      }
-      return 2000; // Poll every 2 seconds while active
-    },
+    refetchInterval: 2000,
   });
 }
 

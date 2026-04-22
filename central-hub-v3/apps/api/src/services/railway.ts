@@ -4,11 +4,15 @@
  * Provides full CRUD operations for Railway services
  */
 
-import { PrismaClient, Service, Variable, Deployment } from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
 import { withRailwayCircuitBreaker } from '../utils/circuit-breaker';
 import { withCache, CACHE_TTL } from './redis';
 
 const prisma = new PrismaClient();
+
+type ServiceRecord = Awaited<ReturnType<typeof prisma.service.findUnique>>;
+type DeploymentRecord = Awaited<ReturnType<typeof prisma.deployment.findUnique>>;
+type VariableRecord = Awaited<ReturnType<typeof prisma.variable.findUnique>>;
 
 // Railway GraphQL API configuration
 const RAILWAY_API_URL = 'https://backboard.railway.app/graphql';
@@ -49,7 +53,7 @@ async function railwayGraphQLQuery(query: string, variables?: Record<string, any
  * Sync Railway services to Central Hub database
  * Cached for 2 minutes to avoid rate limiting
  */
-export async function syncServices(): Promise<Service[]> {
+export async function syncServices(): Promise<NonNullable<ServiceRecord>[]> {
   return withCache(
     async () => {
       console.log('🔄 Syncing Railway services (bypassing cache)...');
@@ -63,7 +67,7 @@ export async function syncServices(): Promise<Service[]> {
 /**
  * Internal sync function
  */
-async function doSyncServices(): Promise<Service[]> {
+async function doSyncServices(): Promise<NonNullable<ServiceRecord>[]> {
   try {
     // Query Railway for all services
     const query = `
@@ -105,7 +109,7 @@ async function doSyncServices(): Promise<Service[]> {
     const data = await railwayGraphQLQuery(query);
     const projects = data.me.projects.edges;
 
-    const syncedServices: Service[] = [];
+    const syncedServices: NonNullable<ServiceRecord>[] = [];
 
     for (const projectEdge of projects) {
       const project = projectEdge.node;
@@ -254,7 +258,7 @@ export async function getServiceMetrics(serviceId: string): Promise<{
 /**
  * Deploy a service
  */
-export async function deployService(serviceId: string): Promise<Deployment> {
+export async function deployService(serviceId: string): Promise<NonNullable<DeploymentRecord>> {
   const service = await prisma.service.findUnique({
     where: { id: serviceId },
   });
@@ -344,7 +348,7 @@ export async function restartService(serviceId: string): Promise<boolean> {
 export async function updateVariables(
   serviceId: string,
   variables: Record<string, string>
-): Promise<Variable[]> {
+): Promise<NonNullable<VariableRecord>[]> {
   const service = await prisma.service.findUnique({
     where: { id: serviceId },
     include: { variables: true },
@@ -354,7 +358,7 @@ export async function updateVariables(
     throw new Error('Service not found or not linked to Railway');
   }
 
-  const results: Variable[] = [];
+  const results: NonNullable<VariableRecord>[] = [];
 
   for (const [key, value] of Object.entries(variables)) {
     try {
@@ -380,7 +384,7 @@ export async function updateVariables(
       });
 
       // Update in our DB
-      const existingVar = service.variables.find(v => v.name === key);
+      const existingVar = service.variables.find((v: any) => v.name === key);
       
       if (existingVar) {
         const updated = await prisma.variable.update({
@@ -487,7 +491,7 @@ export async function scaleService(
 /**
  * Get all Railway services
  */
-export async function getRailwayServices(): Promise<Partial<Service>[]> {
+export async function getRailwayServices(): Promise<Array<Partial<NonNullable<ServiceRecord>>>> {
   try {
     const query = `
       query GetAllServices {
@@ -523,7 +527,7 @@ export async function getRailwayServices(): Promise<Partial<Service>[]> {
     `;
 
     const data = await railwayGraphQLQuery(query);
-    const services: Partial<Service>[] = [];
+    const services: Array<Partial<NonNullable<ServiceRecord>>> = [];
 
     for (const project of data.me.projects.edges) {
       for (const serviceEdge of project.node.services.edges) {

@@ -505,7 +505,7 @@ function WebhookConfigModal({ repo, onSave, onClose, isSaving }: {
 }) {
   const [config, setConfig] = useState({
     branch: repo.webhook?.branch || repo.defaultBranch || 'main',
-    targetEnvironment: repo.webhook?.targetEnvironment || 'production',
+    targetEnvironment: (repo.webhook?.targetEnvironment || 'production') as 'production' | 'staging' | 'development',
     autoDeploy: repo.webhook?.autoDeploy ?? true,
     requireApproval: repo.webhook?.requireApproval || false,
     runTests: repo.webhook?.runTests ?? true,
@@ -537,7 +537,7 @@ function WebhookConfigModal({ repo, onSave, onClose, isSaving }: {
             <label className="block text-sm text-slate-400 mb-1">Target Environment</label>
             <select
               value={config.targetEnvironment}
-              onChange={(e) => setConfig({ ...config, targetEnvironment: e.target.value })}
+              onChange={(e) => setConfig({ ...config, targetEnvironment: e.target.value as 'production' | 'staging' | 'development' })}
               className="w-full px-4 py-2 rounded-lg bg-slate-900/50 border border-white/10 text-white focus:outline-none focus:border-cyan-500"
             >
               <option value="production">Production</option>

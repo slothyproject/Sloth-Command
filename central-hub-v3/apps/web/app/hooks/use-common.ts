@@ -35,7 +35,7 @@ export function useDebounceCallback<T extends (...args: unknown[]) => unknown>(
   callback: T,
   delay: number
 ): (...args: Parameters<T>) => void {
-  const timeoutRef = useRef<ReturnType<typeof setTimeout>>();
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   return useCallback(
     (...args: Parameters<T>) => {
@@ -86,7 +86,7 @@ export function useThrottleCallback<T extends (...args: unknown[]) => unknown>(
   interval: number
 ): (...args: Parameters<T>) => void {
   const lastRun = useRef<number>(0);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout>>();
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   return useCallback(
     (...args: Parameters<T>) => {
@@ -496,8 +496,8 @@ export function useLocalStorage<T>(
  */
 export function useClickOutside<T extends HTMLElement = HTMLDivElement>(
   handler: () => void
-): React.RefObject<T> {
-  const ref = useRef<T>(null);
+): React.RefObject<T | null> {
+  const ref = useRef<T | null>(null);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -524,7 +524,7 @@ export function useClickOutside<T extends HTMLElement = HTMLDivElement>(
  * usePrevious - Get previous value of a state
  */
 export function usePrevious<T>(value: T): T | undefined {
-  const ref = useRef<T>();
+  const ref = useRef<T | undefined>(undefined);
 
   useEffect(() => {
     ref.current = value;
@@ -589,11 +589,11 @@ export function useCountdown(targetDate: Date): UseCountdownReturn {
  * useHover - Track hover state of an element
  */
 export function useHover<T extends HTMLElement = HTMLDivElement>(): [
-  React.RefObject<T>,
+  React.RefObject<T | null>,
   boolean,
 ] {
   const [isHovered, setIsHovered] = useState(false);
-  const ref = useRef<T>(null);
+  const ref = useRef<T | null>(null);
 
   useEffect(() => {
     const element = ref.current;

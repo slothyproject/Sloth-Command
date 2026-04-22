@@ -550,7 +550,7 @@ function SecretModal({ secret, services, onSave, onClose, isSaving }: {
               <label className="block text-sm text-slate-400 mb-1">Category</label>
               <select
                 value={formData.category}
-                onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                onChange={(e) => setFormData({ ...formData, category: e.target.value as 'database' | 'api' | 'other' | 'discord' | 'jwt' | 'oauth' })}
                 className="w-full px-3 py-2 rounded-lg bg-slate-900/50 border border-white/10 text-white focus:outline-none focus:border-yellow-500"
               >
                 {categories.map(cat => (

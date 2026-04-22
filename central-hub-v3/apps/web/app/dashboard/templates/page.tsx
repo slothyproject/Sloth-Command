@@ -200,7 +200,7 @@ export default function TemplatesPage() {
           }}
           isDeploying={createFromTemplate.isPending}
           canDeploy={canDeploy}
-          nameExists={nameExists}
+          nameExists={!!nameExists}
           existingSecrets={secrets || []}
         />
       )}

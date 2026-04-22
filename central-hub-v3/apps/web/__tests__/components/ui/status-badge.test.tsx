@@ -17,7 +17,7 @@ describe('StatusBadge', () => {
   });
 
   it('renders dot variant', () => {
-    const { container } = render(<StatusBadge status="running" variant="dot" />);
+    const { container } = render(<StatusBadge status="running" variant="dot" pulse />);
     expect(screen.getByText('Running')).toBeInTheDocument();
     expect(container.querySelector('.animate-pulse')).toBeInTheDocument();
   });

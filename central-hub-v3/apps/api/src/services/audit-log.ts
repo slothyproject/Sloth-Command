@@ -6,7 +6,7 @@
  * Non-blocking: failures are logged to console but never surface to callers.
  */
 
-import { PrismaClient, Prisma } from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
 import type { Request } from 'express';
 
 const prisma = new PrismaClient();
@@ -30,7 +30,7 @@ export async function auditLog(opts: AuditOptions): Promise<void> {
         action: opts.action,
         resourceType: opts.resourceType ?? null,
         resourceId: opts.resourceId ?? null,
-        changes: (opts.changes as Prisma.InputJsonValue | undefined) ?? undefined,
+        changes: (opts.changes as any) ?? undefined,
         userId: opts.userId ?? null,
         severity: opts.severity ?? 'info',
         ipAddress: opts.req

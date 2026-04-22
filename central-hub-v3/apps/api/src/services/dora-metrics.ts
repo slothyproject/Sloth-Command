@@ -4,7 +4,7 @@
  * Deployment Frequency, Lead Time, Change Failure Rate, MTTR
  */
 
-import { PrismaClient, Deployment, Service } from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
@@ -335,7 +335,7 @@ export async function getAllDORAMetrics(
   const services = await prisma.service.findMany();
   
   const results = await Promise.all(
-    services.map(async (service) => ({
+    services.map(async (service: any) => ({
       serviceId: service.id,
       serviceName: service.name,
       metrics: await getDORAMetrics(service.id, days),

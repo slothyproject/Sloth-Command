@@ -4,6 +4,7 @@
  */
 
 import '@testing-library/jest-dom';
+import React from 'react';
 import { TextEncoder, TextDecoder } from 'util';
 
 // Polyfill for TextEncoder/TextDecoder
@@ -36,8 +37,10 @@ jest.mock('next/navigation', () => ({
 jest.mock('next/image', () => ({
   __esModule: true,
   default: (props: Record<string, unknown>) => {
-    // eslint-disable-next-line @next/next/no-img-element
-    return <img {...props} alt={props.alt as string || ''} />;
+    return React.createElement('img', {
+      ...props,
+      alt: (props.alt as string) || '',
+    });
   },
 }));
 

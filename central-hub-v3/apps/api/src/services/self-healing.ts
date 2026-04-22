@@ -341,7 +341,7 @@ ${dependents.map((d) => `- ${d.name} (${d.status})`).join('\n') || 'None'}
 RECENT DEPLOYMENTS:
 ${recentDeployments
   .map(
-    (d) =>
+    (d: any) =>
       `- ${d.createdAt}: ${d.status}${d.deployedBy ? ` by ${d.deployedBy}` : ''}`
   )
   .join('\n') || 'None'}

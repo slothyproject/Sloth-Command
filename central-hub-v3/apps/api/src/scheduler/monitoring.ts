@@ -4,7 +4,7 @@
  * Orchestrates service monitoring, metrics collection, and AI insights
  */
 
-import { PrismaClient, Service, Metric } from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
 import { railwayService } from '../services/railway';
 import aiService from '../services/ai';
 import autoFixAgent, { processFixJob } from '../agents/auto-fix';

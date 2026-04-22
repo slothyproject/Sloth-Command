@@ -30,6 +30,12 @@ interface ToastContextValue {
   error: (title: string, message?: string) => string;
   warning: (title: string, message?: string) => string;
   info: (title: string, message?: string) => string;
+  toast: {
+    success: (title: string, message?: string) => string;
+    error: (title: string, message?: string) => string;
+    warning: (title: string, message?: string) => string;
+    info: (title: string, message?: string) => string;
+  };
 }
 
 const ToastContext = createContext<ToastContextValue | undefined>(undefined);
@@ -100,6 +106,12 @@ export function ToastProvider({
     error,
     warning,
     info,
+    toast: {
+      success,
+      error,
+      warning,
+      info,
+    },
   };
 
   const positionClasses = {

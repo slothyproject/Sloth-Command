@@ -238,6 +238,8 @@ export function createHookWrapper(queryClient?: QueryClient) {
   };
 }
 
+export { screen, waitFor, within };
+
 // Async utilities
 export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));

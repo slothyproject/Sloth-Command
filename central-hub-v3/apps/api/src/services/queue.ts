@@ -8,7 +8,7 @@ import Queue from 'bull';
 import { getRedis } from './redis';
 
 // Queue names
-const QUEUES = {
+export const QUEUES = {
   AUTO_FIX: 'auto-fix',
   AI_ANALYSIS: 'ai-analysis',
   METRICS_SYNC: 'metrics-sync',
@@ -113,6 +113,17 @@ export function getQueue(name: string): Queue.Queue {
 }
 
 /**
+ * Register a processor for a named queue.
+ */
+export function processQueue<T = any>(
+  name: string,
+  processor: (job: Queue.Job<T>) => Promise<any>,
+  concurrency = 1
+): void {
+  getQueue(name).process(concurrency, processor);
+}
+
+/**
  * Add job to auto-fix queue
  */
 export async function queueAutoFix(insightId: string): Promise<Queue.Job> {
@@ -200,18 +211,6 @@ export async function getJobStatus(
 }
 
 /**
- * Process jobs in a queue
- */
-export function processQueue(
-  name: string,
-  processor: (job: Queue.Job) => Promise<any>,
-  concurrency: number = 1
-): void {
-  const queue = getQueue(name);
-  queue.process(concurrency, processor);
-}
-
-/**
  * Clean completed/failed jobs
  */
 export async function cleanQueues(): Promise<void> {
@@ -232,8 +231,6 @@ export async function closeQueues(): Promise<void> {
   }
 }
 
-// Export
-export { QUEUES };
 export default {
   initializeQueues,
   getQueue,

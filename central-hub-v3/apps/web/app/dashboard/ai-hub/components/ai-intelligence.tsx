@@ -37,7 +37,7 @@ export function AIIntelligence({ services: _services }: AIIntelligenceProps) {
 
   // Filter plans by status
   const pendingPlans = plans?.filter(p => p.status === 'pending') || [];
-  const runningPlans = plans?.filter(p => p.status === 'running') || [];
+  const runningPlans = plans?.filter(p => p.status === 'in_progress') || [];
   const completedPlans = plans?.filter(p => p.status === 'completed') || [];
   const failedPlans = plans?.filter(p => p.status === 'failed') || [];
 
@@ -238,15 +238,14 @@ function PlanCard({
 }) {
   const statusColors = {
     pending: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
-    approved: 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30',
-    running: 'bg-violet-500/20 text-violet-400 border-violet-500/30',
+    in_progress: 'bg-violet-500/20 text-violet-400 border-violet-500/30',
     completed: 'bg-green-500/20 text-green-400 border-green-500/30',
     failed: 'bg-red-500/20 text-red-400 border-red-500/30',
     cancelled: 'bg-slate-500/20 text-slate-400 border-slate-500/30',
   };
 
-  const canExecute = plan.status === 'approved' || plan.status === 'pending';
-  const needsApproval = plan.status === 'pending' && plan.requiresApproval;
+  const canExecute = plan.status === 'pending';
+  const needsApproval = plan.status === 'pending' && plan.metadata?.requiresApproval;
 
   return (
     <div className="glass-card p-4">
@@ -273,7 +272,7 @@ function PlanCard({
                   <div className={cn(
                     "w-5 h-5 rounded-full flex items-center justify-center text-xs",
                     step.status === 'completed' && "bg-green-500/20 text-green-400",
-                    step.status === 'running' && "bg-violet-500/20 text-violet-400",
+                    step.status === 'in_progress' && "bg-violet-500/20 text-violet-400",
                     step.status === 'pending' && "bg-slate-700 text-slate-400",
                     step.status === 'failed' && "bg-red-500/20 text-red-400",
                   )}>
@@ -290,7 +289,7 @@ function PlanCard({
             </div>
           )}
 
-          {plan.result && (
+          {plan.result && plan.result.message && (
             <div className="mt-3 p-2 rounded bg-white/5">
               <p className="text-sm text-slate-300">
                 {plan.result.success ? '✓ Success' : '✗ Failed'}: {plan.result.message}
@@ -331,7 +330,7 @@ function PlanCard({
               </button>
             )}
 
-            {(plan.status === 'pending' || plan.status === 'approved') && (
+            {plan.status === 'pending' && (
               <button
                 onClick={onCancel}
                 disabled={isCancelling}

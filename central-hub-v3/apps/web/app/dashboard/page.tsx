@@ -8,7 +8,7 @@
 import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
 import { api } from '@/app/lib/api-client';
-import type { Service, AIInsight, Deployment, AgentPlan, TaskStatus } from '@/app/types';
+import type { Service, AIInsight, Deployment, AgentPlan } from '@/app/types';
 import { cn } from '@/app/lib/utils';
 
 export default function DashboardPage() {
@@ -401,7 +401,7 @@ function ActivityItem({
 }
 
 function AgentPlanCard({ plan }: { plan: AgentPlan }) {
-  const completedSteps = plan.steps.filter((s) => s.status === TaskStatus.COMPLETED).length;
+  const completedSteps = plan.steps.filter((s) => s.status === 'completed').length;
   const progress = plan.steps.length > 0 ? (completedSteps / plan.steps.length) * 100 : 0;
 
   const statusColors: Record<string, string> = {
