@@ -1,0 +1,12 @@
+# robots.txt for Dissident
+# https://dissident.mastertibbles.co.uk
+
+User-agent: *
+Allow: /
+
+# Sitemap location
+Sitemap: https://dissident.mastertibbles.co.uk/sitemap.xml
+
+# Disallow dashboard (private)
+Disallow: /dashboard
+Disallow: /api/
