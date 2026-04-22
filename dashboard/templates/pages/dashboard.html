@@ -219,13 +219,13 @@
   </article>
 </section>
 
-<div class="section" style="margin-top:18px">
+<div class="section section--mt-lg">
   <div class="section__header">
     <span class="section__title">AI READINESS</span>
     <a href="{{ url_for('core.settings') }}" class="btn btn--ghost btn--sm">manage provider</a>
   </div>
-  <div class="card" style="padding:16px">
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;align-items:start">
+  <div class="card card--compact">
+    <div class="ai-readiness-grid">
       <div>
         <div class="card__label">STATUS</div>
         <div class="stat-card__val stat-card__val--mono stat-card__val--sm" id="ai-ready-status">loading...</div>
@@ -247,7 +247,7 @@
         <div class="card__value" id="ai-ready-usage">0 req / 0 tok</div>
       </div>
     </div>
-    <div id="ai-ready-feedback" style="margin-top:12px;font-size:12px;color:var(--text-1)">Checking whether your personal AI provider is ready to use.</div>
+    <div id="ai-ready-feedback" class="ai-readiness-feedback">Checking whether your personal AI provider is ready to use.</div>
   </div>
 </div>
 
@@ -265,7 +265,7 @@
       {% else %}
         <div class="server-card__icon server-card__icon--placeholder">{{ guild.name[0] }}</div>
       {% endif %}
-      <div style="min-width:0">
+      <div class="server-card__body">
         <div class="server-card__name">{{ guild.name }}</div>
         <div class="server-card__meta">{{ "{:,}".format(guild.member_count) }} members</div>
       </div>
@@ -567,12 +567,15 @@ function renderPriorityServers(guilds) {
     target.innerHTML = `<li class="priority-row priority-row--empty">${emptyText}</li>`;
     return;
   }
-  target.innerHTML = ranked.map(g => `
-    <li class="priority-row">
-      <span class="priority-row__name">${escapeHtml(g.name || 'Unknown')}</span>
-      <span class="priority-row__meta">${(g.member_count || 0).toLocaleString()} members</span>
-      <span class="risk-chip risk-chip--${scoreServerRisk(g.member_count || 0).tone}">${scoreServerRisk(g.member_count || 0).label}</span>
-    </li>`).join('');
+  target.innerHTML = ranked.map(g => {
+    const risk = scoreServerRisk(g.member_count || 0);
+    return `
+      <li class="priority-row">
+        <span class="priority-row__name">${escapeHtml(g.name || 'Unknown')}</span>
+        <span class="priority-row__meta">${(g.member_count || 0).toLocaleString()} members</span>
+        <span class="risk-chip risk-chip--${risk.tone}">${risk.label}</span>
+      </li>`;
+  }).join('');
 }
 
 async function pollGuilds() {
@@ -584,7 +587,7 @@ async function pollGuilds() {
         ? `<img src="${g.icon.startsWith('http') ? g.icon : 'https://cdn.discordapp.com/icons/'+g.discord_id+'/'+g.icon+'.png?size=64'}" class="server-card__icon" alt="">`
         : `<div class="server-card__icon server-card__icon--placeholder">${g.name[0]}</div>`;
       const href = g.id ? `/servers/${g.id}` : '#';
-      return `<a href="${href}" class="server-card">${icon}<div style="min-width:0"><div class="server-card__name">${g.name}</div><div class="server-card__meta">${(g.member_count||0).toLocaleString()} members</div></div></a>`;
+      return `<a href="${href}" class="server-card">${icon}<div class="server-card__body"><div class="server-card__name">${g.name}</div><div class="server-card__meta">${(g.member_count||0).toLocaleString()} members</div></div></a>`;
     }).join('');
     renderPriorityServers(guilds);
   } catch {}
@@ -692,7 +695,7 @@ function executeCommandItem(item) {
   if (item.href) window.location.href = item.href;
 }
 
-function setupWave3Interactions() {
+function setupDashboardInteractions() {
   const filterInput = document.getElementById('priority-filter');
   const sortInput = document.getElementById('priority-sort');
   const ackButton = document.getElementById('wb-ack-btn');
@@ -837,7 +840,7 @@ pollStats();
 pollGuilds();
 loadAIReadiness();
 syncUnreadBoard();
-setupWave3Interactions();
+setupDashboardInteractions();
 startPolling();
 addIncidentEvent('ok', 'Dashboard monitoring initialized.');
 window.addEventListener('resize', drawSparkline);
