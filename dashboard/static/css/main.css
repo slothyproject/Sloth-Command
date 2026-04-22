@@ -531,6 +531,115 @@ body {
   background: var(--panel);
 }
 
+/* ── Wave 2 operations board ── */
+.ops-board {
+  display: grid;
+  grid-template-columns: 1.1fr 0.9fr;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.ops-board__panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ops-board__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.ops-board__title {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.14em;
+  color: var(--text-2);
+  text-transform: uppercase;
+}
+
+.ops-board__sub {
+  font-size: 11px;
+  color: var(--text-2);
+}
+
+.signal-list {
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  overflow: hidden;
+}
+
+.signal-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.signal-row:last-child { border-bottom: none; }
+
+.signal-row__label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-2);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.signal-row__value {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-0);
+}
+
+.priority-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.priority-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  background: var(--elevated);
+}
+
+.priority-row__name {
+  font-size: 12px;
+  color: var(--text-0);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.priority-row__meta {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-2);
+  flex-shrink: 0;
+}
+
+.priority-row--empty {
+  justify-content: center;
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
 /* ── Section ── */
 .section { margin-bottom: 24px; }
 
@@ -1110,6 +1219,8 @@ canvas#latency-canvas {
   .content { padding: 16px; }
   .stats-grid { grid-template-columns: repeat(2, 1fr); }
   .ops-grid { grid-template-columns: 1fr; }
+  .ops-board { grid-template-columns: 1fr; }
+  .ops-board__head { flex-direction: column; align-items: flex-start; }
 }
 
 /* ── Utility ── */

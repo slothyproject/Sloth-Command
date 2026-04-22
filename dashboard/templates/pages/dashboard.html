@@ -91,6 +91,56 @@
   <a href="{{ url_for('core.settings') }}" class="quick-action">Check system settings</a>
 </section>
 
+<section class="ops-board" aria-label="Live operations board">
+  <article class="ops-board__panel">
+    <div class="ops-board__head">
+      <h2 class="ops-board__title">LIVE SIGNAL BOARD</h2>
+      <p class="ops-board__sub">High-priority runtime checks for on-call flow.</p>
+    </div>
+    <div class="signal-list">
+      <div class="signal-row">
+        <span class="signal-row__label">Reachability</span>
+        <span class="signal-row__value" id="wb-online">{{ "ONLINE" if bot.online else "OFFLINE" }}</span>
+      </div>
+      <div class="signal-row">
+        <span class="signal-row__label">Latency</span>
+        <span class="signal-row__value" id="wb-latency">{{ bot.latency_ms }}ms</span>
+      </div>
+      <div class="signal-row">
+        <span class="signal-row__label">Unread alerts</span>
+        <span class="signal-row__value" id="wb-notifs">{{ unread_notifs }}</span>
+      </div>
+      <div class="signal-row">
+        <span class="signal-row__label">AI readiness</span>
+        <span class="signal-row__value" id="wb-ai">checking...</span>
+      </div>
+      <div class="signal-row">
+        <span class="signal-row__label">Last refresh</span>
+        <span class="signal-row__value" id="wb-refresh">just now</span>
+      </div>
+    </div>
+    <button type="button" class="btn btn--ghost btn--sm" onclick="toggleNotifPanel()">open notifications</button>
+  </article>
+
+  <article class="ops-board__panel">
+    <div class="ops-board__head">
+      <h2 class="ops-board__title">PRIORITY SERVERS</h2>
+      <p class="ops-board__sub">Largest communities currently in scope.</p>
+    </div>
+    <ul class="priority-list" id="priority-server-list">
+      {% for guild in (guilds|sort(attribute='member_count', reverse=True))[:5] %}
+      <li class="priority-row">
+        <span class="priority-row__name">{{ guild.name }}</span>
+        <span class="priority-row__meta">{{ "{:,}".format(guild.member_count) }} members</span>
+      </li>
+      {% else %}
+      <li class="priority-row priority-row--empty">No servers loaded yet.</li>
+      {% endfor %}
+    </ul>
+    <a href="{{ url_for('core.servers') }}" class="btn btn--ghost btn--sm">inspect all servers</a>
+  </article>
+</section>
+
 <div class="section" style="margin-top:18px">
   <div class="section__header">
     <span class="section__title">AI READINESS</span>
@@ -216,11 +266,40 @@ async function pollStats() {
     document.getElementById('s-chans').textContent = d.channels || 0;
     document.getElementById('s-ver').textContent = d.version || '—';
     document.getElementById('latency-big').innerHTML = d.latency_ms + '<span>ms</span>';
+    document.getElementById('wb-online').textContent = d.online ? 'ONLINE' : 'OFFLINE';
+    document.getElementById('wb-latency').textContent = `${d.latency_ms}ms`;
+    document.getElementById('wb-refresh').textContent = new Date().toLocaleTimeString();
     // Latency history
     history.push(d.latency_ms);
     if (history.length > MAX_POINTS) history.shift();
     drawSparkline();
   } catch {}
+}
+
+function escapeHtml(text) {
+  return String(text)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
+}
+
+function renderPriorityServers(guilds) {
+  const target = document.getElementById('priority-server-list');
+  if (!target) return;
+  const ranked = [...guilds]
+    .sort((a, b) => (b.member_count || 0) - (a.member_count || 0))
+    .slice(0, 5);
+  if (!ranked.length) {
+    target.innerHTML = '<li class="priority-row priority-row--empty">No servers loaded yet.</li>';
+    return;
+  }
+  target.innerHTML = ranked.map(g => `
+    <li class="priority-row">
+      <span class="priority-row__name">${escapeHtml(g.name || 'Unknown')}</span>
+      <span class="priority-row__meta">${(g.member_count || 0).toLocaleString()} members</span>
+    </li>`).join('');
 }
 
 async function pollGuilds() {
@@ -234,6 +313,15 @@ async function pollGuilds() {
       const href = g.id ? `/servers/${g.id}` : '#';
       return `<a href="${href}" class="server-card">${icon}<div style="min-width:0"><div class="server-card__name">${g.name}</div><div class="server-card__meta">${(g.member_count||0).toLocaleString()} members</div></div></a>`;
     }).join('');
+    renderPriorityServers(guilds);
+  } catch {}
+}
+
+async function syncUnreadBoard() {
+  try {
+    const d = await fetch('/api/notifications').then(r => r.json());
+    const unread = d.unread || 0;
+    document.getElementById('wb-notifs').textContent = unread > 99 ? '99+' : `${unread}`;
   } catch {}
 }
 
@@ -249,23 +337,30 @@ async function loadAIReadiness() {
     document.getElementById('ai-ready-usage').textContent = `${data.usage?.requests_this_hour ?? 0} req / ${data.usage?.tokens_this_hour ?? 0} tok`;
 
     const feedback = document.getElementById('ai-ready-feedback');
+    const boardAI = document.getElementById('wb-ai');
     if (!configured) {
+      if (boardAI) boardAI.textContent = 'not configured';
       feedback.textContent = 'No personal AI provider is configured yet. Add one in Settings before AI commands can run.';
       return;
     }
     if (data.status === 'disabled') {
+      if (boardAI) boardAI.textContent = 'disabled';
       feedback.textContent = 'Your AI provider is saved but currently disabled.';
       return;
     }
     if (data.validation_error) {
+      if (boardAI) boardAI.textContent = 'attention';
       feedback.textContent = data.validation_error;
       return;
     }
+    if (boardAI) boardAI.textContent = 'ready';
     feedback.textContent = data.last_validated_at
       ? `Provider ready. Last validated at ${new Date(data.last_validated_at).toLocaleString()}.`
       : 'Provider configured. Run a connection test from Settings if you want to refresh validation.';
   } catch {
     document.getElementById('ai-ready-status').textContent = 'unavailable';
+    const boardAI = document.getElementById('wb-ai');
+    if (boardAI) boardAI.textContent = 'unavailable';
     document.getElementById('ai-ready-feedback').textContent = 'Could not load AI readiness right now.';
   }
 }
@@ -273,8 +368,10 @@ async function loadAIReadiness() {
 pollStats();
 pollGuilds();
 loadAIReadiness();
+syncUnreadBoard();
 setInterval(pollStats, 10000);
 setInterval(pollGuilds, 30000);
+setInterval(syncUnreadBoard, 30000);
 window.addEventListener('resize', drawSparkline);
 
 // ── Quick action: Invite bot ──────────────────────────────────
