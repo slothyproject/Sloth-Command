@@ -3,20 +3,120 @@ Core page routes — all HTML views.
 """
 from __future__ import annotations
 
-from flask import Blueprint, abort, redirect, render_template, url_for
+from pathlib import Path
+
+from flask import Blueprint, abort, redirect, render_template, request, send_from_directory, url_for
 from flask_login import current_user, login_required
 
 from dashboard.models import Guild, ModerationCase, Notification, Ticket, User
 from dashboard.services.bot_state import get_bot_state
 
 core_bp = Blueprint("core", __name__)
+HOMEPAGE_DIST = Path(__file__).resolve().parents[1] / "static" / "homepage"
+
+
+def _serve_homepage_export(path: str = "index.html"):
+    direct = HOMEPAGE_DIST / path
+    if direct.exists() and direct.is_file():
+        return send_from_directory(HOMEPAGE_DIST, path)
+
+    index_path = HOMEPAGE_DIST / path / "index.html"
+    if index_path.exists() and index_path.is_file():
+        return send_from_directory(HOMEPAGE_DIST, f"{path.rstrip('/')}/index.html")
+
+    if current_user.is_authenticated:
+        return redirect(url_for("core.dashboard"))
+    return redirect(url_for("auth.login"))
 
 
 @core_bp.get("/")
 def index():
-    if current_user.is_authenticated:
-        return redirect(url_for("core.dashboard"))
-    return redirect(url_for("auth.login"))
+    return _serve_homepage_export("index.html")
+
+
+@core_bp.get("/_next/<path:asset>")
+def homepage_next_assets(asset: str):
+    return _serve_homepage_export(f"_next/{asset}")
+
+
+@core_bp.get("/robots.txt")
+@core_bp.get("/sitemap.xml")
+@core_bp.get("/sloth-lee-logo.png")
+@core_bp.get("/sloth-lee-logo.svg")
+@core_bp.get("/sloth-lee-ninja-logo.svg")
+@core_bp.get("/sloth-monocle-logo.svg")
+@core_bp.get("/sloth-lee-picsart-source.png")
+@core_bp.get("/sloth-lee-favicon.png")
+def homepage_root_assets():
+    return _serve_homepage_export(request.path.lstrip("/"))
+
+
+@core_bp.get("/features")
+@core_bp.get("/features/")
+def homepage_features():
+    return _serve_homepage_export("features")
+
+
+@core_bp.get("/story")
+@core_bp.get("/story/")
+def homepage_story():
+    return _serve_homepage_export("story")
+
+
+@core_bp.get("/docs")
+@core_bp.get("/docs/")
+@core_bp.get("/docs/<path:subpath>")
+def homepage_docs(subpath: str | None = None):
+    if subpath:
+        return _serve_homepage_export(f"docs/{subpath}")
+    return _serve_homepage_export("docs")
+
+
+@core_bp.get("/faq")
+@core_bp.get("/faq/")
+def homepage_faq():
+    return _serve_homepage_export("faq")
+
+
+@core_bp.get("/status")
+@core_bp.get("/status/")
+def homepage_status():
+    return _serve_homepage_export("status")
+
+
+@core_bp.get("/pricing")
+@core_bp.get("/pricing/")
+def homepage_pricing():
+    return _serve_homepage_export("pricing")
+
+
+@core_bp.get("/roadmap")
+@core_bp.get("/roadmap/")
+def homepage_roadmap():
+    return _serve_homepage_export("roadmap")
+
+
+@core_bp.get("/developers")
+@core_bp.get("/developers/")
+@core_bp.get("/developers/<path:subpath>")
+def homepage_developers(subpath: str | None = None):
+    if subpath:
+        return _serve_homepage_export(f"developers/{subpath}")
+    return _serve_homepage_export("developers")
+
+
+@core_bp.get("/legal")
+@core_bp.get("/legal/")
+@core_bp.get("/legal/<path:subpath>")
+def homepage_legal(subpath: str | None = None):
+    if subpath:
+        return _serve_homepage_export(f"legal/{subpath}")
+    return _serve_homepage_export("legal")
+
+
+@core_bp.get("/favicon.ico")
+def homepage_favicon():
+    return _serve_homepage_export("favicon.ico")
 
 
 @core_bp.get("/dashboard")
