@@ -2,6 +2,7 @@ import base64
 import os
 
 import pytest
+import requests
 
 os.environ.setdefault("SECRET_KEY", "test-secret-key-32chars-minimum!!")
 os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
@@ -151,6 +152,71 @@ def test_custom_openai_requires_base_url(client):
 
     assert response.status_code == 400
     assert "Base URL is required" in response.get_json()["error"]
+
+
+def test_ai_provider_status_includes_ollama(client):
+    _login(client)
+
+    response = client.get("/api/user/ai-provider")
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert "ollama" in payload["supported_providers"]
+    assert payload["supported_providers"]["ollama"]["label"] == "Ollama"
+
+
+def test_ollama_validation_falls_back_to_openai_compatible(monkeypatch):
+    from dashboard.services import ai_provider
+
+    class _MockResponse:
+        def __init__(self, status_code: int, payload: dict | None = None):
+            self.status_code = status_code
+            self._payload = payload or {}
+            self.text = str(self._payload)
+
+        def json(self):
+            return self._payload
+
+    calls = []
+
+    def _mock_request(**kwargs):
+        calls.append(kwargs)
+        if kwargs["url"].endswith("/api/generate"):
+            return _MockResponse(404, {"error": "not found"})
+        return _MockResponse(200, {"data": [{"id": "llama3.1:8b"}]})
+
+    monkeypatch.setattr(ai_provider.requests, "request", _mock_request)
+
+    result = ai_provider.validate_ai_provider_config(
+        provider="ollama",
+        api_key="ollama-test-key",
+        model="llama3.1:8b",
+        base_url="https://ollama.example.com",
+    )
+
+    assert result["ok"] is True
+    assert result["mode"] == "ollama_openai_compatible"
+    assert len(calls) == 2
+
+
+def test_ollama_validation_unreachable_has_hint(monkeypatch):
+    from dashboard.services import ai_provider
+
+    def _mock_request(**kwargs):
+        raise requests.RequestException("dial tcp timeout")
+
+    monkeypatch.setattr(ai_provider.requests, "request", _mock_request)
+
+    result = ai_provider.validate_ai_provider_config(
+        provider="ollama",
+        api_key="ollama-test-key",
+        model="llama3.1:8b",
+        base_url="https://ollama.example.com",
+    )
+
+    assert result["ok"] is False
+    assert result["message"] == "Could not reach AI provider"
+    assert "hint" in result["details"]
 
 
 def test_internal_ai_provider_endpoints_expose_usage_and_support_disable(client, monkeypatch):

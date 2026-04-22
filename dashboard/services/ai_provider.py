@@ -8,6 +8,11 @@ import requests
 from dashboard.models import UserAIProviderCredential
 
 SUPPORTED_AI_PROVIDERS = {
+    "ollama": {
+        "label": "Ollama",
+        "default_model": "llama3.1:8b",
+        "requires_base_url": True,
+    },
     "openai": {
         "label": "OpenAI",
         "default_model": "gpt-4o-mini",
@@ -132,6 +137,117 @@ def validate_ai_provider_config(
     request_args: dict[str, Any]
     url: str
 
+    def _parse_response_details(response: requests.Response) -> Any:
+        try:
+            return response.json()
+        except ValueError:
+            return response.text
+
+    if provider_name == "ollama":
+        if not normalized_base_url:
+            raise ValueError("Base URL is required for Ollama")
+
+        native_url = f"{normalized_base_url}/api/generate"
+        openai_root = normalized_base_url.rstrip("/")
+        if openai_root.endswith("/v1"):
+            openai_models_url = f"{openai_root}/models"
+        else:
+            openai_models_url = f"{openai_root}/v1/models"
+
+        attempts: list[dict[str, Any]] = []
+
+        try:
+            native_response = requests.request(
+                method="POST",
+                url=native_url,
+                headers={
+                    "Authorization": f"Bearer {secret}",
+                    "content-type": "application/json",
+                },
+                json={
+                    "model": model_name,
+                    "prompt": "ping",
+                    "stream": False,
+                    "options": {"num_predict": 1},
+                },
+                timeout=timeout,
+            )
+            if native_response.status_code < 400:
+                return {
+                    "ok": True,
+                    "provider": provider_name,
+                    "model": model_name,
+                    "message": "AI provider credentials validated successfully",
+                    "base_url": normalized_base_url,
+                    "mode": "ollama_native_generate",
+                }
+            attempts.append(
+                {
+                    "mode": "ollama_native_generate",
+                    "status_code": native_response.status_code,
+                    "details": _parse_response_details(native_response),
+                }
+            )
+        except requests.RequestException as exc:
+            attempts.append(
+                {
+                    "mode": "ollama_native_generate",
+                    "error": str(exc),
+                }
+            )
+
+        try:
+            openai_response = requests.request(
+                method="GET",
+                url=openai_models_url,
+                headers={"Authorization": f"Bearer {secret}"},
+                timeout=timeout,
+            )
+            if openai_response.status_code < 400:
+                return {
+                    "ok": True,
+                    "provider": provider_name,
+                    "model": model_name,
+                    "message": "AI provider credentials validated successfully",
+                    "base_url": normalized_base_url,
+                    "mode": "ollama_openai_compatible",
+                }
+            attempts.append(
+                {
+                    "mode": "ollama_openai_compatible",
+                    "status_code": openai_response.status_code,
+                    "details": _parse_response_details(openai_response),
+                }
+            )
+            return {
+                "ok": False,
+                "provider": provider_name,
+                "model": model_name,
+                "message": "AI provider rejected the supplied credentials",
+                "details": {
+                    "hint": "For Ollama Cloud, set Base URL to your HTTPS endpoint (often ending with /v1).",
+                    "attempts": attempts,
+                },
+                "status_code": openai_response.status_code,
+            }
+        except requests.RequestException as exc:
+            attempts.append(
+                {
+                    "mode": "ollama_openai_compatible",
+                    "error": str(exc),
+                }
+            )
+            return {
+                "ok": False,
+                "provider": provider_name,
+                "model": model_name,
+                "message": "Could not reach AI provider",
+                "details": {
+                    "hint": "For Ollama Cloud, verify the Base URL is reachable from the server and uses HTTPS.",
+                    "attempts": attempts,
+                },
+            }
+
     if provider_name in {"openai", "custom_openai"}:
         root = normalized_base_url or "https://api.openai.com"
         url = f"{root}/v1/models"
@@ -182,10 +298,7 @@ def validate_ai_provider_config(
         }
 
     if response.status_code >= 400:
-        try:
-            details = response.json()
-        except ValueError:
-            details = response.text
+        details = _parse_response_details(response)
         return {
             "ok": False,
             "provider": provider_name,
