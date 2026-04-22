@@ -1,6 +1,6 @@
 /* ═══════════════════════════════════════════════════════════════
-   DISSIDENT CENTRAL HUB — SIGINT Terminal UI
-   Aesthetic: Military-grade ops dashboard, electric cyan on void
+   SLOTH DOJO DASHBOARD — Calm Command Center
+   Aesthetic: Nord/Aurora palette with peaceful zen aesthetic
    Fonts: JetBrains Mono + DM Sans
    ═══════════════════════════════════════════════════════════════ */
 
@@ -8,34 +8,34 @@
 
 /* ── Variables ── */
 :root {
-  --void:      #04060A;
-  --base:      #080C12;
-  --surface:   #0C1118;
-  --elevated:  #111923;
-  --panel:     #162030;
-  --raised:    #1C2940;
+  --void:      #0d1520;
+  --base:      #0a0f1a;
+  --surface:   #101824;
+  --elevated:  #141c2e;
+  --panel:     #182c48;
+  --raised:    #1a3550;
 
-  --border:    rgba(0, 212, 255, 0.07);
-  --border-md: rgba(0, 212, 255, 0.15);
-  --border-hi: rgba(0, 212, 255, 0.30);
+  --border:    rgba(136, 192, 208, 0.07);
+  --border-md: rgba(136, 192, 208, 0.15);
+  --border-hi: rgba(136, 192, 208, 0.30);
 
-  --cyan:      #00D4FF;
-  --cyan-dim:  rgba(0, 212, 255, 0.08);
-  --cyan-glow: rgba(0, 212, 255, 0.20);
-  --cyan-mid:  rgba(0, 212, 255, 0.50);
+  --cyan:      #88c0d0;
+  --cyan-dim:  rgba(136, 192, 208, 0.08);
+  --cyan-glow: rgba(136, 192, 208, 0.20);
+  --cyan-mid:  rgba(136, 192, 208, 0.50);
 
-  --green:     #00FF88;
-  --green-dim: rgba(0, 255, 136, 0.08);
-  --amber:     #FFB830;
-  --amber-dim: rgba(255, 184, 48, 0.08);
-  --red:       #FF4455;
-  --red-dim:   rgba(255, 68, 85, 0.08);
-  --purple:    #BD93F9;
+  --green:     #a3be8c;
+  --green-dim: rgba(163, 190, 140, 0.08);
+  --amber:     #b8956a;
+  --amber-dim: rgba(184, 149, 106, 0.08);
+  --red:       #d08070;
+  --red-dim:   rgba(208, 128, 112, 0.08);
+  --purple:    #b48ead;
 
-  --text-0:  #E2EBF5;
-  --text-1:  #7A94B0;
-  --text-2:  #3D5470;
-  --text-3:  #1F3050;
+  --text-0:  #e8f1fa;
+  --text-1:  #d0dce8;
+  --text-2:  #8fa8c4;
+  --text-3:  #5f7a96;
 
   --font-ui:   'DM Sans', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
@@ -84,7 +84,7 @@ body {
   left: var(--sidebar-w);
   right: 0;
   bottom: 0;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='56' height='100'%3E%3Cpath d='M28 66L0 50V16L28 0l28 16v34L28 66zM28 100L0 84V50l28-16 28 16v34L28 100z' fill='none' stroke='%2300D4FF' stroke-opacity='0.025' stroke-width='1'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='56' height='100'%3E%3Cpath d='M28 66L0 50V16L28 0l28 16v34L28 66zM28 100L0 84V50l28-16 28 16v34L28 100z' fill='none' stroke='%2388C0D0' stroke-opacity='0.025' stroke-width='1'/%3E%3C/svg%3E");
   pointer-events: none;
   z-index: 0;
 }
