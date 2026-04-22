@@ -128,6 +128,7 @@ export function DashboardPage() {
       openCount: openTickets.length,
     };
   }, [data?.recent_tickets]);
+  const isLoading = !data;
 
   return (
     <div className="space-y-6">
@@ -147,11 +148,22 @@ export function DashboardPage() {
               <span className="rounded-full border border-line bg-white/5 px-3 py-1">Moderation confidence</span>
             </div>
           </div>
-          <div className="rounded-2xl border border-lime/20 bg-lime/10 px-4 py-3 text-sm text-lime shadow-cyan">
+          <div className="rounded-2xl border border-lime/20 bg-lime/10 px-4 py-3 text-sm text-lime shadow-cyan" role="status" aria-live="polite">
             {data?.stats.online ? `Bot online · ${data.stats.latency_ms} ms` : "Awaiting live bot state"}
           </div>
         </div>
       </section>
+
+      {isLoading ? (
+        <section className="dashboard-chrome rounded-[1.6rem] p-4" aria-live="polite">
+          <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-cyan">Loading live dashboard data...</p>
+          <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            {Array.from({ length: 4 }).map((_, index) => (
+              <div key={index} className="dashboard-skeleton rounded-2xl border border-line px-3 py-4" />
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Guilds" value={formatNumber(data?.stats.guilds)} meta="Connected servers in scope" icon={<Users className="h-5 w-5" />} />
@@ -215,6 +227,9 @@ export function DashboardPage() {
                       <Link to="/moderation" className="mt-2 inline-flex rounded-xl border border-line bg-white/5 px-2 py-1 text-[11px] uppercase tracking-[0.12em] text-text-1">view queue</Link>
                     </div>
                   ))}
+                  {(data?.recent_cases.length ?? 0) === 0 ? (
+                    <p className="rounded-2xl border border-line bg-white/5 px-3 py-4 text-sm text-text-2">No moderation cases yet. New actions will appear here in real time.</p>
+                  ) : null}
                 </div>
               </div>
 
@@ -231,6 +246,9 @@ export function DashboardPage() {
                       <Link to={`/tickets/${item.id}`} className="mt-2 inline-flex rounded-xl border border-line bg-white/5 px-2 py-1 text-[11px] uppercase tracking-[0.12em] text-text-1">open ticket</Link>
                     </div>
                   ))}
+                  {(data?.recent_tickets.length ?? 0) === 0 ? (
+                    <p className="rounded-2xl border border-line bg-white/5 px-3 py-4 text-sm text-text-2">No recent tickets yet. Incoming support load will appear here.</p>
+                  ) : null}
                 </div>
               </div>
             </div>
@@ -245,6 +263,9 @@ export function DashboardPage() {
                   <p className="mt-1 text-xs text-text-2">{formatNumber(guild.member_count)} members</p>
                 </div>
               ))}
+              {topGuilds.length === 0 ? (
+                <p className="rounded-2xl border border-line bg-white/5 p-4 text-sm text-text-2 md:col-span-2">Guild summary appears once server telemetry is available.</p>
+              ) : null}
             </div>
           </div>
         </div>
@@ -261,6 +282,9 @@ export function DashboardPage() {
                 {item.body ? <p className="mt-2 text-sm leading-6 text-text-2">{item.body}</p> : null}
               </div>
             ))}
+            {(data?.notifications.items.length ?? 0) === 0 ? (
+              <p className="rounded-2xl border border-line bg-white/5 p-4 text-sm text-text-2">No notifications yet. Alerts and updates will stream in here.</p>
+            ) : null}
           </div>
         </div>
       </section>

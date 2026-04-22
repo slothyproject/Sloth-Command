@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Bell, Command, Compass, Menu, Shield, Sparkles } from "lucide-react";
@@ -27,6 +27,8 @@ interface NotificationsResponse {
 export function Header({ onOpenMobileNav }: { onOpenMobileNav: () => void }) {
   const user = useAuthStore((state) => state.user);
   const [isOpen, setIsOpen] = useState(false);
+  const notificationWrapRef = useRef<HTMLDivElement>(null);
+  const notificationButtonRef = useRef<HTMLButtonElement>(null);
   const [eventTick, setEventTick] = useState(0);
   const overviewQuery = useShellOverviewQuery();
 
@@ -36,6 +38,41 @@ export function Header({ onOpenMobileNav }: { onOpenMobileNav: () => void }) {
     retry: false,
     refetchInterval: 45000,
   });
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    const onPointerDown = (event: MouseEvent | TouchEvent) => {
+      if (!(event.target instanceof Node)) {
+        return;
+      }
+
+      if (!notificationWrapRef.current?.contains(event.target)) {
+        setIsOpen(false);
+      }
+    };
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") {
+        return;
+      }
+
+      setIsOpen(false);
+      notificationButtonRef.current?.focus();
+    };
+
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("touchstart", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("touchstart", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [isOpen]);
 
   const markAllRead = useMutation({
     mutationFn: () => postJson<{ ok: boolean }>("/api/notifications/read-all"),
@@ -97,8 +134,16 @@ export function Header({ onOpenMobileNav }: { onOpenMobileNav: () => void }) {
             <span className="text-text-3">•</span>
             <span>{overviewQuery.data?.stats.commands_today ?? "--"} commands today</span>
           </div>
-          <div className="relative">
-            <button onClick={() => setIsOpen((value) => !value)} className="relative grid h-10 w-10 place-items-center rounded-full border border-line bg-white/5 text-text-1 transition hover:border-cyan/40 hover:text-cyan">
+          <div className="relative" ref={notificationWrapRef}>
+            <button
+              ref={notificationButtonRef}
+              onClick={() => setIsOpen((value) => !value)}
+              className="relative grid h-10 w-10 place-items-center rounded-full border border-line bg-white/5 text-text-1 transition hover:border-cyan/40 hover:text-cyan"
+              aria-controls="header-notification-panel"
+              aria-expanded={isOpen}
+              aria-haspopup="dialog"
+              aria-label="Open notifications"
+            >
               <Bell className="h-4 w-4" />
               {(notificationsQuery.data?.unread ?? 0) > 0 ? (
                 <span className="absolute -right-1 -top-1 rounded-full border border-cyan/40 bg-cyan/20 px-1.5 py-0.5 text-[10px] font-semibold text-cyan">
@@ -108,7 +153,12 @@ export function Header({ onOpenMobileNav }: { onOpenMobileNav: () => void }) {
             </button>
 
             {isOpen ? (
-              <div className="absolute right-0 top-12 w-[340px] rounded-[1.6rem] border border-line bg-[rgba(12,18,36,0.94)] p-3 shadow-panel backdrop-blur-chrome">
+              <div
+                id="header-notification-panel"
+                role="dialog"
+                aria-label="Notifications"
+                className="absolute right-0 z-30 mt-3 w-80 rounded-2xl border border-line bg-[rgba(7,11,22,0.96)] p-4 shadow-panel backdrop-blur-xl"
+              >
                 <div className="mb-3 flex items-center justify-between gap-2">
                   <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-cyan">Notifications</p>
                   <button onClick={() => void markAllRead.mutateAsync()} className="rounded-xl border border-line bg-white/5 px-2 py-1 text-xs text-text-1 transition hover:border-cyan/30 hover:text-cyan">Mark all read</button>
