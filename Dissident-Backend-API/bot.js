@@ -4,12 +4,15 @@
  */
 
 const { Client, GatewayIntentBits, Events, PermissionFlagsBits, SlashCommandBuilder, Routes, REST } = require('discord.js');
+const axios = require('axios');
+const crypto = require('crypto');
 const {
   DEFAULT_SETTINGS,
   normalizeServerSettings,
   calculateLevelFromXP,
   getXPForLevel
 } = require('./lib/bot-config');
+const { invokeAIProvider } = require('./lib/ai-providers');
 
 class DissidentBot {
   constructor() {
@@ -28,6 +31,10 @@ class DissidentBot {
     this.commandStats = new Map();
     this.messageCache = new Map();
     this.xpCooldowns = new Map();
+    this.hubApiBaseUrl = (process.env.HUB_API_BASE_URL || process.env.CENTRAL_HUB_API_BASE_URL || '').replace(/\/$/, '');
+    this.internalApiKey = process.env.BOT_INTERNAL_API_KEY || process.env.WEBHOOK_SECRET || '';
+    this.webhookSecret = process.env.WEBHOOK_SECRET || '';
+    this.ticketChannelPrefix = (process.env.TICKET_CHANNEL_PREFIX || 'ticket-').toLowerCase();
     
     this.init();
   }
@@ -45,6 +52,21 @@ class DissidentBot {
     this.client.on(Events.GuildCreate, async (guild) => {
       console.log(`📥 Joined guild: ${guild.name} (${guild.id})`);
       await this.initializeGuild(guild);
+      await this.emitHubEvent('guild_join', {
+        guild_id: guild.id,
+        name: guild.name,
+        icon: guild.icon,
+        owner_id: guild.ownerId,
+        member_count: guild.memberCount,
+        channel_count: guild.channels.cache.size
+      });
+    });
+
+    this.client.on(Events.GuildDelete, async (guild) => {
+      await this.emitHubEvent('guild_leave', {
+        guild_id: guild.id,
+        name: guild.name
+      });
     });
     
     // Event: Interaction create (slash commands)
@@ -56,8 +78,44 @@ class DissidentBot {
     // Event: Message create (for auto-mod)
     this.client.on(Events.MessageCreate, async (message) => {
       if (message.author.bot) return;
+
+      if (this.isTicketChannel(message.channel)) {
+        await this.emitHubEvent('ticket_message', {
+          guild_id: message.guild?.id,
+          channel_id: message.channel.id,
+          author_id: message.author.id,
+          author_name: message.author.tag,
+          content: message.content || '',
+          is_staff: Boolean(message.member?.permissions?.has(PermissionFlagsBits.ManageMessages))
+        });
+      }
+
       await this.handleAutoMod(message);
       await this.handleXP(message);
+    });
+
+    this.client.on(Events.ChannelCreate, async (channel) => {
+      if (!this.isTicketChannel(channel)) return;
+
+      await this.emitHubEvent('ticket_open', {
+        guild_id: channel.guild?.id,
+        channel_id: channel.id,
+        opener_id: this.getTicketOpenerId(channel),
+        opener_name: null,
+        subject: channel.topic || `Ticket ${channel.name}`,
+        priority: 'normal'
+      });
+    });
+
+    this.client.on(Events.ChannelDelete, async (channel) => {
+      if (!this.isTicketChannel(channel)) return;
+
+      await this.emitHubEvent('ticket_close', {
+        guild_id: channel.guild?.id,
+        channel_id: channel.id,
+        closed_by: this.client.user?.tag || 'bot',
+        reason: 'Ticket channel deleted'
+      });
     });
     
     // Event: Guild member add (welcome message)
@@ -223,7 +281,43 @@ class DissidentBot {
 
       new SlashCommandBuilder()
         .setName('help')
-        .setDescription('Show available commands and categories')
+        .setDescription('Learn commands in simple words')
+        .addStringOption(option =>
+          option
+            .setName('topic')
+            .setDescription('Pick what you need help with')
+            .addChoices(
+              { name: 'quick start', value: 'quick' },
+              { name: 'moderation', value: 'moderation' },
+              { name: 'progression', value: 'progression' },
+              { name: 'ai advisor', value: 'ai' },
+              { name: 'tickets', value: 'tickets' },
+              { name: 'all commands', value: 'all' }
+            )),
+
+      new SlashCommandBuilder()
+        .setName('aiask')
+        .setDescription('Ask a question using your personal AI provider')
+        .addStringOption(option =>
+          option.setName('prompt').setDescription('Question or prompt').setRequired(true).setMaxLength(1000)),
+
+      new SlashCommandBuilder()
+        .setName('aiadvisor')
+        .setDescription('Ask the AI advisor using your personal AI provider')
+        .addStringOption(option =>
+          option.setName('prompt').setDescription('Question or prompt').setRequired(true).setMaxLength(1000)),
+
+      new SlashCommandBuilder()
+        .setName('ai-config')
+        .setDescription('Show your personal AI provider status'),
+
+      new SlashCommandBuilder()
+        .setName('ai-usage')
+        .setDescription('Show your current AI usage stats'),
+
+      new SlashCommandBuilder()
+        .setName('ai-disable')
+        .setDescription('Disable your personal AI provider')
     ];
     
     try {
@@ -298,7 +392,22 @@ class DissidentBot {
           await this.cmdRank(interaction, options);
           break;
         case 'help':
-          await this.cmdHelp(interaction);
+          await this.cmdHelp(interaction, options);
+          break;
+        case 'aiask':
+          await this.cmdAIAsk(interaction, options);
+          break;
+        case 'aiadvisor':
+          await this.cmdAIAsk(interaction, options, 'aiadvisor');
+          break;
+        case 'ai-config':
+          await this.cmdAIConfig(interaction);
+          break;
+        case 'ai-usage':
+          await this.cmdAIUsage(interaction);
+          break;
+        case 'ai-disable':
+          await this.cmdAIDisable(interaction);
           break;
       }
     } catch (err) {
@@ -357,6 +466,45 @@ class DissidentBot {
   formatAuditReason(reason, caseId) {
     const safeReason = String(reason || 'No reason provided').trim() || 'No reason provided';
     return `[CASE:${caseId}] ${safeReason}`;
+  }
+
+  isTicketChannel(channel) {
+    if (!channel || !channel.guild || !channel.name) return false;
+    return String(channel.name).toLowerCase().startsWith(this.ticketChannelPrefix);
+  }
+
+  getTicketOpenerId(channel) {
+    const overwrites = channel?.permissionOverwrites?.cache;
+    if (!overwrites) return null;
+
+    for (const overwrite of overwrites.values()) {
+      if (overwrite.type === 1) {
+        return overwrite.id;
+      }
+    }
+
+    return null;
+  }
+
+  async emitHubEvent(type, payload = {}) {
+    if (!this.hubApiBaseUrl || !this.webhookSecret) {
+      return;
+    }
+
+    try {
+      const body = JSON.stringify({ type, payload });
+      const signature = `sha256=${crypto.createHmac('sha256', this.webhookSecret).update(body).digest('hex')}`;
+
+      await axios.post(`${this.hubApiBaseUrl}/api/webhook/bot`, body, {
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Hub-Signature': signature
+        },
+        timeout: 10000
+      });
+    } catch (err) {
+      console.error(`Failed to emit hub event ${type}:`, err.response?.data || err.message);
+    }
   }
 
   async getGuildSettings(guildId) {
@@ -933,6 +1081,18 @@ class DissidentBot {
         INSERT INTO audit_logs (server_id, user_id, target_id, action, reason, created_at)
         VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
       `, [guild.id, moderator.id, target.id, action, auditReason]);
+
+      await this.emitHubEvent('mod_action', {
+        guild_id: guild.id,
+        action: String(action || '').toLowerCase(),
+        target_id: target.id,
+        target_name: target.tag || target.username,
+        moderator_id: moderator.id,
+        moderator_name: moderator.tag || moderator.username,
+        reason,
+        duration: null,
+        case_id: caseId
+      });
       
     } catch (err) {
       console.error('Logging error:', err);
@@ -1068,21 +1228,273 @@ class DissidentBot {
     });
   }
 
-  async cmdHelp(interaction) {
-    const text = [
-      '**Dissident Commands**',
-      '',
-      '**Moderation**',
-      '`/ban` `/kick` `/mute` `/unmute` `/warn` `/warnings` `/unwarn` `/clearwarnings` `/unban` `/clear`',
-      '',
-      '**Info**',
-      '`/serverinfo` `/userinfo` `/help`',
-      '',
-      '**Progression**',
-      '`/balance` `/daily` `/leaderboard` `/rank`'
-    ].join('\n');
+  buildHelpMessage(topic = 'quick') {
+    const normalized = String(topic || 'quick').toLowerCase();
 
+    const sections = {
+      quick: [
+        '**Quick Start (Simple Guide)**',
+        '',
+        '1) Need moderation tools? Start with `/warn` then check `/warnings`.',
+        '2) Need AI help? Run `/aiadvisor prompt:<your question>`.',
+        '3) Need coins/xp? Run `/daily` and then `/rank`.',
+        '',
+        '**Most used commands**',
+        '`/help topic:all` for full list',
+        '`/help topic:moderation` for staff commands',
+        '`/help topic:ai` for AI setup and usage',
+      ],
+      moderation: [
+        '**Moderation Commands**',
+        '',
+        '`/warn user:<@user> reason:<why>` add warning',
+        '`/warnings user:<@user>` view warning history',
+        '`/unwarn warning_id:<id>` remove one warning',
+        '`/clearwarnings user:<@user>` remove all warnings',
+        '`/mute user:<@user> duration:<minutes>` timeout user',
+        '`/unmute user:<@user>` remove timeout',
+        '`/kick user:<@user>` remove from server',
+        '`/ban user:<@user>` ban user',
+        '`/unban user_id:<discord id>` unban by id',
+        '`/clear amount:<1-100>` delete recent messages',
+        '',
+        'Tip: Use clear reasons so logs stay useful.'
+      ],
+      progression: [
+        '**Progression Commands**',
+        '',
+        '`/daily` claim daily coins',
+        '`/balance` check your coins',
+        '`/rank` see your xp level',
+        '`/leaderboard` see top xp users',
+        '',
+        'Tip: `/rank user:<@user>` checks someone else.'
+      ],
+      ai: [
+        '**AI Advisor Commands**',
+        '',
+        '`/ai-config` check if your AI key is connected',
+        '`/aiadvisor prompt:<question>` ask the advisor (recommended)',
+        '`/aiask prompt:<question>` same as advisor command',
+        '`/ai-usage` see requests/tokens used',
+        '`/ai-disable` turn off your AI key',
+        '',
+        'If AI says "not configured", open Hub Settings and add your provider key.'
+      ],
+      tickets: [
+        '**Ticket Help**',
+        '',
+        'Tickets are handled in the Hub dashboard by staff.',
+        'Use the Tickets pages to view, assign, resolve, reopen, or close tickets.',
+        '',
+        'Fast flow for staff:',
+        '1) Open ticket',
+        '2) Assign to yourself',
+        '3) Mark resolved when solved',
+        '4) Close when fully complete',
+        '',
+        'Use `/help topic:all` for command list.'
+      ],
+      all: [
+        '**All Commands**',
+        '',
+        '**Moderation**',
+        '`/ban` `/kick` `/mute` `/unmute` `/warn` `/warnings` `/unwarn` `/clearwarnings` `/unban` `/clear`',
+        '',
+        '**Progression**',
+        '`/balance` `/daily` `/leaderboard` `/rank`',
+        '',
+        '**AI**',
+        '`/aiadvisor` `/aiask` `/ai-config` `/ai-usage` `/ai-disable`',
+        '',
+        '**Info**',
+        '`/serverinfo` `/userinfo` `/help`',
+      ]
+    };
+
+    return (sections[normalized] || sections.quick).join('\n');
+  }
+
+  async cmdHelp(interaction, options) {
+    const topic = options?.getString('topic') || 'quick';
+    const text = this.buildHelpMessage(topic);
     await interaction.reply({ content: text, ephemeral: true });
+  }
+
+  getInternalApiHeaders() {
+    if (!this.internalApiKey) {
+      throw new Error('BOT_INTERNAL_API_KEY or WEBHOOK_SECRET must be configured for AI commands');
+    }
+    return { 'X-Internal-API-Key': this.internalApiKey };
+  }
+
+  getHubApiBaseUrl() {
+    if (!this.hubApiBaseUrl) {
+      throw new Error('HUB_API_BASE_URL must be configured for AI commands');
+    }
+    return this.hubApiBaseUrl;
+  }
+
+  async fetchUserAIConfig(discordId) {
+    const response = await axios.get(
+      `${this.getHubApiBaseUrl()}/api/internal/ai-provider/${encodeURIComponent(discordId)}`,
+      {
+        headers: this.getInternalApiHeaders(),
+        timeout: 10000
+      }
+    );
+    return response.data;
+  }
+
+  async postUserAIUsage(discordId, payload) {
+    await axios.post(
+      `${this.getHubApiBaseUrl()}/api/internal/ai-provider/${encodeURIComponent(discordId)}/usage`,
+      payload,
+      {
+        headers: {
+          ...this.getInternalApiHeaders(),
+          'Content-Type': 'application/json'
+        },
+        timeout: 10000
+      }
+    );
+  }
+
+  async disableUserAIProvider(discordId, reason) {
+    const response = await axios.post(
+      `${this.getHubApiBaseUrl()}/api/internal/ai-provider/${encodeURIComponent(discordId)}/disable`,
+      { reason },
+      {
+        headers: {
+          ...this.getInternalApiHeaders(),
+          'Content-Type': 'application/json'
+        },
+        timeout: 10000
+      }
+    );
+    return response.data;
+  }
+
+  async getUserAIContext(discordId) {
+    try {
+      return await this.fetchUserAIConfig(discordId);
+    } catch (err) {
+      if (err.response?.status === 404) {
+        return err.response.data || null;
+      }
+      throw err;
+    }
+  }
+
+  async cmdAIConfig(interaction) {
+    const config = await this.getUserAIContext(interaction.user.id);
+    if (!config?.configured) {
+      return interaction.reply({
+        content: `AI is ${config?.status || 'not configured'} for your account. Open the Hub Settings page and add or re-enable your personal provider key.`,
+        ephemeral: true
+      });
+    }
+
+    const usage = config.usage || {};
+    await interaction.reply({
+      content: [
+        `**Provider:** ${config.provider}`,
+        `**Model:** ${config.model}`,
+        `**Status:** ${config.status}`,
+        `**Req/hour limit:** ${config.usage_limit_requests_per_hour}`,
+        `**Used this hour:** ${usage.requests_this_hour || 0} requests / ${usage.tokens_this_hour || 0} tokens`,
+        `**Stored key:** ${config.key_hint || 'hidden'}`
+      ].join('\n'),
+      ephemeral: true
+    });
+  }
+
+  async cmdAIUsage(interaction) {
+    const config = await this.getUserAIContext(interaction.user.id);
+    if (!config) {
+      return interaction.reply({
+        content: 'No AI usage is available because your personal provider is not configured yet.',
+        ephemeral: true
+      });
+    }
+
+    const usage = config.usage || {};
+    await interaction.reply({
+      content: [
+        `**This hour:** ${usage.requests_this_hour || 0} requests, ${usage.tokens_this_hour || 0} tokens`,
+        `**Lifetime:** ${usage.lifetime_requests || 0} requests, ${usage.lifetime_tokens || 0} tokens`,
+        `**Last command:** ${usage.last_command || '—'}`,
+        `**Last used:** ${usage.last_used_at ? new Date(usage.last_used_at).toLocaleString() : '—'}`,
+        `**Last error:** ${usage.last_error || 'none'}`
+      ].join('\n'),
+      ephemeral: true
+    });
+  }
+
+  async cmdAIDisable(interaction) {
+    const config = await this.getUserAIContext(interaction.user.id);
+    if (!config?.configured) {
+      return interaction.reply({
+        content: 'There is no active AI provider to disable for your account.',
+        ephemeral: true
+      });
+    }
+
+    await this.disableUserAIProvider(interaction.user.id, 'Disabled via Discord command');
+    await interaction.reply({
+      content: 'Your personal AI provider has been disabled. Re-enable it from the Hub Settings page when ready.',
+      ephemeral: true
+    });
+  }
+
+  async cmdAIAsk(interaction, options, commandName = 'aiask') {
+    const prompt = options.getString('prompt');
+    if (!prompt || !String(prompt).trim()) {
+      return interaction.reply({ content: 'Please provide a prompt.', ephemeral: true });
+    }
+
+    await interaction.deferReply({ ephemeral: true });
+
+    const config = await this.getUserAIContext(interaction.user.id);
+    if (!config?.configured) {
+      return interaction.editReply('AI is not configured for your account. Open the Hub Settings page and add a personal provider key first.');
+    }
+
+    const usage = config.usage || {};
+    const usedThisHour = Number(usage.requests_this_hour || 0);
+    const requestLimit = Number(config.usage_limit_requests_per_hour || 0);
+    if (requestLimit > 0 && usedThisHour >= requestLimit) {
+      return interaction.editReply(`You have reached your hourly AI limit of ${requestLimit} requests. Try again later or raise the limit in the Hub Settings page.`);
+    }
+
+    try {
+      const result = await invokeAIProvider({
+        provider: config.provider,
+        model: config.model,
+        baseUrl: config.base_url,
+        apiKey: config.api_key,
+        timeout: 20000
+      }, prompt);
+
+      const tokenCount = Number(result.usage?.totalTokens || result.usage?.total_tokens || 0);
+      await this.postUserAIUsage(interaction.user.id, {
+        command: commandName,
+        success: true,
+        token_count: tokenCount
+      });
+
+      const answer = result.text || 'The provider returned an empty response.';
+      await interaction.editReply(answer.slice(0, 1900));
+    } catch (err) {
+      const errorMessage = err.response?.data?.error?.message || err.response?.data?.message || err.message || 'Unknown AI provider error';
+      await this.postUserAIUsage(interaction.user.id, {
+        command: commandName,
+        success: false,
+        token_count: 0,
+        error: errorMessage
+      }).catch(() => null);
+      await interaction.editReply(`AI request failed: ${errorMessage}`);
+    }
   }
   
   // Login method

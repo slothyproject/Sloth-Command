@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Tickets — Dissident Central Hub{% endblock %}
+{% block page_slug %}tickets{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1 class="page-header__title">Open Tickets</h1>
+  <span class="page-header__sub">// all servers</span>
+</div>
+{% if tickets %}
+<div class="ticket-list">
+  {% for ticket in tickets %}
+  <a href="{{ url_for('core.ticket_detail', ticket_id=ticket.id) }}" class="ticket-item">
+    <span class="ticket-num">#{{ ticket.ticket_number }}</span>
+    <span class="ticket-subject">{{ ticket.subject or 'Ticket #' ~ ticket.ticket_number }}</span>
+    <span class="ticket-opener">{{ ticket.guild.name }}</span>
+    <span class="ticket-opener">{{ ticket.opener_name or '—' }}</span>
+    <span class="badge badge--online">open</span>
+    <span class="badge pri--{{ ticket.priority }}">{{ ticket.priority }}</span>
+    <span class="ticket-meta">{{ ticket.created_at.strftime('%d %b %Y') }}</span>
+  </a>
+  {% endfor %}
+</div>
+{% else %}
+<div class="empty">
+  <p>No open tickets across your servers.</p>
+  <p>Tickets opened via the bot will appear here in real-time.</p>
+</div>
+{% endif %}
+{% endblock %}

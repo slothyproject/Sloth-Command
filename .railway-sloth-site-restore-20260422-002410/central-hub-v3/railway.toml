@@ -1,0 +1,7 @@
+[build]
+builder = "DOCKERFILE"
+rootDirectory = "central-hub-v3/apps/api"
+
+[deploy]
+startCommand = "node dist/index.js"
+restartPolicyType = "ON_FAILURE"
