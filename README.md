@@ -23,11 +23,12 @@ The bot itself (`dissident` repo) is separate. This repo talks to the bot exclus
 ## Stack
 
 | Layer | Technology |
-|-------|-----------|
+| ----- | ---------- |
 | Web framework | Flask 3 + Gunicorn + gevent |
 | Real-time | Flask-SocketIO + Redis |
 | Database | PostgreSQL (via SQLAlchemy) |
 | Auth | Discord OAuth + Flask-Login |
+| Frontend runtime | React built in the root Dockerfile and served from `frontend/dist` at `/app` |
 | Deployment | Docker → Railway |
 | CI/CD | GitHub Actions (single workflow) |
 
@@ -51,7 +52,7 @@ Hub runs at `http://localhost:8080`.
 
 ## Project structure
 
-```
+```text
 dissident-central-hub/
 ├── dashboard/          Flask app (routes, models, templates, static)
 │   ├── routes/         auth.py · core.py · api.py
@@ -59,7 +60,7 @@ dissident-central-hub/
 │   ├── templates/      Jinja2 HTML
 │   └── static/         CSS + JS
 ├── worker/             Background scheduler
-├── docs/               Architecture + deployment guides
+├── docs/               Architecture, deployment, and roadmap documentation
 ├── Dockerfile          Single production image
 ├── railway.toml        Railway config
 └── docker-compose.yml  Local dev stack
@@ -71,6 +72,7 @@ dissident-central-hub/
 
 - [Architecture](docs/architecture.md) — service map, data flows, DB schema
 - [Deployment](docs/deployment.md) — Railway setup, env vars, migrations
+- [Dashboard Roadmap](docs/dashboard-roadmap.md) — active dashboard feature planning and cleanup priorities
 
 ---
 
@@ -78,7 +80,7 @@ dissident-central-hub/
 
 See `.env.example` for the full list. Required in production:
 
-```
+```text
 SECRET_KEY          Flask session secret (32 random bytes)
 DATABASE_URL        PostgreSQL connection string
 REDIS_URL           Redis connection string
@@ -98,7 +100,7 @@ For the Discord bot runtime, also set `HUB_API_BASE_URL` to the public Hub origi
 ## Related repos
 
 | Repo | Purpose |
-|------|---------|
+| ---- | ------- |
 | [`dissident`](https://github.com/slothyproject/dissident) | The Discord bot (Python, 71 cogs) |
 | [`Dissident-Website`](https://github.com/slothyproject/Dissident-Website) | Public landing page (Astro.js) |
 | [`Tokens-Vault`](https://github.com/slothyproject/Tokens-Vault) | Secure credential store |
