@@ -52,3 +52,17 @@ DISSIDENT_STATUS*
 # Local release scratch notes
 .pr_body_checklist.md
 
+# Node / frontend local state
+node_modules/
+
+# Test caches
+.pytest_cache/
+
+# Local restore and scratch folders
+uxmagic-temp/
+.release/
+.railway-*-restore-*/
+
+# Generated alternate frontend outputs
+frontend/dist-agent-*/
+
