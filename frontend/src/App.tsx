@@ -18,6 +18,7 @@ const ServersPage = lazy(() => import("./pages/ServersPage").then((m) => ({ defa
 const LogsPage = lazy(() => import("./pages/LogsPage").then((m) => ({ default: m.LogsPage })));
 const UsersPage = lazy(() => import("./pages/UsersPage").then((m) => ({ default: m.UsersPage })));
 const SettingsPage = lazy(() => import("./pages/SettingsPage").then((m) => ({ default: m.SettingsPage })));
+const ServerDetailPage = lazy(() => import("./pages/ServerDetailPage").then((m) => ({ default: m.ServerDetailPage })));
 
 function SessionBootstrap() {
   const location = useLocation();
@@ -60,6 +61,7 @@ function SessionBootstrap() {
         <Route element={<Protected><AppShell /></Protected>}>
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/servers" element={<ServersPage />} />
+                    <Route path="/servers/:guildId" element={<ServerDetailPage />} />
           <Route path="/moderation" element={<ModerationPage />} />
           <Route path="/tickets" element={<TicketsPage />} />
           <Route path="/tickets/:ticketId" element={<TicketDetailPage />} />

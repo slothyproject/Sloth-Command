@@ -136,13 +136,13 @@ def servers():
 @core_bp.get("/servers/<int:guild_id>")
 @login_required
 def server_detail(guild_id: int):
-    return _app_redirect("servers")
+    return _app_redirect(f"servers/{guild_id}")
 
 
 @core_bp.get("/servers/<int:guild_id>/settings")
 @login_required
 def server_settings(guild_id: int):
-    return _app_redirect("servers")
+    return _app_redirect(f"servers/{guild_id}?tab=settings")
 
 
 @core_bp.get("/servers/<int:guild_id>/moderation")
