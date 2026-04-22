@@ -5,6 +5,12 @@
  */
 
 import OpenAI from 'openai';
+import {
+  getUserProviderConfigs,
+  markProviderUsed,
+  type SupportedAIProvider,
+  type UserProviderConfig,
+} from './ai-provider-config';
 
 // LLM Provider configurations
 interface LLMConfig {
@@ -88,15 +94,6 @@ const MODELS_BY_COMPLEXITY: Record<TaskComplexity, Record<string, string>> = {
   },
 };
 
-// Initialize OpenAI client lazily to avoid startup crash when OPENAI_API_KEY is not set
-let _openai: OpenAI | null = null;
-function getOpenAI(): OpenAI {
-  if (!_openai) {
-    _openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || 'not-configured' });
-  }
-  return _openai;
-}
-
 interface GenerateOptions {
   complexity?: TaskComplexity;
   temperature?: number;
@@ -105,7 +102,10 @@ interface GenerateOptions {
   timeout?: number;
   fallbackEnabled?: boolean;
   trackUsage?: boolean;
+  userId?: string;
 }
+
+type RuntimeProviderConfig = Pick<UserProviderConfig, 'apiKey' | 'baseUrl' | 'model' | 'enabled'>;
 
 interface GenerateResult {
   response: string;
@@ -230,23 +230,38 @@ function getAvailableProviders(): string[] {
     .map(([provider]) => provider);
 }
 
+function getAvailableUserProviders(
+  userConfigs: Partial<Record<SupportedAIProvider, RuntimeProviderConfig>>
+): SupportedAIProvider[] {
+  return (Object.entries(LLM_CONFIGS) as Array<[SupportedAIProvider, LLMConfig]>)
+    .filter(([provider]) => {
+      const cfg = userConfigs[provider];
+      return !!cfg?.apiKey && (cfg.enabled ?? true);
+    })
+    .filter(([provider]) => !isCircuitBreakerOpen(provider))
+    .sort((a, b) => a[1].priority - b[1].priority)
+    .map(([provider]) => provider);
+}
+
 /**
  * Generate with Ollama
  */
 async function generateWithOllama(
   prompt: string,
   model: string,
-  options: GenerateOptions
+  options: GenerateOptions,
+  runtimeConfig: RuntimeProviderConfig
 ): Promise<{ response: string; tokensUsed?: number }> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), options.timeout || 30000);
   
   try {
-    const response = await fetch(`${process.env.OLLAMA_HOST || 'http://localhost:11434'}/api/generate`, {
+    const ollamaHost = runtimeConfig.baseUrl || process.env.OLLAMA_HOST || 'http://localhost:11434';
+    const response = await fetch(`${ollamaHost.replace(/\/$/, '')}/api/generate`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${process.env.OLLAMA_API_KEY || ''}`,
+        'Authorization': `Bearer ${runtimeConfig.apiKey}`,
       },
       body: JSON.stringify({
         model,
@@ -282,9 +297,15 @@ async function generateWithOllama(
 async function generateWithOpenAI(
   prompt: string,
   model: string,
-  options: GenerateOptions
+  options: GenerateOptions,
+  runtimeConfig: RuntimeProviderConfig
 ): Promise<{ response: string; tokensUsed: number }> {
-  const response = await getOpenAI().chat.completions.create({
+  const openai = new OpenAI({
+    apiKey: runtimeConfig.apiKey,
+    baseURL: runtimeConfig.baseUrl || process.env.OPENAI_BASE_URL,
+  });
+
+  const response = await openai.chat.completions.create({
     model,
     messages: [
       ...(options.systemPrompt ? [{ role: 'system' as const, content: options.systemPrompt }] : []),
@@ -306,15 +327,17 @@ async function generateWithOpenAI(
 async function generateWithAnthropic(
   prompt: string,
   model: string,
-  options: GenerateOptions
+  options: GenerateOptions,
+  runtimeConfig: RuntimeProviderConfig
 ): Promise<{ response: string; tokensUsed?: number }> {
   // Note: Anthropic SDK would be imported here
   // For now, using fetch API
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
+  const anthropicBase = runtimeConfig.baseUrl || 'https://api.anthropic.com';
+  const response = await fetch(`${anthropicBase.replace(/\/$/, '')}/v1/messages`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'x-api-key': process.env.ANTHROPIC_API_KEY || '',
+      'x-api-key': runtimeConfig.apiKey,
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify({
@@ -347,7 +370,20 @@ export async function generate(
 ): Promise<GenerateResult> {
   const startTime = Date.now();
   const complexity = options.complexity || analyzeComplexity(prompt);
-  const providers = getAvailableProviders();
+  let providers: string[] = [];
+  let userProviderConfigs: Partial<Record<SupportedAIProvider, RuntimeProviderConfig>> = {};
+
+  if (options.userId) {
+    userProviderConfigs = await getUserProviderConfigs(options.userId);
+    providers = getAvailableUserProviders(userProviderConfigs);
+    if (providers.length === 0) {
+      throw new Error(
+        'No user AI providers configured. Configure your own API key in Settings > Integrations > AI Advisor before using AI features.'
+      );
+    }
+  } else {
+    providers = getAvailableProviders();
+  }
   
   if (providers.length === 0) {
     throw new Error('No LLM providers available. Check circuit breakers and API keys.');
@@ -358,8 +394,10 @@ export async function generate(
   
   // Try each provider in priority order
   for (const provider of providers) {
-    const config = LLM_CONFIGS[provider];
-    const model = MODELS_BY_COMPLEXITY[complexity][provider];
+    const providerKey = provider as SupportedAIProvider;
+    const config = LLM_CONFIGS[providerKey];
+    const runtimeConfig = userProviderConfigs[providerKey];
+    const model = runtimeConfig?.model || MODELS_BY_COMPLEXITY[complexity][providerKey];
     
     if (!model) {
       console.warn(`⚠️ No model configured for ${provider} with complexity ${complexity}`);
@@ -375,13 +413,22 @@ export async function generate(
         
         switch (provider) {
           case 'ollama':
-            result = await generateWithOllama(prompt, model, options);
+            result = await generateWithOllama(prompt, model, options, runtimeConfig || {
+              apiKey: process.env.OLLAMA_API_KEY || '',
+              baseUrl: process.env.OLLAMA_HOST,
+            });
             break;
           case 'openai':
-            result = await generateWithOpenAI(prompt, model, options);
+            result = await generateWithOpenAI(prompt, model, options, runtimeConfig || {
+              apiKey: process.env.OPENAI_API_KEY || '',
+              baseUrl: process.env.OPENAI_BASE_URL,
+            });
             break;
           case 'anthropic':
-            result = await generateWithAnthropic(prompt, model, options);
+            result = await generateWithAnthropic(prompt, model, options, runtimeConfig || {
+              apiKey: process.env.ANTHROPIC_API_KEY || '',
+              baseUrl: process.env.ANTHROPIC_BASE_URL,
+            });
             break;
           default:
             throw new Error(`Unknown provider: ${provider}`);
@@ -396,6 +443,10 @@ export async function generate(
           : undefined;
         
         console.log(`✅ Successfully generated with ${config.name} in ${latency}ms`);
+
+        if (options.userId && (provider === 'ollama' || provider === 'openai' || provider === 'anthropic')) {
+          await markProviderUsed(options.userId, provider);
+        }
         
         return {
           response: result.response,
