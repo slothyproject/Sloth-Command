@@ -778,6 +778,109 @@ body {
   background: rgba(255, 68, 85, 0.1);
 }
 
+.ops-aux {
+  display: grid;
+  grid-template-columns: 1.1fr 0.9fr;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.ops-aux__panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: 14px 16px;
+}
+
+.snapshot-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.snapshot-cell {
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  background: var(--elevated);
+  padding: 8px;
+}
+
+.snapshot-cell__label {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-2);
+}
+
+.snapshot-cell__value {
+  display: block;
+  margin-top: 5px;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  color: var(--text-0);
+}
+
+.ops-toolbar {
+  margin-top: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.ops-toolbar__group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.timeline-list {
+  margin-top: 10px;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 250px;
+  overflow-y: auto;
+}
+
+.timeline-item {
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  background: var(--elevated);
+  padding: 8px 9px;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 10px;
+  align-items: baseline;
+}
+
+.timeline-item__time {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-2);
+}
+
+.timeline-item__msg {
+  font-size: 11px;
+  color: var(--text-1);
+}
+
+.timeline-item--ok { border-color: rgba(0, 255, 136, 0.2); }
+.timeline-item--warn { border-color: rgba(255, 184, 0, 0.25); }
+.timeline-item--danger { border-color: rgba(255, 68, 85, 0.3); }
+
+.timeline-item--empty {
+  display: block;
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-2);
+}
+
 .priority-row--empty {
   justify-content: center;
   color: var(--text-2);
@@ -1464,9 +1567,11 @@ canvas#latency-canvas {
   .stats-grid { grid-template-columns: repeat(2, 1fr); }
   .ops-grid { grid-template-columns: 1fr; }
   .ops-board { grid-template-columns: 1fr; }
+  .ops-aux { grid-template-columns: 1fr; }
   .ops-board__head { flex-direction: column; align-items: flex-start; }
   .priority-controls { grid-template-columns: 1fr; }
   .priority-sort-wrap { width: 100%; }
+  .ops-toolbar__group { width: 100%; }
 }
 
 /* ── Utility ── */

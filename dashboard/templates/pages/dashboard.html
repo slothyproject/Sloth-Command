@@ -178,6 +178,47 @@
   </article>
 </section>
 
+<section class="ops-aux" aria-label="Operational analytics and timeline">
+  <article class="ops-aux__panel">
+    <div class="ops-board__head">
+      <h2 class="ops-board__title">TELEMETRY SNAPSHOT</h2>
+      <p class="ops-board__sub">Rolling latency analytics from recent samples.</p>
+    </div>
+    <div class="snapshot-grid">
+      <div class="snapshot-cell"><span class="snapshot-cell__label">AVG</span><span class="snapshot-cell__value" id="wb-latency-avg">—</span></div>
+      <div class="snapshot-cell"><span class="snapshot-cell__label">MIN</span><span class="snapshot-cell__value" id="wb-latency-min">—</span></div>
+      <div class="snapshot-cell"><span class="snapshot-cell__label">MAX</span><span class="snapshot-cell__value" id="wb-latency-max">—</span></div>
+      <div class="snapshot-cell"><span class="snapshot-cell__label">P95</span><span class="snapshot-cell__value" id="wb-latency-p95">—</span></div>
+      <div class="snapshot-cell"><span class="snapshot-cell__label">SAMPLES</span><span class="snapshot-cell__value" id="wb-latency-samples">0</span></div>
+      <div class="snapshot-cell"><span class="snapshot-cell__label">MODE</span><span class="snapshot-cell__value" id="wb-refresh-mode">live</span></div>
+    </div>
+    <div class="ops-toolbar">
+      <label class="ops-toolbar__group" for="wb-refresh-rate">
+        <span class="priority-filter-wrap__label">Refresh</span>
+        <select id="wb-refresh-rate" class="priority-sort">
+          <option value="5000">5s</option>
+          <option value="10000" selected>10s</option>
+          <option value="15000">15s</option>
+          <option value="30000">30s</option>
+        </select>
+      </label>
+      <button type="button" class="btn btn--ghost btn--sm" id="wb-toggle-refresh">pause live</button>
+      <button type="button" class="btn btn--ghost btn--sm" id="wb-copy-report">copy report</button>
+      <button type="button" class="btn btn--ghost btn--sm" id="wb-download-report">download report</button>
+    </div>
+  </article>
+
+  <article class="ops-aux__panel">
+    <div class="ops-board__head">
+      <h2 class="ops-board__title">INCIDENT TIMELINE</h2>
+      <p class="ops-board__sub">Recent state transitions and runbook events.</p>
+    </div>
+    <ul class="timeline-list" id="incident-timeline">
+      <li class="timeline-item timeline-item--empty">Waiting for operational events...</li>
+    </ul>
+  </article>
+</section>
+
 <div class="section" style="margin-top:18px">
   <div class="section__header">
     <span class="section__title">AI READINESS</span>
@@ -260,6 +301,13 @@ let latestStats = null;
 let priorityFilter = '';
 let prioritySortMode = 'size';
 let incidentAcknowledged = false;
+let currentIncidentLevel = 'normal';
+let incidentTimeline = [];
+let pollStatsTimer = null;
+let pollGuildsTimer = null;
+let pollUnreadTimer = null;
+let autoRefreshEnabled = true;
+let refreshMs = 10000;
 let commandPaletteIndex = 0;
 let commandPaletteFiltered = [];
 
@@ -277,6 +325,83 @@ function setSignalTone(id, tone) {
   if (!el) return;
   el.classList.remove('signal-row__value--ok', 'signal-row__value--warn', 'signal-row__value--danger');
   if (tone) el.classList.add(`signal-row__value--${tone}`);
+}
+
+function approxP95(values) {
+  if (!values.length) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const idx = Math.max(0, Math.ceil(sorted.length * 0.95) - 1);
+  return sorted[idx];
+}
+
+function addIncidentEvent(kind, message) {
+  const tone = kind === 'critical' ? 'danger' : kind === 'watch' ? 'warn' : 'ok';
+  incidentTimeline.unshift({ at: new Date(), message, tone });
+  incidentTimeline = incidentTimeline.slice(0, 12);
+  renderIncidentTimeline();
+}
+
+function renderIncidentTimeline() {
+  const list = document.getElementById('incident-timeline');
+  if (!list) return;
+  if (!incidentTimeline.length) {
+    list.innerHTML = '<li class="timeline-item timeline-item--empty">Waiting for operational events...</li>';
+    return;
+  }
+  list.innerHTML = incidentTimeline.map(item => `
+    <li class="timeline-item timeline-item--${item.tone}">
+      <span class="timeline-item__time">${item.at.toLocaleTimeString()}</span>
+      <span class="timeline-item__msg">${escapeHtml(item.message)}</span>
+    </li>`).join('');
+}
+
+function updateSnapshotMetrics() {
+  const avg = document.getElementById('wb-latency-avg');
+  const min = document.getElementById('wb-latency-min');
+  const max = document.getElementById('wb-latency-max');
+  const p95 = document.getElementById('wb-latency-p95');
+  const samples = document.getElementById('wb-latency-samples');
+  const mode = document.getElementById('wb-refresh-mode');
+  if (!avg || !min || !max || !p95 || !samples || !mode) return;
+
+  if (!history.length) {
+    avg.textContent = '—';
+    min.textContent = '—';
+    max.textContent = '—';
+    p95.textContent = '—';
+    samples.textContent = '0';
+  } else {
+    const total = history.reduce((acc, value) => acc + value, 0);
+    const minVal = Math.min(...history);
+    const maxVal = Math.max(...history);
+    avg.textContent = `${Math.round(total / history.length)}ms`;
+    min.textContent = `${minVal}ms`;
+    max.textContent = `${maxVal}ms`;
+    p95.textContent = `${approxP95(history)}ms`;
+    samples.textContent = `${history.length}`;
+  }
+  mode.textContent = autoRefreshEnabled ? `live/${Math.round(refreshMs / 1000)}s` : 'paused';
+}
+
+function buildOpsReport() {
+  const lines = [
+    `Dissident Ops Snapshot @ ${new Date().toISOString()}`,
+    `Incident level: ${currentIncidentLevel}`,
+    `Acknowledged: ${incidentAcknowledged ? 'yes' : 'no'}`,
+    `Unread alerts: ${unreadCount}`,
+    `Latency samples: ${history.length}`,
+    `Latency avg/min/max/p95: ${document.getElementById('wb-latency-avg')?.textContent || '—'} / ${document.getElementById('wb-latency-min')?.textContent || '—'} / ${document.getElementById('wb-latency-max')?.textContent || '—'} / ${document.getElementById('wb-latency-p95')?.textContent || '—'}`,
+    '',
+    'Recent timeline:'
+  ];
+  if (!incidentTimeline.length) {
+    lines.push('- no events recorded yet');
+  } else {
+    incidentTimeline.slice(0, 8).forEach(item => {
+      lines.push(`- ${item.at.toLocaleTimeString()} | ${item.message}`);
+    });
+  }
+  return lines.join('\n');
 }
 
 function updateIncidentLevel() {
@@ -297,6 +422,10 @@ function updateIncidentLevel() {
     tone = 'warn';
     runbookText = 'Investigate elevated latency and triage newest alerts in notifications.';
   }
+  if (level !== currentIncidentLevel) {
+    addIncidentEvent(level, `Incident state shifted to ${level}.`);
+    currentIncidentLevel = level;
+  }
   incident.textContent = level;
   setSignalTone('wb-incident', tone);
 
@@ -313,10 +442,15 @@ function updateIncidentLevel() {
     ackButton.textContent = incidentAcknowledged ? 'incident acknowledged' : 'acknowledge incident';
     ackButton.classList.toggle('btn--danger', !incidentAcknowledged && tone === 'danger');
   }
+  updateSnapshotMetrics();
 }
 
 function setIncidentAcknowledged(value) {
+  const previous = incidentAcknowledged;
   incidentAcknowledged = value;
+  if (previous !== value) {
+    addIncidentEvent(currentIncidentLevel, value ? 'Incident acknowledged by operator.' : 'Incident acknowledgement cleared.');
+  }
   updateIncidentLevel();
 }
 
@@ -398,6 +532,7 @@ async function pollStats() {
     history.push(d.latency_ms);
     if (history.length > MAX_POINTS) history.shift();
     drawSparkline();
+    updateSnapshotMetrics();
   } catch {}
 }
 
@@ -561,6 +696,10 @@ function setupWave3Interactions() {
   const filterInput = document.getElementById('priority-filter');
   const sortInput = document.getElementById('priority-sort');
   const ackButton = document.getElementById('wb-ack-btn');
+  const refreshToggle = document.getElementById('wb-toggle-refresh');
+  const refreshRate = document.getElementById('wb-refresh-rate');
+  const copyReport = document.getElementById('wb-copy-report');
+  const downloadReport = document.getElementById('wb-download-report');
   if (filterInput) {
     filterInput.addEventListener('input', (e) => {
       priorityFilter = String(e.target.value || '').trim().toLowerCase();
@@ -575,6 +714,50 @@ function setupWave3Interactions() {
   }
   if (ackButton) {
     ackButton.addEventListener('click', () => setIncidentAcknowledged(!incidentAcknowledged));
+  }
+  if (refreshToggle) {
+    refreshToggle.addEventListener('click', () => {
+      autoRefreshEnabled = !autoRefreshEnabled;
+      refreshToggle.textContent = autoRefreshEnabled ? 'pause live' : 'resume live';
+      startPolling();
+      updateSnapshotMetrics();
+      addIncidentEvent(currentIncidentLevel, autoRefreshEnabled ? 'Live polling resumed.' : 'Live polling paused.');
+    });
+  }
+  if (refreshRate) {
+    refreshRate.addEventListener('change', (e) => {
+      const value = Number(e.target.value);
+      refreshMs = Number.isFinite(value) && value > 0 ? value : 10000;
+      startPolling();
+      updateSnapshotMetrics();
+      addIncidentEvent(currentIncidentLevel, `Refresh interval set to ${Math.round(refreshMs / 1000)}s.`);
+    });
+  }
+  if (copyReport) {
+    copyReport.addEventListener('click', async () => {
+      const report = buildOpsReport();
+      try {
+        await navigator.clipboard.writeText(report);
+        addIncidentEvent(currentIncidentLevel, 'Ops report copied to clipboard.');
+      } catch {
+        addIncidentEvent('watch', 'Clipboard copy failed for ops report.');
+      }
+    });
+  }
+  if (downloadReport) {
+    downloadReport.addEventListener('click', () => {
+      const report = buildOpsReport();
+      const blob = new Blob([report], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `dissident-ops-${Date.now()}.txt`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      addIncidentEvent(currentIncidentLevel, 'Ops report downloaded.');
+    });
   }
 
   const openPaletteButton = document.getElementById('open-command-palette');
@@ -640,14 +823,23 @@ function setupWave3Interactions() {
   });
 }
 
+function startPolling() {
+  if (pollStatsTimer) clearInterval(pollStatsTimer);
+  if (pollGuildsTimer) clearInterval(pollGuildsTimer);
+  if (pollUnreadTimer) clearInterval(pollUnreadTimer);
+  if (!autoRefreshEnabled) return;
+  pollStatsTimer = setInterval(pollStats, refreshMs);
+  pollGuildsTimer = setInterval(pollGuilds, Math.max(refreshMs * 2, 15000));
+  pollUnreadTimer = setInterval(syncUnreadBoard, Math.max(refreshMs * 2, 15000));
+}
+
 pollStats();
 pollGuilds();
 loadAIReadiness();
 syncUnreadBoard();
 setupWave3Interactions();
-setInterval(pollStats, 10000);
-setInterval(pollGuilds, 30000);
-setInterval(syncUnreadBoard, 30000);
+startPolling();
+addIncidentEvent('ok', 'Dashboard monitoring initialized.');
 window.addEventListener('resize', drawSparkline);
 
 // ── Quick action: Invite bot ──────────────────────────────────
