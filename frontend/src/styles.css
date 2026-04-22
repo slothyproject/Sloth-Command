@@ -1,0 +1,184 @@
+@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;700&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+  font-family: "Manrope", system-ui, sans-serif;
+  /* Sloth Dojo - Calm, zen aesthetic */
+  --bg: #0d1520;
+  --bg-soft: #141c2e;
+  --panel: rgba(15, 23, 40, 0.85);
+  --panel-strong: #182c48;
+  --text: #e8f1fa;
+  --muted: #8fa8c4;
+  --line: rgba(136, 192, 208, 0.18);
+  /* Sloth theme: calm cyan/teal with warm accents */
+  --accent: #88c0d0;
+  --accent-strong: #6fa8b8;
+  --accent-soft: rgba(136, 192, 208, 0.12);
+  --accent-glow: rgba(136, 192, 208, 0.2);
+  --gold: #b8956a;
+  --ember: #d08070;
+  --shadow: 0 24px 70px rgba(13, 21, 32, 0.55);
+  /* Sloth personality accents */
+  --sloth-green: #a3be8c;
+  --sloth-purple: #b48ead;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  background:
+    radial-gradient(circle at 8% 4%, rgba(136, 192, 208, 0.15), transparent 34%),
+    radial-gradient(circle at 86% 8%, rgba(184, 149, 106, 0.12), transparent 28%),
+    radial-gradient(circle at 22% 78%, rgba(208, 128, 112, 0.08), transparent 32%),
+    radial-gradient(circle at 78% 76%, rgba(163, 190, 140, 0.1), transparent 34%),
+    linear-gradient(180deg, #0a0f1a 0%, var(--bg) 48%, #0d1520 100%);
+}
+
+#root {
+  min-height: 100vh;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+@layer base {
+  body {
+    @apply bg-void text-text-0 antialiased;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: "Space Grotesk", "Manrope", system-ui, sans-serif;
+    letter-spacing: -0.02em;
+  }
+
+  a {
+    @apply text-inherit no-underline;
+  }
+
+  /* Keep native select popups readable on dark UI across browsers/OS themes. */
+  select {
+    color: #f2f7ff;
+    background-color: #101826;
+  }
+
+  option,
+  optgroup {
+    color: #0b1220;
+    background-color: #f2f7ff;
+  }
+}
+
+@layer components {
+  .dashboard-shell {
+    position: relative;
+    min-height: 100vh;
+    overflow: hidden;
+  }
+
+  .dashboard-shell::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 10%, transparent 90%, rgba(255, 255, 255, 0.02));
+    opacity: 0.7;
+  }
+
+  .dashboard-orb {
+    position: fixed;
+    border-radius: 999px;
+    z-index: 0;
+    pointer-events: none;
+    filter: blur(54px);
+    opacity: 0.62;
+  }
+
+  .dashboard-orb-a {
+    width: 24rem;
+    height: 24rem;
+    top: -5rem;
+    left: -4rem;
+    background: rgba(136, 192, 208, 0.15);
+  }
+
+  .dashboard-orb-b {
+    width: 20rem;
+    height: 20rem;
+    right: -3rem;
+    top: 6rem;
+    background: rgba(184, 149, 106, 0.12);
+  }
+
+  .dashboard-grid {
+    position: relative;
+  }
+
+  .dashboard-sidebar {
+    box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.03);
+  }
+
+  .dashboard-main {
+    position: relative;
+  }
+
+  .dashboard-main::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background:
+        radial-gradient(circle at top, rgba(136, 192, 208, 0.08), transparent 36%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.015), transparent 22%);
+  }
+
+  .dashboard-main-panel {
+    position: relative;
+  }
+
+  .dashboard-content {
+    position: relative;
+  }
+
+  .dashboard-grid::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0.2;
+    background-image:
+      linear-gradient(rgba(136, 192, 208, 0.06) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(136, 192, 208, 0.06) 1px, transparent 1px);
+    background-size: 56px 56px;
+  }
+
+  .dashboard-chrome {
+    border: 1px solid var(--line);
+    background: var(--panel);
+    box-shadow: var(--shadow), 0 0 0 1px rgba(136, 192, 208, 0.1) inset;
+    backdrop-filter: blur(18px);
+  }
+
+  .dashboard-chip {
+    border: 1px solid rgba(136, 192, 208, 0.24);
+    background: rgba(136, 192, 208, 0.1);
+    color: var(--accent);
+  }
+
+  .dashboard-skeleton {
+    background:
+      linear-gradient(90deg, rgba(255,255,255,0.05) 25%, rgba(113,231,255,0.12) 37%, rgba(255,255,255,0.05) 63%),
+      rgba(255,255,255,0.04);
+    background-size: 300% 100%;
+    animation: shimmer 1.6s linear infinite;
+    min-height: 72px;
+  }
+}
