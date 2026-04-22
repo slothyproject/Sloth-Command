@@ -1,22 +1,23 @@
 import { Suspense, lazy, useEffect } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 
-import { AppShell } from "./components/layout/AppShell";
+import { AppShell } from "./components/layout/app-shell";
 import { useAuthStore } from "./store/authStore";
 import type { CurrentUser } from "./store/authStore";
 import { getJson } from "./lib/api";
 
-const DashboardPage = lazy(async () => import("./pages/DashboardPage").then((module) => ({ default: module.DashboardPage })));
-const LoginPage = lazy(async () => import("./pages/LoginPage").then((module) => ({ default: module.LoginPage })));
-const ModerationPage = lazy(async () => import("./pages/ModerationPage").then((module) => ({ default: module.ModerationPage })));
-const TicketsPage = lazy(async () => import("./pages/TicketsPage").then((module) => ({ default: module.TicketsPage })));
-const AnalyticsPage = lazy(async () => import("./pages/AnalyticsPage").then((module) => ({ default: module.AnalyticsPage })));
-const TicketDetailPage = lazy(async () => import("./pages/TicketDetailPage").then((module) => ({ default: module.TicketDetailPage })));
-const AiAdvisorPage = lazy(async () => import("./pages/AiAdvisorPage").then((module) => ({ default: module.AiAdvisorPage })));
-const ServersPage = lazy(async () => import("./pages/ServersPage").then((module) => ({ default: module.ServersPage })));
-const LogsPage = lazy(async () => import("./pages/LogsPage").then((module) => ({ default: module.LogsPage })));
-const UsersPage = lazy(async () => import("./pages/UsersPage").then((module) => ({ default: module.UsersPage })));
-const SettingsPage = lazy(async () => import("./pages/SettingsPage").then((module) => ({ default: module.SettingsPage })));
+// Lazy load pages
+const DashboardPage = lazy(() => import("./pages/dashboard").then((m) => ({ default: m.default })));
+const LoginPage = lazy(() => import("./pages/LoginPage").then((m) => ({ default: m.LoginPage })));
+const ModerationPage = lazy(() => import("./pages/ModerationPage").then((m) => ({ default: m.ModerationPage })));
+const TicketsPage = lazy(() => import("./pages/TicketsPage").then((m) => ({ default: m.TicketsPage })));
+const AnalyticsPage = lazy(() => import("./pages/AnalyticsPage").then((m) => ({ default: m.AnalyticsPage })));
+const TicketDetailPage = lazy(() => import("./pages/TicketDetailPage").then((m) => ({ default: m.TicketDetailPage })));
+const AiAdvisorPage = lazy(() => import("./pages/AiAdvisorPage").then((m) => ({ default: m.AiAdvisorPage })));
+const ServersPage = lazy(() => import("./pages/ServersPage").then((m) => ({ default: m.ServersPage })));
+const LogsPage = lazy(() => import("./pages/LogsPage").then((m) => ({ default: m.LogsPage })));
+const UsersPage = lazy(() => import("./pages/UsersPage").then((m) => ({ default: m.UsersPage })));
+const SettingsPage = lazy(() => import("./pages/SettingsPage").then((m) => ({ default: m.SettingsPage })));
 
 function SessionBootstrap() {
   const location = useLocation();
@@ -54,16 +55,21 @@ function SessionBootstrap() {
     <Suspense fallback={<div className="grid min-h-screen place-items-center bg-void text-text-1 font-mono text-sm">Loading command dojo…</div>}>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
-        <Route path="/dashboard" element={<Protected><AppShell><DashboardPage /></AppShell></Protected>} />
-        <Route path="/servers" element={<Protected><AppShell><ServersPage /></AppShell></Protected>} />
-        <Route path="/moderation" element={<Protected><AppShell><ModerationPage /></AppShell></Protected>} />
-        <Route path="/tickets" element={<Protected><AppShell><TicketsPage /></AppShell></Protected>} />
-        <Route path="/tickets/:ticketId" element={<Protected><AppShell><TicketDetailPage /></AppShell></Protected>} />
-        <Route path="/analytics" element={<Protected><AppShell><AnalyticsPage /></AppShell></Protected>} />
-        <Route path="/ai-advisor" element={<Protected><AppShell><AiAdvisorPage /></AppShell></Protected>} />
-        <Route path="/settings" element={<Protected><AppShell><SettingsPage /></AppShell></Protected>} />
-        <Route path="/logs" element={<Protected><AppShell><LogsPage /></AppShell></Protected>} />
-        <Route path="/users" element={<Protected><AppShell><UsersPage /></AppShell></Protected>} />
+        
+        {/* Protected routes with AppShell layout */}
+        <Route element={<Protected><AppShell /></Protected>}>
+          <Route path="/dashboard" element={<DashboardPage />} />
+          <Route path="/servers" element={<ServersPage />} />
+          <Route path="/moderation" element={<ModerationPage />} />
+          <Route path="/tickets" element={<TicketsPage />} />
+          <Route path="/tickets/:ticketId" element={<TicketDetailPage />} />
+          <Route path="/analytics" element={<AnalyticsPage />} />
+          <Route path="/ai-advisor" element={<AiAdvisorPage />} />
+          <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/logs" element={<LogsPage />} />
+          <Route path="/users" element={<UsersPage />} />
+        </Route>
+        
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </Suspense>
