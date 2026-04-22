@@ -6,6 +6,7 @@
 <div class="page-header">
   <h1 class="page-header__title">Dashboard</h1>
   <span class="page-header__sub">// live ecosystem overview</span>
+  <p class="page-header__lead">Command-center visibility for moderation, tickets, and guild health without leaving the Sloth Lee flow.</p>
   <a href="#" id="dashboard-invite-link" class="btn btn--primary btn--sm" target="_blank" rel="noopener">invite bot</a>
   {% if bot.stale %}<span class="badge badge--stale">stale</span>{% endif %}
 </div>
@@ -56,6 +57,39 @@
     <div class="stat-card__val stat-card__val--mono stat-card__val--sm" id="s-ver">{{ bot.version }}</div>
   </div>
 </div>
+
+<section class="ops-grid" aria-label="Operational priorities">
+  <article class="ops-card">
+    <p class="ops-card__label">UNREAD ALERTS</p>
+    <p class="ops-card__value">{{ unread_notifs }}</p>
+    <p class="ops-card__meta">Notifications requiring your review</p>
+  </article>
+  <article class="ops-card">
+    <p class="ops-card__label">RESPONSE POSTURE</p>
+    {% if not bot.online %}
+      <p class="ops-card__value ops-card__value--danger">DEGRADED</p>
+      <p class="ops-card__meta">Bot is offline. Prioritize health and reconnect actions.</p>
+    {% elif bot.latency_ms > 350 %}
+      <p class="ops-card__value ops-card__value--warn">WATCH</p>
+      <p class="ops-card__meta">Latency is elevated at {{ bot.latency_ms }}ms.</p>
+    {% else %}
+      <p class="ops-card__value ops-card__value--ok">NOMINAL</p>
+      <p class="ops-card__meta">Latency and availability are within expected limits.</p>
+    {% endif %}
+  </article>
+  <article class="ops-card">
+    <p class="ops-card__label">ACTIVE FOOTPRINT</p>
+    <p class="ops-card__value">{{ guilds|length }}</p>
+    <p class="ops-card__meta">Guilds currently visible in your command scope</p>
+  </article>
+</section>
+
+<section class="quick-actions" aria-label="Quick actions">
+  <a href="{{ url_for('core.moderation') }}" class="quick-action">Open moderation queue</a>
+  <a href="{{ url_for('core.tickets') }}" class="quick-action">Open ticket queue</a>
+  <a href="{{ url_for('core.servers') }}" class="quick-action">Review connected servers</a>
+  <a href="{{ url_for('core.settings') }}" class="quick-action">Check system settings</a>
+</section>
 
 <div class="section" style="margin-top:18px">
   <div class="section__header">
