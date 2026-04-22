@@ -1,4 +1,4 @@
-﻿import React, { useState } from 'react'
+﻿import React, { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Search, Plus, Server, Users, Crown, Shield, ExternalLink, ChevronRight } from 'lucide-react'
 import { useAccessibleGuilds } from '@/lib/permissions'
@@ -6,10 +6,11 @@ import { getRoleLabel, getRoleBadgeClass } from '@/lib/permissions'
 import { useAuthStore } from '@/store/authStore'
 import type { UserGuild } from '@/store/authStore'
 import { cn } from '@/lib/cn'
+import { getJson } from '@/lib/api'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const _env = ((import.meta as unknown) as Record<string, unknown>).env as Record<string, string> | undefined
-const BOT_INVITE_URL = `https://discord.com/api/oauth2/authorize?client_id=${_env?.VITE_DISCORD_CLIENT_ID ?? ''}&permissions=8&scope=bot%20applications.commands`
+const DEFAULT_BOT_INVITE_URL = `https://discord.com/api/oauth2/authorize?client_id=${_env?.VITE_DISCORD_CLIENT_ID ?? ''}&permissions=8&scope=bot%20applications.commands`
 
 function GuildCard({ guild }: { guild: UserGuild }) {
   const iconUrl = guild.icon_url ?? null
@@ -81,6 +82,19 @@ export function ServersPage() {
   const user = useAuthStore((s) => s.user)
   const guilds = useAccessibleGuilds()
   const [query, setQuery] = useState('')
+  const [botInviteUrl, setBotInviteUrl] = useState(DEFAULT_BOT_INVITE_URL)
+
+  useEffect(() => {
+    getJson<{ url?: string }>('/api/bot/invite')
+      .then((payload) => {
+        if (payload.url) {
+          setBotInviteUrl(payload.url)
+        }
+      })
+      .catch(() => {
+        // Keep the frontend fallback when the API is unavailable.
+      })
+  }, [])
 
   const filtered = guilds.filter((g) =>
     g.name.toLowerCase().includes(query.toLowerCase())
@@ -102,7 +116,7 @@ export function ServersPage() {
           </p>
         </div>
         <a
-          href={BOT_INVITE_URL}
+          href={botInviteUrl}
           target="_blank"
           rel="noopener noreferrer"
           className="flex items-center gap-2 px-4 py-2 bg-cyan/10 hover:bg-cyan/20 border border-cyan/30 hover:border-cyan/60 text-cyan text-sm font-medium rounded-lg transition-all duration-200"
@@ -132,7 +146,7 @@ export function ServersPage() {
             Invite the Sloth Lee bot to your Discord server to start managing it from this dashboard.
           </p>
           <a
-            href={BOT_INVITE_URL}
+            href={botInviteUrl}
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center gap-2 px-5 py-2.5 bg-cyan text-void font-semibold rounded-lg hover:bg-cyan/90 transition-colors text-sm"
