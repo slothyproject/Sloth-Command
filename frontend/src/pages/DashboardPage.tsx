@@ -131,7 +131,7 @@ export function DashboardPage() {
   const isLoading = !data;
 
   return (
-    <div className="space-y-6">
+    <div className="dashboard-desktop-stack space-y-6">
       <section className="dashboard-chrome rounded-[1.8rem] p-6">
         <p className="font-mono text-[11px] uppercase tracking-[0.24em] text-cyan">Guardian dojo</p>
         <div className="mt-3 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
@@ -195,7 +195,7 @@ export function DashboardPage() {
         </div>
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-[1.4fr,1fr]">
+      <section className="dashboard-desktop-grid grid gap-4 xl:grid-cols-[1.4fr,1fr]">
         <div className="grid gap-4">
           <div className="dashboard-chrome rounded-[1.6rem] p-5">
             <div className="mb-4 flex items-center justify-between gap-3">
@@ -270,7 +270,7 @@ export function DashboardPage() {
           </div>
         </div>
 
-        <div className="dashboard-chrome rounded-[1.6rem] p-5">
+        <div className="dashboard-chrome dashboard-sticky-rail rounded-[1.6rem] p-5">
           <div className="mb-4 flex items-center gap-2 text-cyan"><Bell className="h-4 w-4" /> <span className="font-mono text-[11px] uppercase tracking-[0.18em]">Notification stream</span></div>
           <div className="space-y-3">
             {(data?.notifications.items ?? []).map((item) => (

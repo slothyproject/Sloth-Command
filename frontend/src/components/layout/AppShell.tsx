@@ -52,7 +52,7 @@ export function AppShell({ children }: PropsWithChildren) {
             }}
           />
           <main id="dashboard-main-content" className="dashboard-main-panel flex-1 px-4 py-5 sm:px-6 lg:px-8" tabIndex={-1}>
-            <div className="dashboard-content mx-auto w-full max-w-[1500px]">{children}</div>
+            <div className="dashboard-content mx-auto w-full max-w-[1680px]">{children}</div>
           </main>
         </div>
       </div>

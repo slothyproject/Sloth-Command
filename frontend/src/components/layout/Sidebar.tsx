@@ -24,7 +24,7 @@ export function Sidebar() {
     : baseLinks;
 
   return (
-    <aside className="dashboard-sidebar relative z-[1] hidden w-80 shrink-0 border-r border-line bg-[rgba(6,10,22,0.72)] px-5 py-6 backdrop-blur-chrome lg:block">
+    <aside className="dashboard-sidebar relative z-1 hidden h-screen w-80 shrink-0 overflow-y-auto border-r border-line bg-[rgba(6,10,22,0.72)] px-5 py-6 pb-10 backdrop-blur-chrome lg:sticky lg:top-0 lg:block">
       <div className="dashboard-chrome mb-6 rounded-[1.9rem] p-5">
         <div className="mb-3 flex h-14 w-14 items-center justify-center overflow-hidden rounded-[1.2rem] border border-cyan/30 bg-[linear-gradient(135deg,rgba(113,231,255,0.16),rgba(78,161,255,0.22))] text-lg font-semibold text-cyan shadow-cyan">
           <img src="/sloth-lee-logo.png" alt="Sloth Lee" className="h-10 w-10 object-contain" />
