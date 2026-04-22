@@ -5,7 +5,7 @@
  * Provides analysis, predictions, chat, and automation
  */
 
-import { PrismaClient, AIInsight } from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
 import llmRouter, { TaskComplexity, GenerateResult } from './llm-router';
 
 const prisma = new PrismaClient();
@@ -29,14 +29,6 @@ interface AnalysisResult {
   latency?: number; // Response time in ms
 }
 
-interface ParsedCommand {
-  intent: string;
-  action: string;
-  service?: string | null;
-  parameters: Record<string, any>;
-  confidence: number;
-}
-
 interface AnalysisResult {
   insights: Array<{
     title: string;
@@ -61,6 +53,12 @@ interface ParsedCommand {
   confidence: number;
 }
 
+type AIInsightLike = {
+  title: string;
+  description: string;
+  severity: string;
+};
+
 /**
  * Generate text using multi-LLM router with automatic failover
  * Primary: Ollama Cloud → OpenAI → Anthropic
@@ -83,7 +81,7 @@ async function generateWithFallback(
 /**
  * Analyze a service and generate insights
  */
-export async function analyzeService(serviceId: string): Promise<AnalysisResult> {
+export async function analyzeService(serviceId: string, userId?: string): Promise<AnalysisResult> {
   const service = await prisma.service.findUnique({
     where: { id: serviceId },
     include: {
@@ -109,14 +107,14 @@ export async function analyzeService(serviceId: string): Promise<AnalysisResult>
   });
 
   // Calculate averages
-  const cpuMetrics = recentMetrics.filter(m => m.metricType === 'cpu');
+  const cpuMetrics = recentMetrics.filter((m: any) => m.metricType === 'cpu');
   const avgCpu = cpuMetrics.length > 0
-    ? cpuMetrics.reduce((sum, m) => sum + m.value, 0) / cpuMetrics.length
+    ? cpuMetrics.reduce((sum: number, m: any) => sum + m.value, 0) / cpuMetrics.length
     : service.cpuUsage || 0;
 
-  const memoryMetrics = recentMetrics.filter(m => m.metricType === 'memory');
+  const memoryMetrics = recentMetrics.filter((m: any) => m.metricType === 'memory');
   const avgMemory = memoryMetrics.length > 0
-    ? memoryMetrics.reduce((sum, m) => sum + m.value, 0) / memoryMetrics.length
+    ? memoryMetrics.reduce((sum: number, m: any) => sum + m.value, 0) / memoryMetrics.length
     : service.memoryUsage || 0;
 
   // Build context for AI
@@ -129,10 +127,10 @@ Memory Usage: ${avgMemory.toFixed(1)}%
 Last Deploy: ${service.lastDeploy ? new Date(service.lastDeploy).toISOString() : 'Never'}
 
 Recent Deployments:
-${service.deployments.map(d => `- ${d.status} at ${new Date(d.createdAt).toISOString()}: ${d.error || 'OK'}`).join('\n')}
+${service.deployments.map((d: any) => `- ${d.status} at ${new Date(d.createdAt).toISOString()}: ${d.error || 'OK'}`).join('\n')}
 
 Environment Variables (${service.variables.length} total):
-${service.variables.map(v => `- ${v.name}: ${v.isSecret ? '***' : v.value}`).join('\n')}
+${service.variables.map((v: any) => `- ${v.name}: ${v.isSecret ? '***' : v.value}`).join('\n')}
 
 Configuration:
 ${JSON.stringify(service.config, null, 2)}
@@ -181,6 +179,7 @@ Be thorough but practical. Only suggest auto-fixes for safe operations.`;
         complexity: TaskComplexity.COMPLEX,
         systemPrompt,
         temperature: 0.3,
+        userId,
       }
     );
 
@@ -229,7 +228,7 @@ Be thorough but practical. Only suggest auto-fixes for safe operations.`;
 /**
  * Predict potential issues before they happen
  */
-export async function predictIssues(serviceId: string): Promise<AnalysisResult> {
+export async function predictIssues(serviceId: string, userId?: string): Promise<AnalysisResult> {
   // Get historical metrics (last 7 days)
   const historicalMetrics = await prisma.metric.findMany({
     where: {
@@ -254,7 +253,7 @@ export async function predictIssues(serviceId: string): Promise<AnalysisResult> 
   }
 
   // Format metrics for AI
-  const metricsData = historicalMetrics.map(m => ({
+  const metricsData = historicalMetrics.map((m: any) => ({
     type: m.metricType,
     value: m.value,
     timestamp: m.timestamp.toISOString(),
@@ -300,6 +299,7 @@ Return JSON with predictions and their likelihood:
         complexity: TaskComplexity.COMPLEX,
         systemPrompt,
         temperature: 0.4,
+        userId,
       }
     );
   } catch (error) {
@@ -327,7 +327,7 @@ export async function chat(
       orderBy: { createdAt: 'asc' },
       take: 10,
     });
-    history = conversations.map(c => `${c.role}: ${c.content}`);
+    history = conversations.map((c: any) => `${c.role}: ${c.content}`);
   }
 
   // Get service context if specified
@@ -362,6 +362,7 @@ Respond conversationally but professionally. If the user wants to perform an act
         complexity: TaskComplexity.SIMPLE,
         systemPrompt,
         temperature: 0.8,
+        userId: context?.userId,
       }
     );
     
@@ -409,7 +410,7 @@ Respond conversationally but professionally. If the user wants to perform an act
 /**
  * Parse natural language command into structured action
  */
-export async function parseCommand(naturalCommand: string): Promise<ParsedCommand> {
+export async function parseCommand(naturalCommand: string, userId?: string): Promise<ParsedCommand> {
   const systemPrompt = `Parse the natural language command into a structured action.
 Return ONLY JSON in this exact format:
 {
@@ -442,6 +443,7 @@ Examples:
         complexity: TaskComplexity.SIMPLE,
         systemPrompt,
         temperature: 0.2,
+        userId,
       }
     );
   } catch (error) {
@@ -461,7 +463,7 @@ Examples:
  */
 export async function generateFix(
   serviceId: string,
-  issue: AIInsight
+  issue: AIInsightLike
 ): Promise<{ fix: string; action: any; safe: boolean }> {
   const service = await prisma.service.findUnique({
     where: { id: serviceId },
@@ -478,7 +480,7 @@ Issue: ${issue.title}
 Description: ${issue.description}
 Severity: ${issue.severity}
 Current Status: ${service.status}
-Variables: ${service.variables.map(v => v.name).join(', ')}
+Variables: ${service.variables.map((v: any) => v.name).join(', ')}
 `;
 
   const systemPrompt = `Generate a fix for this issue. Return JSON:
@@ -520,7 +522,7 @@ A fix is UNSAFE if it involves data deletion, major config changes, or downtime.
 /**
  * Get AI insights for a service
  */
-export async function getInsights(serviceId: string): Promise<AIInsight[]> {
+export async function getInsights(serviceId: string): Promise<any[]> {
   return prisma.aIInsight.findMany({
     where: { serviceId },
     orderBy: { createdAt: 'desc' },

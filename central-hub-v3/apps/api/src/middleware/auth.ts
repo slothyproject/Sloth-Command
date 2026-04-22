@@ -13,6 +13,7 @@ declare global {
     interface Request {
       user?: {
         id: string;
+        userId?: string;
         iat: number;
         exp: number;
       };
@@ -32,8 +33,15 @@ export function authenticateToken(req: Request, res: Response, next: NextFunctio
   }
 
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as { id: string; iat: number; exp: number };
-    req.user = decoded;
+    const decoded = jwt.verify(token, JWT_SECRET) as { id?: string; userId?: string; iat: number; exp: number };
+    const id = decoded.id || decoded.userId;
+    if (!id) {
+      return res.status(403).json({
+        success: false,
+        error: 'Invalid authentication token',
+      });
+    }
+    req.user = { ...decoded, id, userId: decoded.userId || id };
     next();
   } catch (error) {
     return res.status(403).json({
@@ -52,8 +60,11 @@ export function optionalAuth(req: Request, res: Response, next: NextFunction) {
 
   if (token) {
     try {
-      const decoded = jwt.verify(token, JWT_SECRET) as { id: string; iat: number; exp: number };
-      req.user = decoded;
+      const decoded = jwt.verify(token, JWT_SECRET) as { id?: string; userId?: string; iat: number; exp: number };
+      const id = decoded.id || decoded.userId;
+      if (id) {
+        req.user = { ...decoded, id, userId: decoded.userId || id };
+      }
     } catch (error) {
       // Silently ignore invalid tokens for optional auth
     }

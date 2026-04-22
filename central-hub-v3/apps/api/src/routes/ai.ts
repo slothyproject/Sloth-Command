@@ -6,8 +6,111 @@
 import { Router } from 'express';
 import aiService from '../services/ai';
 import autoFixAgent from '../agents/auto-fix';
+import { authenticateToken } from '../middleware/auth';
+import {
+  deleteUserProviderConfig,
+  getUserProviderStatuses,
+  saveUserProviderConfig,
+  type SupportedAIProvider,
+} from '../services/ai-provider-config';
 
 const router = Router();
+
+router.use(authenticateToken);
+
+const SUPPORTED_PROVIDERS: SupportedAIProvider[] = ['ollama', 'openai', 'anthropic'];
+
+function isSupportedProvider(value: unknown): value is SupportedAIProvider {
+  return typeof value === 'string' && SUPPORTED_PROVIDERS.includes(value as SupportedAIProvider);
+}
+
+router.get('/providers', async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ success: false, error: 'Authentication required' });
+    }
+
+    const providers = await getUserProviderStatuses(userId);
+    res.json({ success: true, data: providers });
+  } catch (error) {
+    console.error('Get AI providers error:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to get provider configs',
+    });
+  }
+});
+
+router.post('/providers', async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ success: false, error: 'Authentication required' });
+    }
+
+    const { provider, apiKey, baseUrl, model, enabled = true } = req.body;
+
+    if (!isSupportedProvider(provider)) {
+      return res.status(400).json({
+        success: false,
+        error: `Unsupported provider. Expected one of: ${SUPPORTED_PROVIDERS.join(', ')}`,
+      });
+    }
+
+    if (!apiKey || typeof apiKey !== 'string') {
+      return res.status(400).json({
+        success: false,
+        error: 'apiKey is required',
+      });
+    }
+
+    await saveUserProviderConfig(userId, {
+      provider,
+      apiKey,
+      baseUrl,
+      model,
+      enabled: !!enabled,
+    });
+
+    res.json({
+      success: true,
+      message: `${provider} provider configuration saved`,
+    });
+  } catch (error) {
+    console.error('Save AI provider error:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to save provider config',
+    });
+  }
+});
+
+router.delete('/providers/:provider', async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ success: false, error: 'Authentication required' });
+    }
+
+    const { provider } = req.params;
+    if (!isSupportedProvider(provider)) {
+      return res.status(400).json({
+        success: false,
+        error: `Unsupported provider. Expected one of: ${SUPPORTED_PROVIDERS.join(', ')}`,
+      });
+    }
+
+    await deleteUserProviderConfig(userId, provider);
+    res.json({ success: true, message: `${provider} provider config removed` });
+  } catch (error) {
+    console.error('Delete AI provider error:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to delete provider config',
+    });
+  }
+});
 
 /**
  * POST /api/ai/analyze/:serviceId
@@ -16,7 +119,8 @@ const router = Router();
 router.post('/analyze/:serviceId', async (req, res) => {
   try {
     const { serviceId } = req.params;
-    const analysis = await aiService.analyzeService(serviceId);
+    const userId = req.user?.id;
+    const analysis = await aiService.analyzeService(serviceId, userId);
     
     res.json({
       success: true,
@@ -38,9 +142,10 @@ router.post('/analyze/:serviceId', async (req, res) => {
 router.post('/predict/:serviceId', async (req, res) => {
   try {
     const { serviceId } = req.params;
+    const userId = req.user?.id;
     const { hours = 24 } = req.query;
     
-    const prediction = await aiService.predictIssues(serviceId);
+    const prediction = await aiService.predictIssues(serviceId, userId);
     
     res.json({
       success: true,
@@ -95,7 +200,7 @@ router.post('/chat', async (req, res) => {
     const response = await aiService.chat(message, {
       sessionId,
       serviceId,
-      userId: (req as any).user?.id, // If authenticated
+      userId: req.user?.id,
     });
     
     res.json({
@@ -127,7 +232,7 @@ router.post('/execute', async (req, res) => {
     }
 
     // Parse the command
-    const parsed = await aiService.parseCommand(command);
+    const parsed = await aiService.parseCommand(command, req.user?.id);
     
     // TODO: Execute the parsed command
     // This would call the appropriate service based on intent
