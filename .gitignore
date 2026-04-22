@@ -48,3 +48,7 @@ DISSIDENT_STATUS*
 
 # Railway local
 .railway/
+
+# Local release scratch notes
+.pr_body_checklist.md
+
