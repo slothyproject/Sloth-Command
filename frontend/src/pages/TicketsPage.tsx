@@ -1,11 +1,17 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react"
+import { useQuery } from "@tanstack/react-query"
+import { Link, useNavigate } from "react-router-dom"
+import { toast } from "sonner"
+import { Search, Ticket, CheckCircle, AlertCircle, Clock } from "lucide-react"
 
-import { useQuery } from "@tanstack/react-query";
-import { Link, useNavigate } from "react-router-dom";
-import { toast } from "sonner";
-
-import { formatDate } from "../lib/format";
-import { getJson, postJson } from "../lib/api";
+import { formatDate } from "../lib/format"
+import { getJson, postJson } from "../lib/api"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Badge } from "@/components/ui/badge"
+import { StatCard } from "@/components/ui/stat-card"
+import { Select } from "@/components/ui/select"
 
 interface GuildSummary {
   id: number;
@@ -210,136 +216,291 @@ export function TicketsPage() {
     }
   }
 
-  const activeTicket = sortedTickets[activeTicketIndex] ?? null;
+  const activeTicket = sortedTickets[activeTicketIndex] ?? null
+
+  // Calculate stats
+  const totalTickets = ticketsQuery.data?.total ?? 0
+  const openTickets = sortedTickets.filter((t) => t.status !== "closed").length
+  const assignedTickets = sortedTickets.filter((t) => t.assigned_to).length
+
+  const getPriorityBadgeVariant = (priority: string) => {
+    const normalized = priority.toLowerCase()
+    if (normalized === "urgent") return "danger"
+    if (normalized === "high") return "warning"
+    if (normalized === "normal") return "default"
+    return "info"
+  }
+
+  const getStatusBadgeVariant = (status: string) => {
+    const normalized = status.toLowerCase()
+    if (normalized === "closed" || normalized === "resolved") return "success"
+    if (normalized === "open") return "default"
+    return "warning"
+  }
 
   return (
-    <div className="space-y-6">
-      <section className="rounded-[28px] border border-cyan/20 bg-surface/80 p-6 shadow-panel">
-        <p className="font-mono text-[11px] uppercase tracking-[0.24em] text-cyan">Tickets</p>
-        <h2 className="mt-3 text-3xl font-semibold text-text-0">Unified support queue</h2>
-        <p className="mt-3 max-w-3xl text-sm leading-6 text-text-2">This page is now loading real ticket data. The next layer will add transcript drill-down, assignment actions, and an SLA-oriented operations inbox.</p>
-      </section>
+    <div className="space-y-8">
+      {/* Header */}
+      <div>
+        <h1 className="text-4xl font-bold text-cyan font-display mb-2">Support Tickets</h1>
+        <p className="text-text-2">Manage and track all support requests</p>
+      </div>
 
-      <section className="grid gap-4 xl:grid-cols-[320px,1fr]">
-        <aside className="rounded-2xl border border-white/10 bg-panel/80 p-5 shadow-panel">
-          <p className="mb-4 font-mono text-[11px] uppercase tracking-[0.18em] text-cyan">Queue controls</p>
-          <div className="space-y-4">
-            <label className="grid gap-2 text-sm text-text-1">
-              <span>Guild</span>
-              <select
-                value={selectedGuild ?? ""}
-                onChange={(event) => {
-                  setSelectedGuild(event.target.value ? Number(event.target.value) : null);
-                  setPage(1);
-                }}
-                className="rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-text-0 outline-none"
-              >
-                <option value="">Select guild</option>
-                {(guildsQuery.data ?? []).map((guild) => (
-                  <option key={guild.id} value={guild.id}>{guild.name}</option>
-                ))}
-              </select>
-            </label>
+      {/* Stats Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <StatCard
+          icon={<Ticket className="w-5 h-5 text-cyan" />}
+          label="Total Tickets"
+          value={totalTickets}
+          size="md"
+        />
+        <StatCard
+          icon={<Clock className="w-5 h-5 text-amber" />}
+          label="Open Tickets"
+          value={openTickets}
+          size="md"
+        />
+        <StatCard
+          icon={<CheckCircle className="w-5 h-5 text-lime" />}
+          label="Assigned"
+          value={assignedTickets}
+          size="md"
+        />
+      </div>
 
-            <label className="grid gap-2 text-sm text-text-1">
-              <span>Status</span>
-              <select value={statusFilter} onChange={(event) => { setStatusFilter(event.target.value); setPage(1); }} className="rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-text-0 outline-none">
-                <option value="">All statuses</option>
-                <option value="open">Open</option>
-                <option value="resolved">Resolved</option>
-                <option value="closed">Closed</option>
-              </select>
-            </label>
-
-            <label className="grid gap-2 text-sm text-text-1">
-              <span>Assignment</span>
-              <select value={assignedFilter} onChange={(event) => { setAssignedFilter(event.target.value); setPage(1); }} className="rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-text-0 outline-none">
-                <option value="">All tickets</option>
-                <option value="assigned">Assigned</option>
-                <option value="unassigned">Unassigned</option>
-              </select>
-            </label>
-          </div>
-        </aside>
-
-        <div className="rounded-2xl border border-white/10 bg-panel/80 p-5 shadow-panel">
-          <div className="mb-4 flex items-center justify-between gap-3">
+      {/* Filters */}
+      <Card variant="elevated">
+        <CardHeader>
+          <CardTitle>Queue Controls</CardTitle>
+          <CardDescription>Filter and search tickets</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
-              <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-cyan">Ticket inbox</p>
-              <h3 className="mt-2 text-xl font-semibold text-text-0">Support flow</h3>
+              <label className="block text-sm font-medium text-text-1 mb-2">Guild</label>
+              <Select
+                options={[
+                  { label: "All Guilds", value: "" },
+                  ...(guildsQuery.data ?? []).map((guild) => ({
+                    label: guild.name,
+                    value: String(guild.id),
+                  })),
+                ]}
+                value={selectedGuild?.toString() ?? ""}
+                onChange={(e) => {
+                  const value = (e.target as HTMLSelectElement).value
+                  setSelectedGuild(value ? Number(value) : null)
+                  setPage(1)
+                }}
+              />
             </div>
-            {ticketsQuery.data ? <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-text-1">{ticketsQuery.data.total} tickets</div> : null}
+            <div>
+              <label className="block text-sm font-medium text-text-1 mb-2">Status</label>
+              <Select
+                options={[
+                  { label: "All Statuses", value: "" },
+                  { label: "Open", value: "open" },
+                  { label: "Resolved", value: "resolved" },
+                  { label: "Closed", value: "closed" },
+                ]}
+                value={statusFilter}
+                onChange={(e) => {
+                  const value = (e.target as HTMLSelectElement).value
+                  setStatusFilter(value)
+                  setPage(1)
+                }}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-text-1 mb-2">Assignment</label>
+              <Select
+                options={[
+                  { label: "All Tickets", value: "" },
+                  { label: "Assigned", value: "assigned" },
+                  { label: "Unassigned", value: "unassigned" },
+                ]}
+                value={assignedFilter}
+                onChange={(e) => {
+                  const value = (e.target as HTMLSelectElement).value
+                  setAssignedFilter(value)
+                  setPage(1)
+                }}
+              />
+            </div>
           </div>
+        </CardContent>
+      </Card>
 
-          {selectedGuild != null ? (
-            <div className="mb-4 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-text-2">
-              Shortcuts: <span className="text-text-1">J/K</span> move, <span className="text-text-1">Enter</span> open, <span className="text-text-1">C</span> close, <span className="text-text-1">1-4</span> sort
+      {/* Sort Presets */}
+      <div className="flex gap-2 flex-wrap">
+        <span className="text-sm text-text-2 self-center">Sort:</span>
+        <Button
+          variant={sortPreset === "urgent" ? "default" : "ghost"}
+          size="sm"
+          onClick={() => setSortPreset("urgent")}
+        >
+          Most Urgent
+        </Button>
+        <Button
+          variant={sortPreset === "oldest" ? "default" : "ghost"}
+          size="sm"
+          onClick={() => setSortPreset("oldest")}
+        >
+          Oldest
+        </Button>
+        <Button
+          variant={sortPreset === "unassigned" ? "default" : "ghost"}
+          size="sm"
+          onClick={() => setSortPreset("unassigned")}
+        >
+          Unassigned
+        </Button>
+        <Button
+          variant={sortPreset === "newest" ? "default" : "ghost"}
+          size="sm"
+          onClick={() => setSortPreset("newest")}
+        >
+          Newest
+        </Button>
+      </div>
+
+      {/* Active Ticket Info */}
+      {activeTicket && (
+        <Card variant="outline" className="border-cyan/40 bg-cyan/5">
+          <CardContent className="pt-6 flex items-center justify-between">
+            <div>
+              <p className="text-sm text-text-2">Active Ticket</p>
+              <p className="font-semibold text-cyan">
+                #{activeTicket.ticket_number} - {activeTicket.subject}
+              </p>
             </div>
-          ) : null}
-
-          {activeTicket ? (
-            <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-cyan/25 bg-cyan/10 px-3 py-2 text-xs text-cyan">
-              <span className="rounded-md border border-cyan/25 bg-cyan/15 px-2 py-0.5">Active #{activeTicket.ticket_number}</span>
-              <button onClick={() => navigate(`/tickets/${activeTicket.id}`)} className="rounded-md border border-white/10 bg-white/5 px-2 py-1 text-text-1">Open active</button>
-              {activeTicket.status !== "closed" ? <button onClick={() => void closeTicket(activeTicket.id)} className="rounded-md border border-white/10 bg-white/5 px-2 py-1 text-text-1">Close active</button> : null}
+            <div className="flex gap-2">
+              <Link to={`/tickets/${activeTicket.id}`}>
+                <Button variant="secondary" size="sm">
+                  Open Details
+                </Button>
+              </Link>
+              {activeTicket.status !== "closed" && (
+                <Button
+                  variant="danger"
+                  size="sm"
+                  onClick={() => void closeTicket(activeTicket.id)}
+                >
+                  Close Ticket
+                </Button>
+              )}
             </div>
-          ) : null}
+          </CardContent>
+        </Card>
+      )}
 
-          <div className="mb-4 flex flex-wrap items-center gap-2 text-xs uppercase tracking-[0.12em]">
-            <span className="text-text-2">Sort</span>
-            <button onClick={() => setSortPreset("urgent")} className={`rounded-full border px-3 py-1 ${sortPreset === "urgent" ? "border-cyan/25 bg-cyan/10 text-cyan" : "border-white/10 bg-white/5 text-text-1"}`}>most urgent</button>
-            <button onClick={() => setSortPreset("oldest")} className={`rounded-full border px-3 py-1 ${sortPreset === "oldest" ? "border-cyan/25 bg-cyan/10 text-cyan" : "border-white/10 bg-white/5 text-text-1"}`}>oldest open</button>
-            <button onClick={() => setSortPreset("unassigned")} className={`rounded-full border px-3 py-1 ${sortPreset === "unassigned" ? "border-cyan/25 bg-cyan/10 text-cyan" : "border-white/10 bg-white/5 text-text-1"}`}>unassigned first</button>
-            <button onClick={() => setSortPreset("newest")} className={`rounded-full border px-3 py-1 ${sortPreset === "newest" ? "border-cyan/25 bg-cyan/10 text-cyan" : "border-white/10 bg-white/5 text-text-1"}`}>newest</button>
-          </div>
-
-          <div className="grid gap-3">
-            {ticketsQuery.isLoading ? <p className="rounded-2xl border border-white/10 bg-white/5 px-4 py-6 text-center text-sm text-text-2">Loading ticket queue…</p> : null}
-
-            {sortedTickets.map((ticket, index) => (
-              <article key={ticket.id} onMouseEnter={() => setActiveTicketIndex(index)} className={`rounded-2xl border bg-white/5 p-4 ${index === activeTicketIndex ? "border-cyan/35" : "border-white/10"}`}>
-                {(() => {
-                  const sla = getSlaBadge(ticket.created_at, ticket.priority, ticket.status);
-                  return (
-                    <div className="mb-2">
-                      <span className={`rounded-full border px-2 py-1 text-[11px] uppercase tracking-[0.12em] ${sla.className}`}>{sla.label}</span>
+      {/* Tickets List */}
+      <Card variant="elevated">
+        <CardHeader>
+          <CardTitle>Ticket List</CardTitle>
+          <CardDescription>
+            {selectedGuild == null
+              ? "Select a guild to view tickets"
+              : `Showing ${sortedTickets.length} ticket${sortedTickets.length !== 1 ? "s" : ""}`}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {!selectedGuild ? (
+            <p className="text-sm text-text-2 text-center py-8">
+              Select a guild to load ticket data
+            </p>
+          ) : ticketsQuery.isLoading ? (
+            <p className="text-sm text-text-2 text-center py-8">Loading tickets...</p>
+          ) : sortedTickets.length === 0 ? (
+            <p className="text-sm text-text-2 text-center py-8">
+              No tickets match the current filters
+            </p>
+          ) : (
+            <div className="space-y-3">
+              {sortedTickets.map((ticket, index) => (
+                <div
+                  key={ticket.id}
+                  onMouseEnter={() => setActiveTicketIndex(index)}
+                  className={`p-4 rounded-lg border transition cursor-pointer ${
+                    index === activeTicketIndex
+                      ? "border-cyan/40 bg-cyan/5"
+                      : "border-surface-strong hover:border-cyan/20"
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="font-mono text-sm text-cyan font-semibold">
+                          #{ticket.ticket_number}
+                        </span>
+                        <h4 className="font-semibold text-text-0 truncate">
+                          {ticket.subject}
+                        </h4>
+                      </div>
+                      <p className="text-xs text-text-2">
+                        Created {formatDate(ticket.created_at)} • Updated{" "}
+                        {formatDate(ticket.updated_at)}
+                        {ticket.assigned_to && ` • Assigned to ${ticket.assigned_to}`}
+                      </p>
                     </div>
-                  );
-                })()}
-                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                  <div>
                     <div className="flex items-center gap-2">
-                      <span className="font-mono text-sm text-cyan">#{ticket.ticket_number}</span>
-                      <h4 className="text-base font-medium text-text-0">{ticket.subject}</h4>
+                      <Badge variant={getStatusBadgeVariant(ticket.status)} size="sm">
+                        {ticket.status}
+                      </Badge>
+                      <Badge variant={getPriorityBadgeVariant(ticket.priority)} size="sm">
+                        {ticket.priority}
+                      </Badge>
+                      <Link to={`/tickets/${ticket.id}`}>
+                        <Button variant="ghost" size="sm">
+                          View
+                        </Button>
+                      </Link>
                     </div>
-                    <p className="mt-2 text-sm text-text-2">Created {formatDate(ticket.created_at)} · Updated {formatDate(ticket.updated_at)}</p>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs uppercase tracking-[0.12em] text-text-1">{ticket.status}</span>
-                    <span className="rounded-full border border-cyan/20 bg-cyan/10 px-3 py-1 text-xs uppercase tracking-[0.12em] text-cyan">{ticket.priority}</span>
-                    <Link to={`/tickets/${ticket.id}`} className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-text-1 transition hover:border-cyan/30 hover:text-cyan">Details</Link>
-                    {ticket.status !== "closed" ? <button onClick={() => void closeTicket(ticket.id)} className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-text-1 transition hover:border-cyan/30 hover:text-cyan">Close</button> : null}
                   </div>
                 </div>
-              </article>
-            ))}
+              ))}
+            </div>
+          )}
 
-            {!ticketsQuery.isLoading && selectedGuild != null && sortedTickets.length === 0 ? (
-              <p className="rounded-2xl border border-white/10 bg-white/5 px-4 py-6 text-center text-sm text-text-2">No tickets match the current queue filters.</p>
-            ) : null}
-          </div>
+          {/* Pagination */}
+          {selectedGuild && !ticketsQuery.isLoading && (
+            <div className="flex items-center justify-between mt-6 pt-6 border-t border-surface-strong">
+              <Button
+                variant="secondary"
+                size="sm"
+                disabled={page <= 1 || !selectedGuild}
+                onClick={() => setPage((value) => Math.max(1, value - 1))}
+              >
+                Previous
+              </Button>
+              <span className="text-sm text-text-2">
+                Page {page} of {totalPages}
+              </span>
+              <Button
+                variant="secondary"
+                size="sm"
+                disabled={page >= totalPages || !selectedGuild}
+                onClick={() => setPage((value) => value + 1)}
+              >
+                Next
+              </Button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
-          {ticketsQuery.isError ? <p className="mt-4 text-sm text-rose-200">Could not load tickets from the backend.</p> : null}
-
-          {selectedGuild == null ? <p className="mt-4 text-sm text-text-2">Select a guild to load ticket data.</p> : null}
-
-          <div className="mt-5 flex items-center justify-between gap-3">
-            <button disabled={page <= 1 || selectedGuild == null} onClick={() => setPage((value) => Math.max(1, value - 1))} className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-text-1 disabled:cursor-not-allowed disabled:opacity-40">Previous</button>
-            <span className="font-mono text-xs uppercase tracking-[0.18em] text-text-2">Page {page} of {totalPages}</span>
-            <button disabled={page >= totalPages || selectedGuild == null} onClick={() => setPage((value) => value + 1)} className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-text-1 disabled:cursor-not-allowed disabled:opacity-40">Next</button>
-          </div>
-        </div>
-      </section>
+      {/* Keyboard Shortcuts */}
+      {selectedGuild && (
+        <Card variant="outline">
+          <CardContent className="pt-6">
+            <p className="text-xs text-text-2">
+              <span className="font-semibold">Keyboard Shortcuts:</span> <span className="font-mono">J/K</span> navigate •{" "}
+              <span className="font-mono">Enter</span> open • <span className="font-mono">C</span> close •{" "}
+              <span className="font-mono">1-4</span> sort
+            </p>
+          </CardContent>
+        </Card>
+      )}
     </div>
-  );
+  )
 }
