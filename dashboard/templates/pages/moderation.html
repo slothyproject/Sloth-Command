@@ -20,7 +20,7 @@
       <input id="global-delete-messages" type="checkbox">
       Delete the last 7 days of messages when bans are applied
     </label>
-    <button class="btn btn--ghost btn--sm" onclick="createGlobalBan()">create global ban</button>
+    <button id="global-create-button" type="button" class="btn btn--ghost btn--sm" onclick="createGlobalBan()">create global ban</button>
     <div id="global-ban-result" class="t1"></div>
   </div>
 
@@ -59,6 +59,9 @@
 {% endif %}
 {% if current_user.is_admin %}
 <script>
+let globalCreateInFlight = false;
+let globalLiftInFlight = false;
+
 function globalEscape(value) {
   return String(value || '')
     .replaceAll('&', '&amp;')
@@ -88,6 +91,10 @@ async function loadGlobalBans() {
 }
 
 async function createGlobalBan() {
+  if (globalCreateInFlight) {
+    return;
+  }
+
   const payload = {
     user_id: document.getElementById('global-user-id').value.trim(),
     username: document.getElementById('global-username').value.trim(),
@@ -97,34 +104,52 @@ async function createGlobalBan() {
   };
 
   const result = document.getElementById('global-ban-result');
+  const button = document.getElementById('global-create-button');
+  globalCreateInFlight = true;
+  button.disabled = true;
   result.textContent = 'running...';
-  const response = await fetch('/api/moderation/global-bans', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    result.textContent = data.error || 'Failed to create global ban';
-    return;
-  }
+  try {
+    const response = await fetch('/api/moderation/global-bans', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      result.textContent = data.error || 'Failed to create global ban';
+      return;
+    }
 
-  result.textContent = `Applied in ${(data.applied || []).length} guild(s).`;
-  loadGlobalBans();
+    result.textContent = `Applied in ${(data.applied || []).length} guild(s).`;
+    loadGlobalBans();
+  } finally {
+    globalCreateInFlight = false;
+    button.disabled = false;
+  }
 }
 
 async function removeGlobalBan(userId) {
+  if (globalLiftInFlight) {
+    return;
+  }
+
   const reason = window.prompt('Reason for lifting this global ban:', 'No reason provided') || 'No reason provided';
-  const response = await fetch(`/api/moderation/global-bans/${userId}`, {
-    method: 'DELETE',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ reason }),
-  });
-  const data = await response.json().catch(() => ({}));
-  document.getElementById('global-ban-result').textContent = response.ok
-    ? `Lifted in ${(data.lifted || []).length} guild(s).`
-    : (data.error || 'Failed to lift global ban');
-  loadGlobalBans();
+  const result = document.getElementById('global-ban-result');
+  globalLiftInFlight = true;
+  try {
+    const response = await fetch(`/api/moderation/global-bans/${userId}`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reason }),
+    });
+    const data = await response.json().catch(() => ({}));
+    result.textContent = response.ok
+      ? `Lifted in ${(data.lifted || []).length} guild(s).`
+      : (data.error || 'Failed to lift global ban');
+    loadGlobalBans();
+  } finally {
+    globalLiftInFlight = false;
+  }
 }
 
 loadGlobalBans();

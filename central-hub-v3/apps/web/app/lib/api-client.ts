@@ -834,6 +834,46 @@ export const api = {
   },
 
   // ============================================================================
+  // DISCORD SETUP API
+  // ============================================================================
+
+  discordSetup: {
+    // Get all available server setup templates
+    getTemplates: () => apiClient.get('/discord/setup/templates'),
+
+    // Get a specific template by ID
+    getTemplate: (templateId: string) =>
+      apiClient.get(`/discord/setup/templates/${templateId}`),
+
+    // Generate an AI-driven setup plan from a user prompt
+    generatePlan: (data: { guildId: string; userPrompt: string; templateId?: string }) =>
+      apiClient.post('/discord/setup/generate-plan', data),
+
+    // Get setup plan details + current status
+    getPlan: (setupRunId: string) => apiClient.get(`/discord/setup/${setupRunId}`),
+
+    // Poll execution status
+    getStatus: (setupRunId: string) =>
+      apiClient.get(`/discord/setup/${setupRunId}/status`),
+
+    // Approve the plan and begin execution
+    approve: (setupRunId: string) =>
+      apiClient.post(`/discord/setup/${setupRunId}/approve`),
+
+    // Execute all remaining setup steps
+    executeAll: (setupRunId: string) =>
+      apiClient.post(`/discord/setup/${setupRunId}/execute-all`),
+
+    // Rollback a completed or failed setup
+    rollback: (setupRunId: string) =>
+      apiClient.post(`/discord/setup/${setupRunId}/rollback`),
+
+    // Use an AI agent to build a fully custom plan
+    aiPlan: (data: { guildId: string; goal: string }) =>
+      apiClient.post('/discord/setup/ai-plan', data),
+  },
+
+  // ============================================================================
   // AUTH API
   // ============================================================================
 
