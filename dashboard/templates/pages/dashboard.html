@@ -89,6 +89,7 @@
   <a href="{{ url_for('core.tickets') }}" class="quick-action">Open ticket queue</a>
   <a href="{{ url_for('core.servers') }}" class="quick-action">Review connected servers</a>
   <a href="{{ url_for('core.settings') }}" class="quick-action">Check system settings</a>
+  <button type="button" class="quick-action quick-action--command" id="open-command-palette" aria-haspopup="dialog" aria-controls="command-palette">Command launcher (Ctrl+K)</button>
 </section>
 
 <section class="ops-board" aria-label="Live operations board">
@@ -118,6 +119,10 @@
         <span class="signal-row__label">Last refresh</span>
         <span class="signal-row__value" id="wb-refresh">just now</span>
       </div>
+      <div class="signal-row">
+        <span class="signal-row__label">Incident level</span>
+        <span class="signal-row__value" id="wb-incident">normal</span>
+      </div>
     </div>
     <button type="button" class="btn btn--ghost btn--sm" onclick="toggleNotifPanel()">open notifications</button>
   </article>
@@ -127,6 +132,10 @@
       <h2 class="ops-board__title">PRIORITY SERVERS</h2>
       <p class="ops-board__sub">Largest communities currently in scope.</p>
     </div>
+    <label class="priority-filter-wrap" for="priority-filter">
+      <span class="priority-filter-wrap__label">Filter</span>
+      <input id="priority-filter" class="priority-filter" type="text" placeholder="search server" autocomplete="off">
+    </label>
     <ul class="priority-list" id="priority-server-list">
       {% for guild in (guilds|sort(attribute='member_count', reverse=True))[:5] %}
       <li class="priority-row">
@@ -197,6 +206,18 @@
     {% endfor %}
   </div>
 </div>
+
+<div class="command-palette" id="command-palette" aria-hidden="true" role="dialog" aria-label="Command launcher">
+  <div class="command-palette__panel">
+    <div class="command-palette__head">
+      <p class="command-palette__title">COMMAND LAUNCHER</p>
+      <button type="button" class="btn btn--ghost btn--sm" id="close-command-palette">close</button>
+    </div>
+    <input id="command-palette-input" class="command-palette__input" type="text" placeholder="Type a command or route" autocomplete="off">
+    <div class="command-palette__hint">Tip: use arrow keys and Enter, or hit Ctrl+K to open anytime.</div>
+    <ul id="command-palette-list" class="command-palette__list"></ul>
+  </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -206,6 +227,42 @@ const canvas = document.getElementById('latency-canvas');
 const ctx = canvas.getContext('2d');
 const history = [];
 const MAX_POINTS = 60;
+let unreadCount = Number(`{{ unread_notifs }}`) || 0;
+let latestStats = null;
+let priorityFilter = '';
+let commandPaletteIndex = 0;
+let commandPaletteFiltered = [];
+
+const COMMAND_ITEMS = [
+  { label: 'Open moderation queue', href: '{{ url_for("core.moderation") }}' },
+  { label: 'Open ticket queue', href: '{{ url_for("core.tickets") }}' },
+  { label: 'Review connected servers', href: '{{ url_for("core.servers") }}' },
+  { label: 'Check system settings', href: '{{ url_for("core.settings") }}' },
+  { label: 'Open notifications panel', action: () => toggleNotifPanel() }
+];
+
+function setSignalTone(id, tone) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.classList.remove('signal-row__value--ok', 'signal-row__value--warn', 'signal-row__value--danger');
+  if (tone) el.classList.add(`signal-row__value--${tone}`);
+}
+
+function updateIncidentLevel() {
+  const incident = document.getElementById('wb-incident');
+  if (!incident || !latestStats) return;
+  let level = 'normal';
+  let tone = 'ok';
+  if (!latestStats.online || latestStats.latency_ms >= 600) {
+    level = 'critical';
+    tone = 'danger';
+  } else if (latestStats.latency_ms >= 350 || unreadCount >= 20) {
+    level = 'watch';
+    tone = 'warn';
+  }
+  incident.textContent = level;
+  setSignalTone('wb-incident', tone);
+}
 
 function drawSparkline() {
   const W = canvas.offsetWidth;
@@ -255,6 +312,7 @@ function drawSparkline() {
 async function pollStats() {
   try {
     const d = await fetch('/api/stats').then(r => r.json());
+    latestStats = d;
     // Update stats
     document.getElementById('s-status').textContent = d.online ? 'ONLINE' : 'OFFLINE';
     document.getElementById('s-status').className = 'stat-card__val ' + (d.online ? 'stat-card__val--online' : 'stat-card__val--offline');
@@ -269,6 +327,11 @@ async function pollStats() {
     document.getElementById('wb-online').textContent = d.online ? 'ONLINE' : 'OFFLINE';
     document.getElementById('wb-latency').textContent = `${d.latency_ms}ms`;
     document.getElementById('wb-refresh').textContent = new Date().toLocaleTimeString();
+    setSignalTone('wb-online', d.online ? 'ok' : 'danger');
+    if (d.latency_ms >= 600) setSignalTone('wb-latency', 'danger');
+    else if (d.latency_ms >= 350) setSignalTone('wb-latency', 'warn');
+    else setSignalTone('wb-latency', 'ok');
+    updateIncidentLevel();
     // Latency history
     history.push(d.latency_ms);
     if (history.length > MAX_POINTS) history.shift();
@@ -288,11 +351,15 @@ function escapeHtml(text) {
 function renderPriorityServers(guilds) {
   const target = document.getElementById('priority-server-list');
   if (!target) return;
-  const ranked = [...guilds]
+  const filtered = priorityFilter
+    ? guilds.filter(g => String(g.name || '').toLowerCase().includes(priorityFilter))
+    : guilds;
+  const ranked = [...filtered]
     .sort((a, b) => (b.member_count || 0) - (a.member_count || 0))
     .slice(0, 5);
   if (!ranked.length) {
-    target.innerHTML = '<li class="priority-row priority-row--empty">No servers loaded yet.</li>';
+    const emptyText = priorityFilter ? 'No servers match this filter.' : 'No servers loaded yet.';
+    target.innerHTML = `<li class="priority-row priority-row--empty">${emptyText}</li>`;
     return;
   }
   target.innerHTML = ranked.map(g => `
@@ -321,7 +388,12 @@ async function syncUnreadBoard() {
   try {
     const d = await fetch('/api/notifications').then(r => r.json());
     const unread = d.unread || 0;
+    unreadCount = unread;
     document.getElementById('wb-notifs').textContent = unread > 99 ? '99+' : `${unread}`;
+    if (unread >= 30) setSignalTone('wb-notifs', 'danger');
+    else if (unread >= 10) setSignalTone('wb-notifs', 'warn');
+    else setSignalTone('wb-notifs', 'ok');
+    updateIncidentLevel();
   } catch {}
 }
 
@@ -340,20 +412,24 @@ async function loadAIReadiness() {
     const boardAI = document.getElementById('wb-ai');
     if (!configured) {
       if (boardAI) boardAI.textContent = 'not configured';
+      setSignalTone('wb-ai', 'warn');
       feedback.textContent = 'No personal AI provider is configured yet. Add one in Settings before AI commands can run.';
       return;
     }
     if (data.status === 'disabled') {
       if (boardAI) boardAI.textContent = 'disabled';
+      setSignalTone('wb-ai', 'warn');
       feedback.textContent = 'Your AI provider is saved but currently disabled.';
       return;
     }
     if (data.validation_error) {
       if (boardAI) boardAI.textContent = 'attention';
+      setSignalTone('wb-ai', 'danger');
       feedback.textContent = data.validation_error;
       return;
     }
     if (boardAI) boardAI.textContent = 'ready';
+    setSignalTone('wb-ai', 'ok');
     feedback.textContent = data.last_validated_at
       ? `Provider ready. Last validated at ${new Date(data.last_validated_at).toLocaleString()}.`
       : 'Provider configured. Run a connection test from Settings if you want to refresh validation.';
@@ -361,14 +437,132 @@ async function loadAIReadiness() {
     document.getElementById('ai-ready-status').textContent = 'unavailable';
     const boardAI = document.getElementById('wb-ai');
     if (boardAI) boardAI.textContent = 'unavailable';
+    setSignalTone('wb-ai', 'danger');
     document.getElementById('ai-ready-feedback').textContent = 'Could not load AI readiness right now.';
   }
+}
+
+function renderCommandPaletteList(items) {
+  const list = document.getElementById('command-palette-list');
+  if (!list) return;
+  commandPaletteFiltered = items;
+  if (!items.length) {
+    list.innerHTML = '<li class="command-palette__empty">No commands found.</li>';
+    return;
+  }
+  commandPaletteIndex = Math.min(commandPaletteIndex, items.length - 1);
+  list.innerHTML = items.map((item, idx) => `
+    <li>
+      <button type="button" class="command-palette__item ${idx === commandPaletteIndex ? 'is-active' : ''}" data-index="${idx}">${item.label}</button>
+    </li>`).join('');
+}
+
+function openCommandPalette() {
+  const palette = document.getElementById('command-palette');
+  const input = document.getElementById('command-palette-input');
+  if (!palette || !input) return;
+  palette.classList.add('is-open');
+  palette.setAttribute('aria-hidden', 'false');
+  commandPaletteIndex = 0;
+  renderCommandPaletteList(COMMAND_ITEMS);
+  input.value = '';
+  input.focus();
+}
+
+function closeCommandPalette() {
+  const palette = document.getElementById('command-palette');
+  if (!palette) return;
+  palette.classList.remove('is-open');
+  palette.setAttribute('aria-hidden', 'true');
+}
+
+function executeCommandItem(item) {
+  if (!item) return;
+  closeCommandPalette();
+  if (item.action) {
+    item.action();
+    return;
+  }
+  if (item.href) window.location.href = item.href;
+}
+
+function setupWave3Interactions() {
+  const filterInput = document.getElementById('priority-filter');
+  if (filterInput) {
+    filterInput.addEventListener('input', (e) => {
+      priorityFilter = String(e.target.value || '').trim().toLowerCase();
+      pollGuilds();
+    });
+  }
+
+  const openPaletteButton = document.getElementById('open-command-palette');
+  const closePaletteButton = document.getElementById('close-command-palette');
+  const palette = document.getElementById('command-palette');
+  const paletteInput = document.getElementById('command-palette-input');
+
+  if (openPaletteButton) openPaletteButton.addEventListener('click', openCommandPalette);
+  if (closePaletteButton) closePaletteButton.addEventListener('click', closeCommandPalette);
+  if (palette) {
+    palette.addEventListener('click', (e) => {
+      if (e.target === palette) closeCommandPalette();
+    });
+  }
+
+  if (paletteInput) {
+    paletteInput.addEventListener('input', (e) => {
+      const query = String(e.target.value || '').trim().toLowerCase();
+      commandPaletteIndex = 0;
+      const filtered = query
+        ? COMMAND_ITEMS.filter(item => item.label.toLowerCase().includes(query))
+        : COMMAND_ITEMS;
+      renderCommandPaletteList(filtered);
+    });
+
+    paletteInput.addEventListener('keydown', (e) => {
+      if (!commandPaletteFiltered.length) return;
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        commandPaletteIndex = (commandPaletteIndex + 1) % commandPaletteFiltered.length;
+        renderCommandPaletteList(commandPaletteFiltered);
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        commandPaletteIndex = (commandPaletteIndex - 1 + commandPaletteFiltered.length) % commandPaletteFiltered.length;
+        renderCommandPaletteList(commandPaletteFiltered);
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        executeCommandItem(commandPaletteFiltered[commandPaletteIndex]);
+      }
+    });
+  }
+
+  document.addEventListener('click', (e) => {
+    const itemButton = e.target.closest('.command-palette__item');
+    if (!itemButton) return;
+    const index = Number(itemButton.getAttribute('data-index'));
+    executeCommandItem(commandPaletteFiltered[index]);
+  });
+
+  document.addEventListener('keydown', (e) => {
+    const isOpen = palette && palette.classList.contains('is-open');
+    const isModK = (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k';
+    if (isModK) {
+      e.preventDefault();
+      if (isOpen) closeCommandPalette();
+      else openCommandPalette();
+      return;
+    }
+    if (e.key === 'Escape' && isOpen) {
+      e.preventDefault();
+      closeCommandPalette();
+    }
+  });
 }
 
 pollStats();
 pollGuilds();
 loadAIReadiness();
 syncUnreadBoard();
+setupWave3Interactions();
 setInterval(pollStats, 10000);
 setInterval(pollGuilds, 30000);
 setInterval(syncUnreadBoard, 30000);

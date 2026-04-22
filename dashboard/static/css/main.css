@@ -513,6 +513,8 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  appearance: none;
+  cursor: pointer;
   padding: 7px 12px;
   background: var(--elevated);
   border: 1px solid var(--border-md);
@@ -529,6 +531,17 @@ body {
   border-color: var(--border-hi);
   color: var(--text-0);
   background: var(--panel);
+}
+
+.quick-action--command {
+  background: rgba(0, 212, 255, 0.09);
+  border-color: rgba(0, 212, 255, 0.22);
+  color: var(--cyan);
+}
+
+.quick-action:focus-visible {
+  outline: 2px solid var(--cyan-mid);
+  outline-offset: 2px;
 }
 
 /* ── Wave 2 operations board ── */
@@ -600,6 +613,38 @@ body {
   color: var(--text-0);
 }
 
+.signal-row__value--ok { color: var(--green); }
+.signal-row__value--warn { color: var(--amber); }
+.signal-row__value--danger { color: var(--red); }
+
+.priority-filter-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.priority-filter-wrap__label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-2);
+  letter-spacing: 0.06em;
+}
+
+.priority-filter {
+  width: 100%;
+  background: var(--elevated);
+  border: 1px solid var(--border-md);
+  border-radius: var(--r);
+  padding: 6px 8px;
+  color: var(--text-0);
+  font-size: 12px;
+}
+
+.priority-filter:focus-visible {
+  outline: 2px solid var(--cyan-mid);
+  outline-offset: 2px;
+}
+
 .priority-list {
   list-style: none;
   display: flex;
@@ -638,6 +683,105 @@ body {
   color: var(--text-2);
   font-family: var(--font-mono);
   font-size: 11px;
+}
+
+/* ── Wave 3 command palette ── */
+.command-palette {
+  position: fixed;
+  inset: 0;
+  background: rgba(4, 9, 18, 0.74);
+  backdrop-filter: blur(4px);
+  z-index: 1000;
+  display: none;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 10vh 16px 16px;
+}
+
+.command-palette.is-open { display: flex; }
+
+.command-palette__panel {
+  width: min(680px, 100%);
+  background: var(--surface);
+  border: 1px solid var(--border-md);
+  border-radius: var(--r-lg);
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.45);
+  padding: 16px;
+}
+
+.command-palette__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.command-palette__title {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-2);
+}
+
+.command-palette__input {
+  width: 100%;
+  background: var(--elevated);
+  border: 1px solid var(--border-md);
+  border-radius: var(--r);
+  padding: 10px 12px;
+  font-size: 13px;
+  color: var(--text-0);
+}
+
+.command-palette__input:focus-visible {
+  outline: 2px solid var(--cyan-mid);
+  outline-offset: 2px;
+}
+
+.command-palette__hint {
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--text-2);
+}
+
+.command-palette__list {
+  margin-top: 10px;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.command-palette__item {
+  width: 100%;
+  text-align: left;
+  background: var(--elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 9px 10px;
+  color: var(--text-1);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.command-palette__item:hover,
+.command-palette__item.is-active {
+  border-color: var(--border-hi);
+  color: var(--text-0);
+  background: var(--panel);
+}
+
+.command-palette__empty {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-2);
+  text-align: center;
+  padding: 10px;
 }
 
 /* ── Section ── */
