@@ -124,6 +124,18 @@
         <span class="signal-row__value" id="wb-incident">normal</span>
       </div>
     </div>
+    <div class="incident-drilldown" id="incident-drilldown">
+      <div class="incident-drilldown__head">
+        <span class="incident-drilldown__label">Recommended runbook</span>
+        <span class="incident-drilldown__status" id="wb-ack-state">unacknowledged</span>
+      </div>
+      <p class="incident-drilldown__note" id="wb-runbook-note">Monitor dashboard trendline and queue depth.</p>
+      <div class="incident-drilldown__actions">
+        <button type="button" class="btn btn--ghost btn--sm" id="wb-ack-btn">acknowledge incident</button>
+        <a href="{{ url_for('core.tickets') }}" class="btn btn--ghost btn--sm">open ticket queue</a>
+        <a href="{{ url_for('core.moderation') }}" class="btn btn--ghost btn--sm">open moderation queue</a>
+      </div>
+    </div>
     <button type="button" class="btn btn--ghost btn--sm" onclick="toggleNotifPanel()">open notifications</button>
   </article>
 
@@ -132,15 +144,31 @@
       <h2 class="ops-board__title">PRIORITY SERVERS</h2>
       <p class="ops-board__sub">Largest communities currently in scope.</p>
     </div>
-    <label class="priority-filter-wrap" for="priority-filter">
-      <span class="priority-filter-wrap__label">Filter</span>
-      <input id="priority-filter" class="priority-filter" type="text" placeholder="search server" autocomplete="off">
-    </label>
+    <div class="priority-controls">
+      <label class="priority-filter-wrap" for="priority-filter">
+        <span class="priority-filter-wrap__label">Filter</span>
+        <input id="priority-filter" class="priority-filter" type="text" placeholder="search server" autocomplete="off">
+      </label>
+      <label class="priority-sort-wrap" for="priority-sort">
+        <span class="priority-filter-wrap__label">Sort</span>
+        <select id="priority-sort" class="priority-sort">
+          <option value="size">largest first</option>
+          <option value="risk">highest risk</option>
+        </select>
+      </label>
+    </div>
     <ul class="priority-list" id="priority-server-list">
       {% for guild in (guilds|sort(attribute='member_count', reverse=True))[:5] %}
       <li class="priority-row">
         <span class="priority-row__name">{{ guild.name }}</span>
         <span class="priority-row__meta">{{ "{:,}".format(guild.member_count) }} members</span>
+        {% if guild.member_count >= 50000 %}
+          <span class="risk-chip risk-chip--danger">critical</span>
+        {% elif guild.member_count >= 15000 %}
+          <span class="risk-chip risk-chip--warn">watch</span>
+        {% else %}
+          <span class="risk-chip risk-chip--ok">stable</span>
+        {% endif %}
       </li>
       {% else %}
       <li class="priority-row priority-row--empty">No servers loaded yet.</li>
@@ -230,6 +258,8 @@ const MAX_POINTS = 60;
 let unreadCount = Number(`{{ unread_notifs }}`) || 0;
 let latestStats = null;
 let priorityFilter = '';
+let prioritySortMode = 'size';
+let incidentAcknowledged = false;
 let commandPaletteIndex = 0;
 let commandPaletteFiltered = [];
 
@@ -238,6 +268,7 @@ const COMMAND_ITEMS = [
   { label: 'Open ticket queue', href: '{{ url_for("core.tickets") }}' },
   { label: 'Review connected servers', href: '{{ url_for("core.servers") }}' },
   { label: 'Check system settings', href: '{{ url_for("core.settings") }}' },
+  { label: 'Acknowledge current incident', action: () => setIncidentAcknowledged(true) },
   { label: 'Open notifications panel', action: () => toggleNotifPanel() }
 ];
 
@@ -250,18 +281,49 @@ function setSignalTone(id, tone) {
 
 function updateIncidentLevel() {
   const incident = document.getElementById('wb-incident');
+  const runbook = document.getElementById('wb-runbook-note');
+  const ackState = document.getElementById('wb-ack-state');
+  const ackButton = document.getElementById('wb-ack-btn');
   if (!incident || !latestStats) return;
   let level = 'normal';
   let tone = 'ok';
+  let runbookText = 'Monitor dashboard trendline and queue depth.';
   if (!latestStats.online || latestStats.latency_ms >= 600) {
     level = 'critical';
     tone = 'danger';
+    runbookText = 'Escalate immediately: verify bot connectivity, review error logs, and notify moderators.';
   } else if (latestStats.latency_ms >= 350 || unreadCount >= 20) {
     level = 'watch';
     tone = 'warn';
+    runbookText = 'Investigate elevated latency and triage newest alerts in notifications.';
   }
   incident.textContent = level;
   setSignalTone('wb-incident', tone);
+
+  if (runbook) {
+    runbook.textContent = runbookText;
+    runbook.classList.remove('incident-drilldown__note--ok', 'incident-drilldown__note--warn', 'incident-drilldown__note--danger');
+    runbook.classList.add(`incident-drilldown__note--${tone}`);
+  }
+
+  if (ackState) {
+    ackState.textContent = incidentAcknowledged ? 'acknowledged' : 'unacknowledged';
+  }
+  if (ackButton) {
+    ackButton.textContent = incidentAcknowledged ? 'incident acknowledged' : 'acknowledge incident';
+    ackButton.classList.toggle('btn--danger', !incidentAcknowledged && tone === 'danger');
+  }
+}
+
+function setIncidentAcknowledged(value) {
+  incidentAcknowledged = value;
+  updateIncidentLevel();
+}
+
+function scoreServerRisk(memberCount) {
+  if (memberCount >= 50000) return { score: 3, label: 'critical', tone: 'danger' };
+  if (memberCount >= 15000) return { score: 2, label: 'watch', tone: 'warn' };
+  return { score: 1, label: 'stable', tone: 'ok' };
 }
 
 function drawSparkline() {
@@ -355,7 +417,15 @@ function renderPriorityServers(guilds) {
     ? guilds.filter(g => String(g.name || '').toLowerCase().includes(priorityFilter))
     : guilds;
   const ranked = [...filtered]
-    .sort((a, b) => (b.member_count || 0) - (a.member_count || 0))
+    .sort((a, b) => {
+      const aMembers = a.member_count || 0;
+      const bMembers = b.member_count || 0;
+      if (prioritySortMode === 'risk') {
+        const riskDiff = scoreServerRisk(bMembers).score - scoreServerRisk(aMembers).score;
+        if (riskDiff !== 0) return riskDiff;
+      }
+      return bMembers - aMembers;
+    })
     .slice(0, 5);
   if (!ranked.length) {
     const emptyText = priorityFilter ? 'No servers match this filter.' : 'No servers loaded yet.';
@@ -366,6 +436,7 @@ function renderPriorityServers(guilds) {
     <li class="priority-row">
       <span class="priority-row__name">${escapeHtml(g.name || 'Unknown')}</span>
       <span class="priority-row__meta">${(g.member_count || 0).toLocaleString()} members</span>
+      <span class="risk-chip risk-chip--${scoreServerRisk(g.member_count || 0).tone}">${scoreServerRisk(g.member_count || 0).label}</span>
     </li>`).join('');
 }
 
@@ -488,11 +559,22 @@ function executeCommandItem(item) {
 
 function setupWave3Interactions() {
   const filterInput = document.getElementById('priority-filter');
+  const sortInput = document.getElementById('priority-sort');
+  const ackButton = document.getElementById('wb-ack-btn');
   if (filterInput) {
     filterInput.addEventListener('input', (e) => {
       priorityFilter = String(e.target.value || '').trim().toLowerCase();
       pollGuilds();
     });
+  }
+  if (sortInput) {
+    sortInput.addEventListener('change', (e) => {
+      prioritySortMode = e.target.value === 'risk' ? 'risk' : 'size';
+      pollGuilds();
+    });
+  }
+  if (ackButton) {
+    ackButton.addEventListener('click', () => setIncidentAcknowledged(!incidentAcknowledged));
   }
 
   const openPaletteButton = document.getElementById('open-command-palette');
