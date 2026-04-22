@@ -1,3 +1,5 @@
+import { useEffect, useRef } from "react";
+
 import { BarChart3, LayoutDashboard, ScrollText, Server, Settings, ShieldAlert, Ticket, Users, WandSparkles, X } from "lucide-react";
 import { NavLink } from "react-router-dom";
 
@@ -14,12 +16,30 @@ const baseLinks = [
   { to: "/settings", label: "Settings", icon: Settings },
 ];
 
-export function MobileNav({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
+export function MobileNav({
+  isOpen,
+  onClose,
+  restoreFocusTo,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  restoreFocusTo: HTMLElement | null;
+}) {
   const user = useAuthStore((state) => state.user);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
 
   const links = user?.is_admin
     ? [...baseLinks, { to: "/logs", label: "Logs", icon: ScrollText }, { to: "/users", label: "Users", icon: Users }]
     : baseLinks;
+
+  useEffect(() => {
+    if (isOpen) {
+      closeButtonRef.current?.focus();
+      return;
+    }
+
+    restoreFocusTo?.focus();
+  }, [isOpen, restoreFocusTo]);
 
   return (
     <>
@@ -30,9 +50,15 @@ export function MobileNav({ isOpen, onClose }: { isOpen: boolean; onClose: () =>
           "fixed inset-0 z-40 bg-[rgba(4,7,16,0.76)] backdrop-blur-[2px] transition-opacity lg:hidden",
           isOpen ? "opacity-100" : "pointer-events-none opacity-0",
         )}
+        aria-hidden={!isOpen}
       />
 
       <aside
+        id="mobile-dashboard-nav"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Dashboard navigation"
+        aria-hidden={!isOpen}
         className={cn(
           "fixed inset-y-0 left-0 z-50 w-[86vw] max-w-[360px] border-r border-line bg-[rgba(7,12,24,0.95)] p-4 shadow-panel backdrop-blur-chrome transition-transform duration-300 lg:hidden",
           isOpen ? "translate-x-0" : "-translate-x-full",
@@ -48,6 +74,7 @@ export function MobileNav({ isOpen, onClose }: { isOpen: boolean; onClose: () =>
               </div>
             </div>
             <button
+              ref={closeButtonRef}
               onClick={onClose}
               className="grid h-9 w-9 place-items-center rounded-full border border-line bg-white/5 text-text-1"
               aria-label="Close menu"

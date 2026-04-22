@@ -42,6 +42,11 @@ body {
   box-sizing: border-box;
 }
 
+:focus-visible {
+  outline: 2px solid rgba(135, 243, 201, 0.92);
+  outline-offset: 2px;
+}
+
 @layer base {
   body {
     @apply bg-void text-text-0 antialiased;
@@ -77,6 +82,26 @@ body {
     position: relative;
     min-height: 100vh;
     overflow: hidden;
+  }
+
+  .dashboard-skip-link {
+    position: absolute;
+    left: 1rem;
+    top: -4rem;
+    z-index: 90;
+    border: 1px solid rgba(135, 243, 201, 0.42);
+    border-radius: 999px;
+    background: rgba(6, 12, 24, 0.95);
+    color: #d9ffef;
+    font-size: 0.75rem;
+    letter-spacing: 0.08em;
+    padding: 0.55rem 0.9rem;
+    text-transform: uppercase;
+    transition: top 0.18s ease;
+  }
+
+  .dashboard-skip-link:focus-visible {
+    top: 1rem;
   }
 
   .dashboard-shell::after {
@@ -175,5 +200,30 @@ body {
     background-size: 300% 100%;
     animation: shimmer 1.6s linear infinite;
     min-height: 72px;
+  }
+}
+
+@media (max-width: 640px) {
+  .dashboard-orb-a {
+    width: 17rem;
+    height: 17rem;
+    left: -5.5rem;
+  }
+
+  .dashboard-orb-b {
+    width: 14rem;
+    height: 14rem;
+    right: -4.5rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }
