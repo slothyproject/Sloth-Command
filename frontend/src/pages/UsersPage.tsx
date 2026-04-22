@@ -166,15 +166,17 @@ export function UsersPage() {
                       variant="ghost"
                       size="sm"
                       onClick={() => void toggleAdmin(user)}
+                      disabled={user.is_owner}
                     >
                       {user.is_owner ? 'Owner Locked' : user.is_admin ? 'Remove Admin' : 'Make Admin'}
                     </Button>
                     <Button
-                      variant={user.is_active ? 'danger' : 'secondary'}
+                      variant={user.is_owner ? 'secondary' : user.is_active ? 'danger' : 'secondary'}
                       size="sm"
                       onClick={() => void toggleActive(user)}
+                      disabled={user.is_owner}
                     >
-                      {user.is_active ? 'Disable' : 'Enable'}
+                      {user.is_owner ? 'Owner Locked' : user.is_active ? 'Disable' : 'Enable'}
                     </Button>
                   </div>
                 </div>
