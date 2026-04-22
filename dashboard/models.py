@@ -27,6 +27,7 @@ class User(UserMixin, db.Model):
     avatar          = db.Column(db.String(200), nullable=True)
     email           = db.Column(db.String(200), nullable=True)
     hashed_password = db.Column(db.String(256), nullable=True)
+    is_owner        = db.Column(db.Boolean, default=False, nullable=False)
     is_admin        = db.Column(db.Boolean, default=False, nullable=False)
     is_active       = db.Column(db.Boolean, default=True, nullable=False)
     created_at      = db.Column(db.DateTime(timezone=True), default=utcnow)
@@ -65,6 +66,8 @@ class User(UserMixin, db.Model):
 
     def can_manage(self, guild: "Guild") -> bool:
         """True if user is admin or has owner/manager role in the guild."""
+        if self.is_owner:
+            return True
         if self.is_admin:
             return True
         if guild.owner_discord_id and guild.owner_discord_id == self.discord_id:

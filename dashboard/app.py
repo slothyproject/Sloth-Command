@@ -116,6 +116,8 @@ def _run_migrations(app: Flask) -> None:
                 migrations.append("ALTER TABLE hub_users ADD COLUMN avatar VARCHAR(200)")
             if "email" not in ucols:
                 migrations.append("ALTER TABLE hub_users ADD COLUMN email VARCHAR(200)")
+            if "is_owner" not in ucols:
+                migrations.append("ALTER TABLE hub_users ADD COLUMN is_owner BOOLEAN DEFAULT FALSE")
 
         # hub_guilds
         gcols = existing_cols("hub_guilds")
@@ -192,6 +194,33 @@ def _ensure_admin_user(app: Flask) -> None:
         if updated:
             db.session.commit()
             log.info("Granted admin to %d Discord user(s) via DISCORD_ADMIN_IDS", updated)
+
+    # 3. Promote dashboard owners. Defaults to sirtibbles69 for this deployment.
+    owner_usernames_raw = os.environ.get("DASHBOARD_OWNER_USERNAMES", "sirtibbles69")
+    owner_usernames = [u.strip() for u in owner_usernames_raw.split(",") if u.strip()]
+    owner_ids_raw = os.environ.get("DISCORD_OWNER_IDS", "")
+    owner_ids = [i.strip() for i in owner_ids_raw.split(",") if i.strip()]
+
+    owners_changed = False
+    if owner_usernames:
+        username_matches = User.query.filter(User.username.in_(owner_usernames)).all()
+        for owner in username_matches:
+            if not owner.is_owner or not owner.is_admin:
+                owner.is_owner = True
+                owner.is_admin = True
+                owners_changed = True
+
+    if owner_ids:
+        discord_matches = User.query.filter(User.discord_id.in_(owner_ids)).all()
+        for owner in discord_matches:
+            if not owner.is_owner or not owner.is_admin:
+                owner.is_owner = True
+                owner.is_admin = True
+                owners_changed = True
+
+    if owners_changed:
+        db.session.commit()
+        log.info("Applied dashboard owner promotion rules")
 
 
 # Gunicorn entry point — must exist at module level

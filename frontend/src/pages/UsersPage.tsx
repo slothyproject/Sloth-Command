@@ -14,6 +14,7 @@ interface UserRecord {
   id: number
   username: string
   discord_id?: string | null
+  is_owner?: boolean
   is_admin: boolean
   is_active: boolean
   created_at: string
@@ -31,6 +32,7 @@ export function UsersPage() {
           id: 1,
           username: 'admin_user',
           discord_id: '123456789',
+          is_owner: true,
           is_admin: true,
           is_active: true,
           created_at: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
@@ -40,6 +42,7 @@ export function UsersPage() {
           id: 2,
           username: 'moderator_1',
           discord_id: '987654321',
+          is_owner: false,
           is_admin: false,
           is_active: true,
           created_at: new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString(),
@@ -56,7 +59,7 @@ export function UsersPage() {
 
   const totalUsers = usersQuery.data?.length || 0
   const activeUsers = usersQuery.data?.filter((u) => u.is_active).length || 0
-  const adminUsers = usersQuery.data?.filter((u) => u.is_admin).length || 0
+  const adminUsers = usersQuery.data?.filter((u) => u.is_admin || u.is_owner).length || 0
 
   async function toggleAdmin(user: UserRecord) {
     try {
@@ -150,8 +153,8 @@ export function UsersPage() {
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
-                    <Badge variant={user.is_admin ? 'default' : 'info'} size="sm">
-                      {user.is_admin ? 'Admin' : 'User'}
+                    <Badge variant={user.is_owner ? 'warning' : user.is_admin ? 'default' : 'info'} size="sm">
+                      {user.is_owner ? 'Owner' : user.is_admin ? 'Admin' : 'User'}
                     </Badge>
                     <Badge
                       variant={user.is_active ? 'success' : 'danger'}
@@ -164,7 +167,7 @@ export function UsersPage() {
                       size="sm"
                       onClick={() => void toggleAdmin(user)}
                     >
-                      {user.is_admin ? 'Remove Admin' : 'Make Admin'}
+                      {user.is_owner ? 'Owner Locked' : user.is_admin ? 'Remove Admin' : 'Make Admin'}
                     </Button>
                     <Button
                       variant={user.is_active ? 'danger' : 'secondary'}

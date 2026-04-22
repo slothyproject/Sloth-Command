@@ -38,7 +38,7 @@ api_bp = Blueprint("api", __name__)
 def admin_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
-        if not current_user.is_authenticated or not current_user.is_admin:
+        if not current_user.is_authenticated or not (current_user.is_admin or getattr(current_user, "is_owner", False)):
             return jsonify({"error": "Forbidden"}), 403
         return f(*args, **kwargs)
     return decorated
@@ -1246,6 +1246,7 @@ def users():
         "username": u.username,
         "discord_id": u.discord_id,
         "avatar": u.avatar_url(32),
+        "is_owner": u.is_owner,
         "is_admin": u.is_admin,
         "is_active": u.is_active,
         "created_at": u.created_at.isoformat(),
@@ -1259,13 +1260,27 @@ def users():
 def user_update(user_id: int):
     user = User.query.get_or_404(user_id)
     data = request.get_json() or {}
+
+    if user.is_owner and not current_user.is_owner:
+        return jsonify({"error": "Dashboard owner accounts can only be edited by another owner"}), 403
+
+    if "is_owner" in data:
+        if not current_user.is_owner:
+            return jsonify({"error": "Only dashboard owners can change owner status"}), 403
+        user.is_owner = bool(data["is_owner"])
+
     if "is_admin" in data:
         user.is_admin = bool(data["is_admin"])
     if "is_active" in data:
         user.is_active = bool(data["is_active"])
+
+    if user.is_owner:
+        user.is_admin = True
+        user.is_active = True
+
     db.session.commit()
     _audit("user_update", target_type="user", target_id=str(user_id), details=data)
-    return jsonify({"ok": True})
+    return jsonify({"ok": True, "is_owner": user.is_owner, "is_admin": user.is_admin, "is_active": user.is_active})
 
 
 # ── Audit log ────────────────────────────────────────────────────

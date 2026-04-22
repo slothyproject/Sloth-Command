@@ -112,7 +112,7 @@ export function ServersPage() {
           <h1 className="text-3xl font-bold text-cyan font-display">Your Servers</h1>
           <p className="text-text-2 mt-1">
             {guilds.length} server{guilds.length !== 1 ? 's' : ''} accessible
-            {user?.is_admin && <span className="ml-2 text-lime text-xs font-bold border border-lime/30 bg-lime/10 px-2 py-0.5 rounded-full">Admin View</span>}
+            {user?.is_owner ? <span className="ml-2 text-amber text-xs font-bold border border-amber/30 bg-amber/10 px-2 py-0.5 rounded-full">Owner View</span> : user?.is_admin ? <span className="ml-2 text-lime text-xs font-bold border border-lime/30 bg-lime/10 px-2 py-0.5 rounded-full">Admin View</span> : null}
           </p>
         </div>
         <a
