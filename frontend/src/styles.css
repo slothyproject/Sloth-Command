@@ -227,3 +227,32 @@ body {
     scroll-behavior: auto !important;
   }
 }
+
+@media (min-width: 1280px) {
+  .dashboard-desktop-stack {
+    gap: 1.5rem;
+  }
+
+  .dashboard-desktop-grid {
+    align-items: start;
+  }
+
+  .dashboard-sticky-rail {
+    position: sticky;
+    top: 6rem;
+    max-height: calc(100vh - 7.5rem);
+    overflow-y: auto;
+  }
+}
+
+@media (min-width: 1600px) {
+  .dashboard-main-panel {
+    padding-left: 2.5rem;
+    padding-right: 2.5rem;
+  }
+
+  .dashboard-grid::before {
+    background-size: 64px 64px;
+    opacity: 0.24;
+  }
+}
