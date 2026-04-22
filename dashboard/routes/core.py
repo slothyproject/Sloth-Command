@@ -187,6 +187,12 @@ def logs():
     return render_template("pages/logs.html", active="logs")
 
 
+@core_bp.get("/ai-advisor")
+@login_required
+def ai_advisor():
+    return render_template("pages/ai_advisor.html", active="ai_advisor")
+
+
 @core_bp.get("/settings")
 @login_required
 def settings():

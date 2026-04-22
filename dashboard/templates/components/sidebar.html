@@ -3,7 +3,7 @@
     <div class="sidebar__logo">D</div>
     <div class="sidebar__wordmark">
       <span class="sidebar__name">Central Hub</span>
-      <span class="sidebar__sub">DISSIDENT v2.9</span>
+      <span class="sidebar__sub">DISSIDENT {{ dashboard_version }}</span>
     </div>
   </div>
 
@@ -42,6 +42,12 @@
       <a href="{{ url_for('core.logs') }}" class="sidebar__link">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
         Audit Log
+      </a>
+    </li>
+    <li class="sidebar__item {% if active == 'ai_advisor' %}sidebar__item--active{% endif %}">
+      <a href="{{ url_for('core.ai_advisor') }}" class="sidebar__link">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2a7 7 0 0 0-7 7c0 3.9 2.7 6.4 5 7.5V20a2 2 0 0 0 4 0v-3.5c2.3-1.1 5-3.6 5-7.5a7 7 0 0 0-7-7z"/><line x1="9" y1="22" x2="15" y2="22"/></svg>
+        AI Advisor
       </a>
     </li>
     <li class="sidebar__item {% if active == 'settings' %}sidebar__item--active{% endif %}">
