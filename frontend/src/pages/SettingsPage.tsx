@@ -52,6 +52,14 @@ interface AIProviderValidationResponse {
   mode?: string;
 }
 
+const DEFAULT_PROVIDER_OPTIONS: Record<AIProvider, { label: string; default_model: string; requires_base_url: boolean }> = {
+  ollama: { label: "Ollama", default_model: "llama3.1:8b", requires_base_url: true },
+  openai: { label: "OpenAI", default_model: "gpt-4o-mini", requires_base_url: false },
+  anthropic: { label: "Anthropic", default_model: "claude-3-5-haiku-latest", requires_base_url: false },
+  gemini: { label: "Google Gemini", default_model: "gemini-2.0-flash", requires_base_url: false },
+  custom_openai: { label: "Custom OpenAI-Compatible", default_model: "gpt-4o-mini", requires_base_url: true },
+};
+
 export function SettingsPage() {
   const [status, setStatus] = useState<string>("Ready");
   const [provider, setProvider] = useState<AIProvider>("ollama");
@@ -85,6 +93,11 @@ export function SettingsPage() {
     queryFn: () => getJson<AIProviderStatusResponse>("/api/user/ai-provider"),
     retry: false,
   });
+
+  const providerOptions: Record<string, { label: string; default_model: string; requires_base_url: boolean }> = {
+    ...DEFAULT_PROVIDER_OPTIONS,
+    ...(providerQuery.data?.supported_providers || {}),
+  };
 
   async function saveProviderConfig(e: React.FormEvent) {
     e.preventDefault();
@@ -220,13 +233,7 @@ export function SettingsPage() {
                 onChange={(e) => setProvider(e.target.value as AIProvider)}
                 className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-text-0"
               >
-                {Object.entries(providerQuery.data?.supported_providers || {
-                  ollama: { label: "Ollama", default_model: "llama3.1:8b", requires_base_url: true },
-                  openai: { label: "OpenAI", default_model: "gpt-4o-mini", requires_base_url: false },
-                  anthropic: { label: "Anthropic", default_model: "claude-3-5-haiku-latest", requires_base_url: false },
-                  gemini: { label: "Google Gemini", default_model: "gemini-2.0-flash", requires_base_url: false },
-                  custom_openai: { label: "Custom OpenAI-Compatible", default_model: "gpt-4o-mini", requires_base_url: true },
-                }).map(([name, cfg]) => (
+                {Object.entries(providerOptions).map(([name, cfg]) => (
                   <option key={name} value={name}>{cfg.label}</option>
                 ))}
               </select>
