@@ -8,10 +8,91 @@
 import { useState, useEffect } from 'react';
 import { useThemeStore } from '@/app/stores/theme-store';
 import { cn } from '@/app/lib/utils';
+import { api } from '@/app/lib/api-client';
+
+type AIProvider = 'ollama' | 'openai' | 'anthropic';
+
+interface ProviderStatus {
+  provider: AIProvider;
+  configured: boolean;
+  enabled: boolean;
+  hasBaseUrl: boolean;
+  baseUrl?: string;
+  model?: string;
+  maskedApiKey?: string;
+}
 
 export default function SettingsPage() {
   const { theme, setTheme } = useThemeStore();
   const [activeSection, setActiveSection] = useState('general');
+  const [provider, setProvider] = useState<AIProvider>('ollama');
+  const [apiKey, setApiKey] = useState('');
+  const [baseUrl, setBaseUrl] = useState('');
+  const [model, setModel] = useState('');
+  const [providerStatus, setProviderStatus] = useState<ProviderStatus[]>([]);
+  const [providerLoading, setProviderLoading] = useState(false);
+  const [providerError, setProviderError] = useState('');
+  const [providerMessage, setProviderMessage] = useState('');
+
+  const loadProviderStatus = async () => {
+    setProviderLoading(true);
+    setProviderError('');
+    try {
+      const response = await api.ai.getProviders();
+      setProviderStatus(response.data.data as ProviderStatus[]);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to load AI provider settings';
+      setProviderError(message);
+    } finally {
+      setProviderLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeSection === 'integrations') {
+      loadProviderStatus();
+    }
+  }, [activeSection]);
+
+  const saveProviderConfig = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setProviderError('');
+    setProviderMessage('');
+
+    if (!apiKey.trim()) {
+      setProviderError('API key is required');
+      return;
+    }
+
+    try {
+      await api.ai.saveProvider({
+        provider,
+        apiKey,
+        baseUrl: baseUrl.trim() || undefined,
+        model: model.trim() || undefined,
+        enabled: true,
+      });
+      setProviderMessage(`${provider} provider saved successfully`);
+      setApiKey('');
+      await loadProviderStatus();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to save provider config';
+      setProviderError(message);
+    }
+  };
+
+  const removeProviderConfig = async (targetProvider: AIProvider) => {
+    setProviderError('');
+    setProviderMessage('');
+    try {
+      await api.ai.deleteProvider(targetProvider);
+      setProviderMessage(`${targetProvider} provider removed`);
+      await loadProviderStatus();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to remove provider config';
+      setProviderError(message);
+    }
+  };
 
   const shortcuts = [
     { key: '⌘ K', action: 'Open Command Palette', description: 'Search services and commands' },
@@ -198,6 +279,112 @@ export default function SettingsPage() {
               <h2 className="text-lg font-semibold text-white mb-6">Integrations</h2>
 
               <div className="space-y-6">
+                <div className="p-4 rounded-lg bg-white/5 border border-cyan-500/20">
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <p className="font-medium text-white">AI Advisor Provider (Bring Your Own Key)</p>
+                      <p className="text-sm text-slate-400">
+                        AI Advisor now uses your own provider credentials. Configure Ollama Cloud, OpenAI, or Anthropic below.
+                      </p>
+                    </div>
+                  </div>
+
+                  {providerError && (
+                    <div className="mb-3 p-3 rounded bg-red-500/10 border border-red-500/30 text-red-300 text-sm">
+                      {providerError}
+                    </div>
+                  )}
+
+                  {providerMessage && (
+                    <div className="mb-3 p-3 rounded bg-green-500/10 border border-green-500/30 text-green-300 text-sm">
+                      {providerMessage}
+                    </div>
+                  )}
+
+                  <form onSubmit={saveProviderConfig} className="space-y-3">
+                    <div>
+                      <label className="block text-sm text-slate-300 mb-1">Provider</label>
+                      <select
+                        value={provider}
+                        onChange={(e) => setProvider(e.target.value as AIProvider)}
+                        className="w-full rounded-lg bg-slate-900/70 border border-white/10 px-3 py-2 text-white"
+                      >
+                        <option value="ollama">Ollama (Cloud or self-hosted)</option>
+                        <option value="openai">OpenAI</option>
+                        <option value="anthropic">Anthropic</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm text-slate-300 mb-1">API Key</label>
+                      <input
+                        type="password"
+                        value={apiKey}
+                        onChange={(e) => setApiKey(e.target.value)}
+                        placeholder="Enter your provider API key"
+                        className="w-full rounded-lg bg-slate-900/70 border border-white/10 px-3 py-2 text-white"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm text-slate-300 mb-1">Base URL (optional)</label>
+                      <input
+                        type="text"
+                        value={baseUrl}
+                        onChange={(e) => setBaseUrl(e.target.value)}
+                        placeholder="Example: https://your-ollama-endpoint"
+                        className="w-full rounded-lg bg-slate-900/70 border border-white/10 px-3 py-2 text-white"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm text-slate-300 mb-1">Model Override (optional)</label>
+                      <input
+                        type="text"
+                        value={model}
+                        onChange={(e) => setModel(e.target.value)}
+                        placeholder="Example: llama3.1:70b"
+                        className="w-full rounded-lg bg-slate-900/70 border border-white/10 px-3 py-2 text-white"
+                      />
+                    </div>
+
+                    <button
+                      type="submit"
+                      className="px-4 py-2 rounded-lg bg-cyan-500/20 text-cyan-300 hover:bg-cyan-500/30 transition-colors"
+                    >
+                      Save Provider Configuration
+                    </button>
+                  </form>
+
+                  <div className="mt-4 space-y-2">
+                    <p className="text-sm text-slate-300">Configured providers</p>
+                    {providerLoading ? (
+                      <p className="text-sm text-slate-400">Loading provider status...</p>
+                    ) : providerStatus.length === 0 ? (
+                      <p className="text-sm text-slate-400">No provider configured yet.</p>
+                    ) : (
+                      providerStatus.map((entry) => (
+                        <div key={entry.provider} className="flex items-center justify-between p-2 rounded bg-white/5">
+                          <div>
+                            <p className="text-white text-sm capitalize">{entry.provider}</p>
+                            <p className="text-xs text-slate-400">
+                              {entry.configured ? `Key: ${entry.maskedApiKey || 'configured'}` : 'Not configured'}
+                              {entry.baseUrl ? ` • URL: ${entry.baseUrl}` : ''}
+                              {entry.model ? ` • Model: ${entry.model}` : ''}
+                            </p>
+                          </div>
+                          <button
+                            onClick={() => removeProviderConfig(entry.provider)}
+                            className="text-xs px-2 py-1 rounded bg-red-500/15 text-red-300 hover:bg-red-500/25"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+
                 {/* Discord */}
                 <div className="p-4 rounded-lg bg-white/5">
                   <div className="flex items-center justify-between mb-2">

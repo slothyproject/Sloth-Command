@@ -211,6 +211,16 @@ export const api = {
     insights: (serviceId: string) => apiClient.get(`/ai/insights/${serviceId}`),
     chat: (message: string) => apiClient.post('/ai/chat', { message }),
     fix: (insightId: string) => apiClient.post(`/ai/fix/${insightId}`),
+    getProviders: () => apiClient.get('/ai/providers'),
+    saveProvider: (data: {
+      provider: 'ollama' | 'openai' | 'anthropic';
+      apiKey: string;
+      baseUrl?: string;
+      model?: string;
+      enabled?: boolean;
+    }) => apiClient.post('/ai/providers', data),
+    deleteProvider: (provider: 'ollama' | 'openai' | 'anthropic') =>
+      apiClient.delete(`/ai/providers/${provider}`),
   },
 
   // ============================================================================
