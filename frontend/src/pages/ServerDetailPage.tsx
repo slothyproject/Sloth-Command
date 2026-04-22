@@ -54,8 +54,10 @@ interface GuildSettings {
 
 interface ModCase {
   id: number
-  action_type: string
-  target_discord_id: string
+  action_type?: string
+  action?: string
+  target_discord_id?: string
+  target_id?: string
   moderator_discord_id: string | null
   reason: string | null
   created_at: string
@@ -75,7 +77,23 @@ interface TicketItem {
   subject: string | null
   status: string
   created_at: string
-  opened_by_discord_id: string | null
+  opened_by_discord_id?: string | null
+  opener_id?: string | null
+}
+
+function normalizeModCase(item: ModCase): ModCase {
+  return {
+    ...item,
+    action_type: item.action_type ?? item.action ?? 'unknown',
+    target_discord_id: item.target_discord_id ?? item.target_id ?? '—',
+  }
+}
+
+function normalizeTicketItem(item: TicketItem): TicketItem {
+  return {
+    ...item,
+    opened_by_discord_id: item.opened_by_discord_id ?? item.opener_id ?? null,
+  }
 }
 
 // ── Tab definitions ─────────────────────────────────────────────
@@ -170,8 +188,11 @@ function ModerationTab({ guildId }: { guildId: number }) {
 
   useEffect(() => {
     setLoading(true)
-    getJson<{ items: ModCase[]; total: number }>(`/api/guilds/${guildId}/moderation?page=${page}&per_page=20`)
-      .then((d) => { setCases(d.items); setTotal(d.total) })
+    getJson<{ items?: ModCase[]; cases?: ModCase[]; total: number }>(`/api/guilds/${guildId}/moderation?page=${page}&per_page=20`)
+      .then((d) => {
+        setCases((d.items ?? d.cases ?? []).map(normalizeModCase))
+        setTotal(d.total)
+      })
       .catch(() => setCases([]))
       .finally(() => setLoading(false))
   }, [guildId, page])
@@ -209,19 +230,21 @@ function ModerationTab({ guildId }: { guildId: number }) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-cyan/5">
-                {cases.map((c) => (
+                {cases.map((c) => {
+                  const actionType = c.action_type ?? 'unknown'
+                  return (
                   <tr key={c.id} className="hover:bg-surface/30 transition-colors">
                     <td className="px-4 py-3 text-text-3 font-mono text-xs">#{c.id}</td>
                     <td className="px-4 py-3">
-                      <span className={cn('text-xs font-bold px-2 py-0.5 rounded-full border capitalize', ACTION_COLORS[c.action_type] ?? 'text-text-2 bg-surface border-cyan/10')}>
-                        {c.action_type}
+                      <span className={cn('text-xs font-bold px-2 py-0.5 rounded-full border capitalize', ACTION_COLORS[actionType] ?? 'text-text-2 bg-surface border-cyan/10')}>
+                        {actionType}
                       </span>
                     </td>
                     <td className="px-4 py-3 font-mono text-xs text-text-2 truncate max-w-[120px]">{c.target_discord_id}</td>
                     <td className="px-4 py-3 text-text-2 truncate max-w-[200px]">{c.reason ?? '—'}</td>
                     <td className="px-4 py-3 text-text-3 whitespace-nowrap">{new Date(c.created_at).toLocaleDateString()}</td>
                   </tr>
-                ))}
+                )})}
               </tbody>
             </table>
           </div>
@@ -252,8 +275,11 @@ function TicketsTab({ guildId }: { guildId: number }) {
 
   useEffect(() => {
     setLoading(true)
-    getJson<{ items: TicketItem[]; total: number }>(`/api/guilds/${guildId}/tickets?per_page=20`)
-      .then((d) => { setTickets(d.items); setTotal(d.total) })
+    getJson<{ items?: TicketItem[]; tickets?: TicketItem[]; total: number }>(`/api/guilds/${guildId}/tickets?per_page=20`)
+      .then((d) => {
+        setTickets((d.items ?? d.tickets ?? []).map(normalizeTicketItem))
+        setTotal(d.total)
+      })
       .catch(() => setTickets([]))
       .finally(() => setLoading(false))
   }, [guildId])
