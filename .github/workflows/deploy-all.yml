@@ -14,6 +14,7 @@ on:
           - all
           - frontend
           - backend
+          - vault
           - bot
 
 jobs:
@@ -75,8 +76,37 @@ jobs:
           sleep 30
           curl -s https://dissident.mastertibbles.co.uk | head -20 || echo "Frontend check pending"
 
+  deploy-vault:
+    if: github.event_name == 'push' || github.event.inputs.component == 'all' || github.event.inputs.component == 'vault'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Vault
+        uses: actions/checkout@v4
+        with:
+          repository: slothyproject/Tokens-Vault
+          token: ${{ secrets.GH_PAT }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+
+      - name: Deploy Vault
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          railway up --service dissident-tokens-vault
+
+      - name: Verify Deployment
+        run: |
+          sleep 30
+          curl -s https://dissidenttokens.mastertibbles.co.uk | head -20 || echo "Vault check pending"
+
   notify:
-    needs: [deploy-backend, deploy-frontend]
+    needs: [deploy-backend, deploy-frontend, deploy-vault]
     runs-on: ubuntu-latest
     if: always()
     steps:
@@ -85,3 +115,4 @@ jobs:
           echo "Deployment Status:"
           echo "Backend: ${{ needs.deploy-backend.result }}"
           echo "Frontend: ${{ needs.deploy-frontend.result }}"
+          echo "Vault: ${{ needs.deploy-vault.result }}"
