@@ -39,6 +39,7 @@ def create_app(config: dict | None = None) -> Flask:
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE="Lax",
         WTF_CSRF_TIME_LIMIT=3600,
+        RATELIMIT_STORAGE_URI=os.environ.get("REDIS_URL") or "memory://",
     )
     if config:
         app.config.update(config)

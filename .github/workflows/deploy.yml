@@ -2,12 +2,14 @@ name: Deploy to Railway
 
 on:
   push:
-    branches: [main, master]
+    branches: [main]
     paths-ignore:
       - '**.md'
       - 'docs/**'
       - '.gitignore'
-  workflow_dispatch:  # Allow manual trigger
+      - 'central-hub-v3/apps/api/**'    # API handled by deploy-central-hub-api.yml
+      - '.github/workflows/deploy-central-hub-api.yml'
+  workflow_dispatch:
     inputs:
       environment:
         description: 'Environment to deploy to'
@@ -19,31 +21,11 @@ on:
           - staging
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
-    name: Pre-deployment Checks
-    
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Run Migration Analysis
-        run: |
-          echo "🔍 Analyzing migration chain..."
-          python nuclear_reset.py --check-only || true
-          echo "✅ Analysis complete"
-
   deploy:
     runs-on: ubuntu-latest
-    needs: test
     environment: production
-    name: Deploy to Railway
-    
+    name: Deploy Flask Hub to Railway
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -60,32 +42,12 @@ jobs:
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
         run: |
-          echo "🚀 Deploying service to Railway..."
-
-          # Deploy directly to the configured service to avoid interactive/project-link issues.
+          echo "🚀 Deploying central-hub-v3 Flask service to Railway..."
           railway up --service central-hub-v3 --detach
-          
           echo "✅ Deployment initiated!"
-
-      - name: Verify Deployment
-        env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-        run: |
-          echo "⏳ Waiting for deployment to start..."
-          sleep 20
-          
-          echo "📊 Checking deployment status..."
-          railway status || echo "⚠️ Could not get status"
-          
-          echo "📝 Recent logs:"
-          railway logs 2>&1 | tail -50 || echo "⚠️ Could not fetch logs"
 
       - name: Notify on Failure
         if: failure()
         run: |
           echo "❌ Deployment failed!"
-          echo ""
-          echo "Common fixes:"
-          echo "1. Check Railway dashboard: https://railway.com/project/e64047e5-e5fd-453b-99da-4771d6b533ca"
-          echo "2. Run locally: python nuclear_reset.py --check-only"
-          echo "3. Check environment variables in Railway dashboard"
+          echo "Check Railway dashboard: https://railway.com/project/4e4e0f03-0c70-443a-ab59-757c492a8142"

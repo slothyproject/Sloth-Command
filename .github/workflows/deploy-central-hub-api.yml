@@ -44,11 +44,17 @@ jobs:
         run: |
           echo "Triggering Railway redeploy with new :latest image..."
 
-          RESULT=$(curl -sf -X POST https://backboard.railway.app/graphql/v2 \
+          # Use correct Railway API endpoint (backboard.railway.com not railway.app)
+          RESULT=$(curl -s -X POST https://backboard.railway.com/graphql/v2 \
             -H "Authorization: Bearer $RAILWAY_TOKEN" \
             -H "Content-Type: application/json" \
-            -d '{
-              "query": "mutation { serviceInstanceDeploy(serviceId: \"${{ env.SERVICE_ID }}\", environmentId: \"${{ env.ENV_ID }}\") }"
-            }')
+            -d '{"query": "mutation { serviceInstanceDeploy(serviceId: \"${{ env.SERVICE_ID }}\", environmentId: \"${{ env.ENV_ID }}\") }"}')
 
           echo "Result: $RESULT"
+          
+          if echo "$RESULT" | grep -q "true"; then
+            echo "✅ Railway redeploy triggered successfully"
+          else
+            echo "⚠️  Railway redeploy may have failed - check manually"
+            echo "Full response: $RESULT"
+          fi

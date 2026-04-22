@@ -3,13 +3,26 @@
 {% block page_slug %}tickets{% endblock %}
 {% block content %}
 <div class="page-header">
-  <h1 class="page-header__title">Open Tickets</h1>
-  <span class="page-header__sub">// all servers</span>
+  <h1 class="page-header__title">Tickets</h1>
+  <span class="page-header__sub">// all servers you can manage</span>
 </div>
+<div class="card" style="margin-bottom:14px">
+  <div class="card__title">How To Use Tickets</div>
+  <div style="font-size:12px;color:var(--text-1);line-height:1.55">
+    Open a ticket, read the conversation, assign it to a staff member, then mark it resolved or closed.
+  </div>
+</div>
+
 {% if tickets %}
-<div class="ticket-list">
+<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+  <button class="btn btn--ghost btn--sm" onclick="filterLocalTickets('all')">All</button>
+  <button class="btn btn--ghost btn--sm" onclick="filterLocalTickets('open')">Open</button>
+  <button class="btn btn--ghost btn--sm" onclick="filterLocalTickets('resolved')">Resolved</button>
+  <button class="btn btn--ghost btn--sm" onclick="filterLocalTickets('closed')">Closed</button>
+</div>
+<div class="ticket-list" id="ticket-list">
   {% for ticket in tickets %}
-  <a href="{{ url_for('core.ticket_detail', ticket_id=ticket.id) }}" class="ticket-item">
+  <a href="{{ url_for('core.ticket_detail', ticket_id=ticket.id) }}" class="ticket-item" data-status="{{ ticket.status }}">
     <span class="ticket-num">#{{ ticket.ticket_number }}</span>
     <span class="ticket-subject">{{ ticket.subject or 'Ticket #' ~ ticket.ticket_number }}</span>
     <span class="ticket-opener">{{ ticket.guild.name }}</span>
@@ -22,8 +35,21 @@
 </div>
 {% else %}
 <div class="empty">
-  <p>No open tickets across your servers.</p>
-  <p>Tickets opened via the bot will appear here in real-time.</p>
+  <p>No tickets found.</p>
+  <p>When users open tickets, they appear here automatically.</p>
 </div>
 {% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+function filterLocalTickets(status) {
+  const rows = document.querySelectorAll('#ticket-list .ticket-item');
+  rows.forEach((row) => {
+    const rowStatus = row.getAttribute('data-status') || 'open';
+    const visible = status === 'all' || rowStatus === status;
+    row.style.display = visible ? '' : 'none';
+  });
+}
+</script>
 {% endblock %}
