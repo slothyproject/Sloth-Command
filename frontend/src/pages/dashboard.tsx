@@ -104,7 +104,9 @@ export default function DashboardPage() {
           {user ? `Welcome back, ${user.username}` : 'Dashboard'}
         </h1>
         <p className="text-text-2">
-          {user?.is_admin
+          {user?.is_owner
+            ? 'System-wide overview — Owner view'
+            : user?.is_admin
             ? 'System-wide overview — Admin view'
             : `Managing ${guilds.length} server${guilds.length !== 1 ? 's' : ''}`}
         </p>

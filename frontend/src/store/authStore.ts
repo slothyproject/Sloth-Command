@@ -18,6 +18,7 @@ export interface CurrentUser {
   id: number;
   username: string;
   avatar: string | null;
+  is_owner?: boolean;
   is_admin: boolean;
   discord_id?: string | null;
   guilds: UserGuild[];

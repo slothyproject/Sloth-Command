@@ -98,7 +98,7 @@ const SidebarContent: React.FC<SidebarContentProps> = ({ isCollapsed, currentPat
     { label: 'Settings', href: '/settings', icon: <Settings className="w-5 h-5" /> },
   ]
 
-  const visibleItems = navItems.filter((item) => !item.adminOnly || user?.is_admin)
+  const visibleItems = navItems.filter((item) => !item.adminOnly || user?.is_admin || user?.is_owner)
 
   async function handleLogout() {
     try {
@@ -182,9 +182,11 @@ const SidebarContent: React.FC<SidebarContentProps> = ({ isCollapsed, currentPat
             )}
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium text-text-1 truncate">{user?.username ?? '—'}</p>
-              {user?.is_admin && (
+              {user?.is_owner ? (
+                <span className="text-[10px] font-bold text-amber tracking-wider">OWNER</span>
+              ) : user?.is_admin ? (
                 <span className="text-[10px] font-bold text-lime tracking-wider">ADMIN</span>
-              )}
+              ) : null}
             </div>
           </div>
           <button

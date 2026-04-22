@@ -219,6 +219,7 @@ def me():
         "username": current_user.username,
         "avatar": current_user.avatar,
         "discord_id": current_user.discord_id,
+        "is_owner": current_user.is_owner,
         "is_admin": current_user.is_admin,
         "guilds": guilds_out,
     })
