@@ -17,6 +17,9 @@ on:
           - vault
           - bot
 
+permissions:
+  contents: read
+
 jobs:
   deploy-backend:
     if: github.event_name == 'push' || github.event.inputs.component == 'all' || github.event.inputs.component == 'backend' || github.event.inputs.component == 'bot'
