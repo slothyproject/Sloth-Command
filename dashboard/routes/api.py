@@ -55,8 +55,32 @@ def internal_api_required(f):
     return decorated
 
 
+def _user_can_access_guild(guild: Guild | None) -> bool:
+    if not guild or not current_user.is_authenticated:
+        return False
+    if current_user.is_admin:
+        return True
+    if guild.owner_discord_id and guild.owner_discord_id == getattr(current_user, "discord_id", None):
+        return True
+    membership = GuildMember.query.filter_by(user_id=current_user.id, guild_id=guild.id).first()
+    return membership is not None
+
+
 def guild_access_required(f):
-    """Decorator: user must be admin or have access to the guild."""
+    """Decorator: user must be admin or have read access to the guild."""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        guild_id = kwargs.get("guild_id") or request.view_args.get("guild_id")
+        if guild_id:
+            guild = Guild.query.get(guild_id)
+            if guild and not _user_can_access_guild(guild):
+                return jsonify({"error": "Forbidden"}), 403
+        return f(*args, **kwargs)
+    return decorated
+
+
+def guild_manage_required(f):
+    """Decorator: user must be admin or have manage access to the guild."""
     @wraps(f)
     def decorated(*args, **kwargs):
         guild_id = kwargs.get("guild_id") or request.view_args.get("guild_id")
@@ -66,6 +90,20 @@ def guild_access_required(f):
                 return jsonify({"error": "Forbidden"}), 403
         return f(*args, **kwargs)
     return decorated
+
+
+def _serialize_mod_case_for_dashboard(case: ModerationCase) -> dict:
+    payload = case.to_dict()
+    payload["action_type"] = payload.get("action")
+    payload["target_discord_id"] = payload.get("target_id")
+    payload["moderator_discord_id"] = case.moderator_id
+    return payload
+
+
+def _serialize_ticket_for_dashboard(ticket: Ticket) -> dict:
+    payload = ticket.to_dict()
+    payload["opened_by_discord_id"] = ticket.opener_id
+    return payload
 
 
 def _audit(action: str, guild_id: int | None = None, target_type: str | None = None,
@@ -576,7 +614,7 @@ def guild_settings_get(guild_id: int):
 
 @api_bp.patch("/guilds/<int:guild_id>/settings")
 @login_required
-@guild_access_required
+@guild_manage_required
 def guild_settings_update(guild_id: int):
     guild = Guild.query.get_or_404(guild_id)
     data = request.get_json() or {}
@@ -629,7 +667,7 @@ def guild_commands(guild_id: int):
 
 @api_bp.patch("/guilds/<int:guild_id>/commands/<string:cmd_name>")
 @login_required
-@guild_access_required
+@guild_manage_required
 def guild_command_update(guild_id: int, cmd_name: str):
     guild = Guild.query.get_or_404(guild_id)
     cmd = GuildCommand.query.filter_by(guild_id=guild_id, command_name=cmd_name).first()
@@ -676,17 +714,19 @@ def guild_moderation(guild_id: int):
     cases = q.order_by(ModerationCase.created_at.desc()).paginate(
         page=page, per_page=per_page, error_out=False
     )
+    items = [_serialize_mod_case_for_dashboard(case) for case in cases.items]
     return jsonify({
         "total": total,
         "page": page,
         "per_page": per_page,
-        "cases": [c.to_dict() for c in cases.items],
+        "cases": items,
+        "items": items,
     })
 
 
 @api_bp.post("/guilds/<int:guild_id>/moderation/actions")
 @login_required
-@guild_access_required
+@guild_manage_required
 def guild_moderation_action(guild_id: int):
     """Execute a moderation action via the Dissident bot backend."""
     if not getattr(current_user, "discord_id", None):
@@ -823,9 +863,13 @@ def guild_tickets(guild_id: int):
     tickets = q.order_by(Ticket.created_at.desc()).paginate(
         page=page, per_page=per_page, error_out=False
     )
+    items = [_serialize_ticket_for_dashboard(ticket) for ticket in tickets.items]
     return jsonify({
         "total": total,
-        "tickets": [t.to_dict() for t in tickets.items],
+        "page": page,
+        "per_page": per_page,
+        "tickets": items,
+        "items": items,
     })
 
 
