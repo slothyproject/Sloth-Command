@@ -1,11 +1,15 @@
 import React, { useState, useEffect } from 'react'
+import { Link } from 'react-router-dom'
 import { BarChart, Bar, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line } from 'recharts'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { StatCard } from '@/components/ui/stat-card'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
-import { Activity, Users, AlertCircle, TrendingUp, Server, Zap } from 'lucide-react'
+import { Activity, Users, AlertCircle, TrendingUp, Server, Zap, Crown, Shield, ChevronRight } from 'lucide-react'
+import { useAuthStore } from '@/store/authStore'
+import { useAccessibleGuilds, getRoleLabel, getRoleBadgeClass } from '@/lib/permissions'
+import { cn } from '@/lib/cn'
 
 interface DashboardStats {
   totalServers: number
@@ -23,6 +27,14 @@ interface DashboardEvent {
 }
 
 export default function DashboardPage() {
+  const user = useAuthStore((s) => s.user)
+  const guilds = useAccessibleGuilds()
+  // Show top 6 guilds; owners/managers first
+  const quickGuilds = [...guilds].sort((a, b) => {
+    const order = { owner: 0, manager: 1, admin_override: 2 }
+    return order[a.role] - order[b.role]
+  }).slice(0, 6)
+
   const [stats, setStats] = useState<DashboardStats | null>(null)
   const [events, setEvents] = useState<DashboardEvent[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -88,9 +100,51 @@ export default function DashboardPage() {
     <div className="space-y-8">
       {/* Page Header */}
       <div>
-        <h1 className="text-4xl font-bold text-cyan font-display mb-2">Dashboard</h1>
-        <p className="text-text-2">Real-time overview of your Sloth Lee instance</p>
+        <h1 className="text-4xl font-bold text-cyan font-display mb-1">
+          {user ? `Welcome back, ${user.username}` : 'Dashboard'}
+        </h1>
+        <p className="text-text-2">
+          {user?.is_admin
+            ? 'System-wide overview — Admin view'
+            : `Managing ${guilds.length} server${guilds.length !== 1 ? 's' : ''}`}
+        </p>
       </div>
+
+      {/* Your Servers quick access */}
+      {quickGuilds.length > 0 && (
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-semibold text-text-3 uppercase tracking-wider">Your Servers</h2>
+            <Link to="/servers" className="text-xs text-cyan hover:underline flex items-center gap-1">
+              View all <ChevronRight className="w-3 h-3" />
+            </Link>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+            {quickGuilds.map((g) => {
+              const roleClass = getRoleBadgeClass(g.role)
+              return (
+                <Link
+                  key={g.id}
+                  to={`/servers/${g.id}`}
+                  className="group flex flex-col items-center gap-2 p-3 bg-surface/50 border border-cyan/10 hover:border-cyan/40 rounded-xl transition-all hover:-translate-y-0.5 text-center"
+                >
+                  {g.icon_url ? (
+                    <img src={g.icon_url} alt={g.name} className="w-10 h-10 rounded-xl border border-cyan/20 object-cover" />
+                  ) : (
+                    <div className="w-10 h-10 rounded-xl bg-cyan/10 border border-cyan/20 flex items-center justify-center">
+                      <Server className="w-5 h-5 text-cyan/50" />
+                    </div>
+                  )}
+                  <p className="text-xs font-medium text-text-2 group-hover:text-cyan transition-colors truncate w-full">{g.name}</p>
+                  <span className={cn('text-[9px] font-bold px-1.5 py-0.5 rounded-full w-full text-center', roleClass)}>
+                    {getRoleLabel(g.role)}
+                  </span>
+                </Link>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -224,9 +278,9 @@ export default function DashboardPage() {
 
       {/* Quick Actions */}
       <div className="flex gap-4 flex-wrap">
-        <Button variant="default">View All Servers</Button>
-        <Button variant="secondary">Manage Tickets</Button>
-        <Button variant="outline">View Analytics</Button>
+        <Link to="/servers"><Button variant="default">View All Servers</Button></Link>
+        <Link to="/tickets"><Button variant="secondary">Manage Tickets</Button></Link>
+        <Link to="/analytics"><Button variant="outline">View Analytics</Button></Link>
       </div>
     </div>
   )

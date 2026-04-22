@@ -21,7 +21,7 @@ from flask import (
 from flask_login import current_user, login_required, login_user, logout_user
 
 from dashboard.extensions import db
-from dashboard.models import AuditLog, User
+from dashboard.models import AuditLog, Guild, GuildMember, User
 
 auth_bp = Blueprint("auth", __name__)
 
@@ -163,11 +163,64 @@ def logout():
 @auth_bp.get("/me")
 @login_required
 def me():
+    # Build per-guild role list
+    guilds_out = []
+    if current_user.is_admin:
+        # Admins see all active guilds with admin_override role
+        all_guilds = Guild.query.filter_by(is_active=True).order_by(Guild.name).all()
+        for guild in all_guilds:
+            if guild.owner_discord_id == current_user.discord_id:
+                role = "owner"
+            else:
+                member = GuildMember.query.filter_by(
+                    guild_id=guild.id, user_id=current_user.id
+                ).first()
+                role = "manager" if (member and member.can_manage) else "admin_override"
+            guilds_out.append({
+                "id": guild.id,
+                "discord_id": guild.discord_id,
+                "name": guild.name,
+                "icon_url": guild.icon_url(64),
+                "member_count": guild.member_count,
+                "is_active": guild.is_active,
+                "role": role,
+            })
+    else:
+        # Regular users: only guilds they own or have GuildMember entry with can_manage
+        managed = GuildMember.query.filter_by(
+            user_id=current_user.id, can_manage=True
+        ).all()
+        managed_ids = {m.guild_id for m in managed}
+
+        owned = Guild.query.filter_by(
+            owner_discord_id=current_user.discord_id, is_active=True
+        ).all()
+        owned_ids = {g.id for g in owned}
+
+        all_accessible_ids = owned_ids | managed_ids
+        accessible_guilds = Guild.query.filter(
+            Guild.id.in_(all_accessible_ids), Guild.is_active == True
+        ).order_by(Guild.name).all()
+
+        for guild in accessible_guilds:
+            role = "owner" if guild.id in owned_ids else "manager"
+            guilds_out.append({
+                "id": guild.id,
+                "discord_id": guild.discord_id,
+                "name": guild.name,
+                "icon_url": guild.icon_url(64),
+                "member_count": guild.member_count,
+                "is_active": guild.is_active,
+                "role": role,
+            })
+
     return jsonify({
         "id": current_user.id,
         "username": current_user.username,
-        "is_admin": current_user.is_admin,
+        "avatar": current_user.avatar,
         "discord_id": current_user.discord_id,
+        "is_admin": current_user.is_admin,
+        "guilds": guilds_out,
     })
 
 
