@@ -1,6 +1,6 @@
 /* ═══════════════════════════════════════════════════════════════
-   SLOTH DOJO DASHBOARD — Calm Command Center
-   Aesthetic: Nord/Aurora palette with peaceful zen aesthetic
+   SLOTH LEE DASHBOARD — The Ninja Sloth for busy Discord servers
+   Aesthetic: Polished cyber-punk with bright cyan accents and glowing effects
    Fonts: JetBrains Mono + DM Sans
    ═══════════════════════════════════════════════════════════════ */
 
@@ -8,34 +8,34 @@
 
 /* ── Variables ── */
 :root {
-  --void:      #0d1520;
-  --base:      #0a0f1a;
-  --surface:   #101824;
-  --elevated:  #141c2e;
-  --panel:     #182c48;
-  --raised:    #1a3550;
+  --void:      #0a1420;
+  --base:      #0d1728;
+  --surface:   #0f1a2e;
+  --elevated:  #152238;
+  --panel:     #1a2d42;
+  --raised:    #21364e;
 
-  --border:    rgba(136, 192, 208, 0.07);
-  --border-md: rgba(136, 192, 208, 0.15);
-  --border-hi: rgba(136, 192, 208, 0.30);
+  --border:    rgba(0, 212, 255, 0.08);
+  --border-md: rgba(0, 212, 255, 0.16);
+  --border-hi: rgba(0, 212, 255, 0.32);
 
-  --cyan:      #88c0d0;
-  --cyan-dim:  rgba(136, 192, 208, 0.08);
-  --cyan-glow: rgba(136, 192, 208, 0.20);
-  --cyan-mid:  rgba(136, 192, 208, 0.50);
+  --cyan:      #00d4ff;
+  --cyan-dim:  rgba(0, 212, 255, 0.08);
+  --cyan-glow: rgba(0, 212, 255, 0.25);
+  --cyan-mid:  rgba(0, 212, 255, 0.60);
 
-  --green:     #a3be8c;
-  --green-dim: rgba(163, 190, 140, 0.08);
-  --amber:     #b8956a;
-  --amber-dim: rgba(184, 149, 106, 0.08);
-  --red:       #d08070;
-  --red-dim:   rgba(208, 128, 112, 0.08);
-  --purple:    #b48ead;
+  --green:     #00ff88;
+  --green-dim: rgba(0, 255, 136, 0.08);
+  --amber:     #ffb830;
+  --amber-dim: rgba(255, 184, 48, 0.08);
+  --red:       #ff4455;
+  --red-dim:   rgba(255, 68, 85, 0.08);
+  --purple:    #bd93f9;
 
-  --text-0:  #e8f1fa;
-  --text-1:  #d0dce8;
-  --text-2:  #8fa8c4;
-  --text-3:  #5f7a96;
+  --text-0:  #e2ebf5;
+  --text-1:  #7a94b0;
+  --text-2:  #3d5470;
+  --text-3:  #1f3050;
 
   --font-ui:   'DM Sans', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
@@ -405,26 +405,32 @@ body {
 }
 
 .stat-card {
-  background: var(--surface);
-  border: 1px solid var(--border);
+  background: linear-gradient(135deg, rgba(15, 26, 46, 0.9), rgba(21, 34, 56, 0.9));
+  border: 1px solid var(--border-md);
   border-radius: var(--r-lg);
   padding: 15px 16px;
   position: relative;
   overflow: hidden;
-  transition: border-color 0.15s, transform 0.15s;
+  transition: all 0.2s;
+  box-shadow: 0 0 20px var(--cyan-glow), inset 0 0 20px var(--cyan-dim);
 }
 
-.stat-card:hover { border-color: var(--border-md); transform: translateY(-1px); }
+.stat-card:hover { 
+  border-color: var(--cyan); 
+  transform: translateY(-2px);
+  box-shadow: 0 0 30px var(--cyan-glow), inset 0 0 30px rgba(0, 212, 255, 0.15);
+}
 
 /* Top accent line on hover */
 .stat-card::before {
   content: '';
   position: absolute;
   top: 0; left: 0; right: 0;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, var(--cyan-mid), transparent);
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--cyan), transparent);
   opacity: 0;
   transition: opacity 0.2s;
+  box-shadow: 0 0 10px var(--cyan);
 }
 .stat-card:hover::before { opacity: 1; }
 
@@ -479,8 +485,8 @@ body {
 }
 
 .server-card {
-  background: var(--surface);
-  border: 1px solid var(--border);
+  background: linear-gradient(135deg, rgba(15, 26, 46, 0.95), rgba(21, 34, 56, 0.95));
+  border: 1px solid var(--border-md);
   border-radius: var(--r-lg);
   padding: 13px 14px;
   display: flex;
@@ -488,13 +494,15 @@ body {
   gap: 12px;
   text-decoration: none;
   color: inherit;
-  transition: background 0.12s, border-color 0.12s, transform 0.12s;
+  transition: all 0.2s;
+  box-shadow: 0 0 15px var(--cyan-glow), inset 0 0 15px var(--cyan-dim);
 }
 
 .server-card:hover {
-  background: var(--elevated);
-  border-color: var(--border-md);
-  transform: translateY(-1px);
+  background: linear-gradient(135deg, rgba(21, 34, 56, 1), rgba(32, 48, 72, 1));
+  border-color: var(--cyan);
+  transform: translateY(-2px);
+  box-shadow: 0 0 25px var(--cyan-glow), inset 0 0 25px rgba(0, 212, 255, 0.12);
 }
 
 .server-card__icon {
