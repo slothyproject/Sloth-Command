@@ -7,10 +7,8 @@ import hashlib
 import hmac
 import json
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from functools import wraps
-
-import requests
 
 from flask import Blueprint, abort, jsonify, request, stream_with_context, Response
 from flask_login import current_user, login_required
@@ -18,11 +16,19 @@ from flask_login import current_user, login_required
 from dashboard.extensions import db, redis_client
 from dashboard.models import (
     AuditLog, BotEvent, Guild, GuildCommand, GuildMember,
-    GuildSettings, ModerationCase, Notification, Ticket, TicketMessage, User,
+    GuildSettings, ModerationCase, Notification, Ticket, TicketMessage,
+    User, UserAIProviderCredential, UserAIProviderUsageStat,
 )
 from dashboard.services.bot_state import get_bot_state, push_bot_command
 from dashboard.services.dissident_api import call_dissident_api
-from dashboard.versioning import get_dashboard_version
+from dashboard.services.ai_provider import (
+    SUPPORTED_AI_PROVIDERS,
+    mask_api_key,
+    normalize_ai_provider_payload,
+    serialize_ai_provider_credential,
+    validate_ai_provider_config,
+)
+from dashboard.services.encryption import decrypt_secret, encrypt_secret
 
 api_bp = Blueprint("api", __name__)
 
@@ -34,6 +40,17 @@ def admin_required(f):
     def decorated(*args, **kwargs):
         if not current_user.is_authenticated or not current_user.is_admin:
             return jsonify({"error": "Forbidden"}), 403
+        return f(*args, **kwargs)
+    return decorated
+
+
+def internal_api_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        configured = os.environ.get("BOT_INTERNAL_API_KEY") or os.environ.get("WEBHOOK_SECRET") or ""
+        provided = request.headers.get("X-Internal-API-Key", "")
+        if not configured or not hmac.compare_digest(provided, configured):
+            return jsonify({"error": "Unauthorized"}), 401
         return f(*args, **kwargs)
     return decorated
 
@@ -66,6 +83,20 @@ def _audit(action: str, guild_id: int | None = None, target_type: str | None = N
     db.session.commit()
 
 
+def _audit_internal(action: str, user: User | None = None, discord_id: str | None = None,
+                    details: dict | None = None) -> None:
+    entry = AuditLog(
+        action=action,
+        actor_id=None,
+        guild_id=None,
+        target_type="user" if user else "discord_user",
+        target_id=str(user.id) if user else str(discord_id) if discord_id else None,
+        details=details,
+        ip_address=request.remote_addr,
+    )
+    db.session.add(entry)
+
+
 def _notify_admins(type_: str, title: str, body: str = "", link: str = "", guild_id: int | None = None):
     admins = User.query.filter_by(is_admin=True, is_active=True).all()
     for admin in admins:
@@ -80,52 +111,44 @@ def _notify_admins(type_: str, title: str, body: str = "", link: str = "", guild
         db.session.add(notif)
     db.session.commit()
     # Publish to Redis for real-time SSE
-    try:
-        redis_client.publish("hub:notifications", json.dumps({
-            "type": type_, "title": title, "body": body, "link": link
-        }))
-    except Exception:
-        pass
+    redis_client.publish("hub:notifications", json.dumps({
+        "type": type_, "title": title, "body": body, "link": link
+    }))
 
 
-def _record_moderation_case(guild: Guild, *, action: str, target_id: str,
-                            target_name: str | None = None, reason: str | None = None,
-                            moderator_id: str | None = None, moderator_name: str | None = None,
-                            duration: str | None = None) -> ModerationCase:
-    case = ModerationCase(
-        guild_id=guild.id,
-        case_number=guild.mod_cases.count() + 1,
-        action=action,
-        target_id=str(target_id),
-        target_name=target_name,
-        moderator_id=moderator_id,
-        moderator_name=moderator_name,
-        reason=reason,
-        duration=duration,
-        is_active=action not in {"unban", "unmute", "global_unban"},
-    )
-    db.session.add(case)
-    return case
+def _get_or_create_ai_usage(user: User) -> UserAIProviderUsageStat:
+    usage = UserAIProviderUsageStat.query.filter_by(user_id=user.id).first()
+    if not usage:
+        usage = UserAIProviderUsageStat(user_id=user.id)
+        db.session.add(usage)
+    return usage
 
 
-TICKET_STATUSES = {"open", "resolved", "closed"}
+def _normalize_usage_window(now: datetime, usage: UserAIProviderUsageStat) -> None:
+    window_start = usage.current_hour_started_at
+    if window_start and window_start.tzinfo is None:
+        # SQLite commonly returns naive datetimes even when timezone=True.
+        window_start = window_start.replace(tzinfo=timezone.utc)
+    if not window_start or window_start + timedelta(hours=1) <= now:
+        usage.current_hour_started_at = now.replace(minute=0, second=0, microsecond=0)
+        usage.requests_this_hour = 0
+        usage.tokens_this_hour = 0
 
 
-def _set_ticket_status(ticket: Ticket, status: str, actor_name: str | None, reason: str | None = None):
-    now = datetime.now(timezone.utc)
-    ticket.status = status
-
-    if status == "closed":
-        ticket.closed_at = now
-        if actor_name:
-            ticket.closed_by = actor_name
-        if reason:
-            ticket.closed_reason = reason
-    else:
-        ticket.closed_at = None
-        ticket.closed_by = None
-        if status == "open":
-            ticket.closed_reason = None
+def _serialize_user_ai_provider_status(user: User) -> dict:
+    payload = serialize_ai_provider_credential(user.ai_provider_credential)
+    payload["usage"] = user.ai_provider_usage.to_dict() if user.ai_provider_usage else {
+        "current_hour_started_at": None,
+        "requests_this_hour": 0,
+        "tokens_this_hour": 0,
+        "lifetime_requests": 0,
+        "lifetime_tokens": 0,
+        "last_used_at": None,
+        "last_command": None,
+        "last_error": None,
+        "updated_at": None,
+    }
+    return payload
 
 
 # ── Health ───────────────────────────────────────────────────────
@@ -145,17 +168,6 @@ def public_stats():
         "bot_online": bot["online"],
         "version": bot["version"],
         "latency_ms": bot["latency_ms"],
-    })
-
-
-@api_bp.get("/version")
-def get_version():
-    """Get dashboard and bot version info."""
-    bot = get_bot_state()
-    return jsonify({
-        "dashboard": get_dashboard_version(),
-        "bot": bot.get("version", "unknown"),
-        "bot_online": bot.get("online", False),
     })
 
 
@@ -236,6 +248,245 @@ def bot_invite():
     return jsonify({"url": url, "client_id": client_id})
 
 
+@api_bp.get("/user/ai-provider")
+@login_required
+def user_ai_provider_status():
+    payload = _serialize_user_ai_provider_status(current_user)
+    payload["supported_providers"] = {
+        name: {
+            "label": config["label"],
+            "default_model": config["default_model"],
+            "requires_base_url": config["requires_base_url"],
+        }
+        for name, config in SUPPORTED_AI_PROVIDERS.items()
+    }
+    return jsonify(payload)
+
+
+@api_bp.post("/user/ai-provider/validate")
+@login_required
+def validate_user_ai_provider():
+    try:
+        payload = normalize_ai_provider_payload(request.get_json() or {}, require_api_key=True)
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+    validation = validate_ai_provider_config(
+        provider=payload["provider"],
+        api_key=payload["api_key"],
+        model=payload["model"],
+        base_url=payload["base_url"],
+    )
+    status = 200 if validation.get("ok") else 400
+    return jsonify(validation), status
+
+
+@api_bp.post("/user/ai-provider")
+@login_required
+def save_user_ai_provider():
+    try:
+        payload = normalize_ai_provider_payload(request.get_json() or {}, require_api_key=True)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    validation = validate_ai_provider_config(
+        provider=payload["provider"],
+        api_key=payload["api_key"],
+        model=payload["model"],
+        base_url=payload["base_url"],
+    )
+    if not validation.get("ok"):
+        return jsonify(validation), 400
+
+    try:
+        encrypted_api_key, api_key_iv = encrypt_secret(payload["api_key"])
+    except (RuntimeError, ValueError) as exc:
+        return jsonify({"error": str(exc)}), 503
+
+    credential = UserAIProviderCredential.query.filter_by(user_id=current_user.id).first()
+    if not credential:
+        credential = UserAIProviderCredential(user_id=current_user.id)
+        db.session.add(credential)
+
+    credential.provider = payload["provider"]
+    credential.model = payload["model"]
+    credential.base_url = payload["base_url"]
+    credential.encrypted_api_key = encrypted_api_key
+    credential.api_key_iv = api_key_iv
+    credential.key_hint = mask_api_key(payload["api_key"])
+    credential.status = "active"
+    credential.usage_limit_requests_per_hour = payload["usage_limit_requests_per_hour"]
+    credential.last_validated_at = datetime.now(timezone.utc)
+    credential.validation_error = None
+
+    db.session.commit()
+    _audit(
+        "user_ai_provider_saved",
+        target_type="ai_provider",
+        target_id=str(current_user.id),
+        details={
+            "provider": credential.provider,
+            "model": credential.model,
+            "status": credential.status,
+        },
+    )
+    return jsonify(_serialize_user_ai_provider_status(current_user))
+
+
+@api_bp.post("/user/ai-provider/disable")
+@login_required
+def disable_user_ai_provider():
+    credential = UserAIProviderCredential.query.filter_by(user_id=current_user.id).first()
+    if not credential:
+        return jsonify({"error": "No AI provider configuration found"}), 404
+
+    credential.status = "disabled"
+    credential.validation_error = None
+    db.session.commit()
+    _audit(
+        "user_ai_provider_disabled",
+        target_type="ai_provider",
+        target_id=str(current_user.id),
+        details={"provider": credential.provider},
+    )
+    return jsonify(_serialize_user_ai_provider_status(current_user))
+
+
+@api_bp.delete("/user/ai-provider")
+@login_required
+def delete_user_ai_provider():
+    credential = UserAIProviderCredential.query.filter_by(user_id=current_user.id).first()
+    if not credential:
+        return jsonify({"ok": True, "deleted": False})
+
+    provider = credential.provider
+    db.session.delete(credential)
+    db.session.commit()
+    _audit(
+        "user_ai_provider_deleted",
+        target_type="ai_provider",
+        target_id=str(current_user.id),
+        details={"provider": provider},
+    )
+    return jsonify({"ok": True, "deleted": True})
+
+
+@api_bp.get("/internal/ai-provider/<string:discord_id>")
+@internal_api_required
+def internal_ai_provider_by_discord_id(discord_id: str):
+    user = User.query.filter_by(discord_id=str(discord_id)).first()
+    if not user:
+        _audit_internal("internal_ai_provider_lookup_missing_user", discord_id=discord_id)
+        db.session.commit()
+        return jsonify({"configured": False, "error": "User not linked in hub"}), 404
+
+    credential = user.ai_provider_credential
+    if not credential or credential.status != "active":
+        _audit_internal(
+            "internal_ai_provider_lookup_not_configured",
+            user=user,
+            discord_id=discord_id,
+            details={"status": credential.status if credential else "not_configured"},
+        )
+        db.session.commit()
+        return jsonify({
+            "configured": False,
+            "status": credential.status if credential else "not_configured",
+            "error": "AI provider not configured for this user",
+            "usage": user.ai_provider_usage.to_dict() if user.ai_provider_usage else None,
+        }), 404
+
+    try:
+        api_key = decrypt_secret(credential.encrypted_api_key, credential.api_key_iv)
+    except Exception:
+        _audit_internal("internal_ai_provider_lookup_decrypt_failed", user=user, discord_id=discord_id)
+        db.session.commit()
+        return jsonify({"configured": False, "error": "Could not decrypt AI provider secret"}), 503
+
+    usage = _get_or_create_ai_usage(user)
+    now = datetime.now(timezone.utc)
+    _normalize_usage_window(now, usage)
+    _audit_internal("internal_ai_provider_lookup_success", user=user, discord_id=discord_id)
+    db.session.commit()
+
+    return jsonify({
+        "configured": True,
+        "provider": credential.provider,
+        "model": credential.model,
+        "base_url": credential.base_url,
+        "api_key": api_key,
+        "usage_limit_requests_per_hour": credential.usage_limit_requests_per_hour,
+        "key_hint": credential.key_hint,
+        "status": credential.status,
+        "usage": usage.to_dict(),
+    })
+
+
+@api_bp.post("/internal/ai-provider/<string:discord_id>/usage")
+@internal_api_required
+def internal_ai_provider_usage(discord_id: str):
+    user = User.query.filter_by(discord_id=str(discord_id)).first()
+    if not user:
+        _audit_internal("internal_ai_provider_usage_missing_user", discord_id=discord_id)
+        db.session.commit()
+        return jsonify({"error": "User not linked in hub"}), 404
+
+    payload = request.get_json(silent=True) or {}
+    usage = _get_or_create_ai_usage(user)
+    now = datetime.now(timezone.utc)
+    _normalize_usage_window(now, usage)
+
+    token_count = payload.get("token_count", 0)
+    try:
+        token_count = max(0, int(token_count))
+    except (TypeError, ValueError):
+        token_count = 0
+
+    success = bool(payload.get("success", False))
+    usage.requests_this_hour += 1
+    usage.tokens_this_hour += token_count
+    usage.lifetime_requests += 1
+    usage.lifetime_tokens += token_count
+    usage.last_used_at = now
+    usage.last_command = str(payload.get("command") or "aiask").strip() or "aiask"
+    usage.last_error = None if success else str(payload.get("error") or "Unknown AI provider error")
+    _audit_internal(
+        "internal_ai_provider_usage_recorded",
+        user=user,
+        discord_id=discord_id,
+        details={
+            "command": usage.last_command,
+            "success": success,
+            "token_count": token_count,
+        },
+    )
+    db.session.commit()
+
+    return jsonify({"ok": True, "usage": usage.to_dict()})
+
+
+@api_bp.post("/internal/ai-provider/<string:discord_id>/disable")
+@internal_api_required
+def internal_disable_ai_provider(discord_id: str):
+    user = User.query.filter_by(discord_id=str(discord_id)).first()
+    if not user or not user.ai_provider_credential:
+        _audit_internal("internal_ai_provider_disable_missing_user", discord_id=discord_id)
+        db.session.commit()
+        return jsonify({"error": "AI provider not configured"}), 404
+
+    reason = str((request.get_json(silent=True) or {}).get("reason") or "Disabled by bot command").strip()
+    user.ai_provider_credential.status = "disabled"
+    user.ai_provider_credential.validation_error = reason
+    _audit_internal(
+        "internal_ai_provider_disabled_by_internal",
+        user=user,
+        discord_id=discord_id,
+        details={"reason": reason},
+    )
+    db.session.commit()
+    return jsonify({"ok": True, "status": user.ai_provider_credential.status})
+
+
 # ── Guilds ───────────────────────────────────────────────────────
 
 @api_bp.get("/guilds")
@@ -302,7 +553,6 @@ def _settings_dict(s: GuildSettings) -> dict:
         "welcome_message": s.welcome_message,
         "farewell_channel": s.farewell_channel,
         "ticket_channel": s.ticket_channel,
-        "ticket_category": s.ticket_category,
         "ticket_role": s.ticket_role,
         "leveling_enabled": s.leveling_enabled,
         "level_channel": s.level_channel,
@@ -338,7 +588,7 @@ def guild_settings_update(guild_id: int):
     allowed = {
         "prefix", "language", "timezone", "mod_log_channel", "automod_enabled",
         "antinuke_enabled", "max_warns", "warn_action", "welcome_channel",
-        "welcome_message", "farewell_channel", "ticket_channel", "ticket_category", "ticket_role",
+        "welcome_message", "farewell_channel", "ticket_channel", "ticket_role",
         "leveling_enabled", "level_channel", "xp_multiplier", "log_channel",
         "log_joins", "log_leaves", "log_moderation", "log_messages",
     }
@@ -434,174 +684,107 @@ def guild_moderation(guild_id: int):
     })
 
 
-@api_bp.get("/guilds/<int:guild_id>/moderation/member-search")
-@login_required
-@guild_access_required
-def guild_member_search(guild_id: int):
-    guild = Guild.query.get_or_404(guild_id)
-    query = (request.args.get("query") or "").strip()
-    if not query:
-        return jsonify([])
-
-    status, payload = call_dissident_api(
-        "GET",
-        f"guilds/{guild.discord_id}/members/search",
-        current_user,
-        params={"query": query, "limit": request.args.get("limit", 10)},
-    )
-    return jsonify(payload), status
-
-
 @api_bp.post("/guilds/<int:guild_id>/moderation/actions")
 @login_required
 @guild_access_required
 def guild_moderation_action(guild_id: int):
-    guild = Guild.query.get_or_404(guild_id)
-    data = request.get_json() or {}
-    action = str(data.get("action") or "").strip().lower()
-    supported = {"ban", "kick", "mute", "unmute", "warn", "unban"}
-    if action not in supported:
-        return jsonify({"error": "Unsupported moderation action"}), 400
+    """Execute a moderation action via the Dissident bot backend."""
+    if not getattr(current_user, "discord_id", None):
+        return jsonify({"error": "A Discord-linked account is required for moderation actions"}), 400
 
-    payload = {
+    guild = Guild.query.get_or_404(guild_id)
+    data = request.get_json(silent=True) or {}
+    action = str(data.get("action", "ban")).lower()
+    user_id = str(data.get("user_id", ""))
+    target_name = data.get("target_name")
+    reason = data.get("reason")
+    delete_messages = bool(data.get("delete_messages", False))
+
+    if not user_id:
+        return jsonify({"error": "user_id is required"}), 400
+
+    json_payload = {
         "guildId": guild.discord_id,
-        "userId": data.get("user_id"),
-        "reason": data.get("reason"),
+        "userId": user_id,
+        "reason": reason,
+        "deleteMessages": delete_messages,
     }
-    if action == "mute":
-        payload["duration"] = data.get("duration")
-    if action == "ban":
-        payload["deleteMessages"] = bool(data.get("delete_messages"))
 
-    status, response = call_dissident_api(
-        "POST",
-        f"moderation/{action}",
-        current_user,
-        json_payload=payload,
-    )
-    if status >= 400:
-        return jsonify(response), status
+    status, result = call_dissident_api("POST", "moderation/ban", current_user, json_payload=json_payload)
 
-    _record_moderation_case(
-        guild,
-        action=action,
-        target_id=str(data.get("user_id") or ""),
-        target_name=data.get("target_name"),
-        reason=data.get("reason"),
-        moderator_id=current_user.discord_id,
-        moderator_name=current_user.username,
-        duration=str(data.get("duration")) if data.get("duration") else None,
-    )
-    db.session.commit()
-    _audit(f"moderation_action:{action}", guild_id=guild.id, target_type="discord_user", target_id=str(data.get("user_id") or ""))
-    return jsonify(response)
-
-
-@api_bp.post("/guilds/<int:guild_id>/moderation/bulk")
-@login_required
-@guild_access_required
-def guild_moderation_bulk(guild_id: int):
-    guild = Guild.query.get_or_404(guild_id)
-    data = request.get_json() or {}
-    action = str(data.get("action") or "").strip().lower()
-
-    status, response = call_dissident_api(
-        "POST",
-        "moderation/bulk",
-        current_user,
-        json_payload={
-            "guildId": guild.discord_id,
-            "action": action,
-            "userIds": data.get("user_ids"),
-            "reason": data.get("reason"),
-            "duration": data.get("duration"),
-            "deleteMessages": bool(data.get("delete_messages")),
-        },
-    )
-    if status >= 400:
-        return jsonify(response), status
-
-    for result in response.get("results", []):
-        if not result.get("success"):
-            continue
-        _record_moderation_case(
-            guild,
+    if status < 300:
+        case_num = ModerationCase.query.filter_by(guild_id=guild_id).count() + 1
+        case = ModerationCase(
+            guild_id=guild_id,
+            case_number=case_num,
             action=action,
-            target_id=str(result.get("userId") or ""),
-            target_name=result.get("targetTag"),
-            reason=data.get("reason"),
-            moderator_id=current_user.discord_id,
+            target_id=user_id,
+            target_name=target_name,
+            moderator_id=str(current_user.discord_id),
             moderator_name=current_user.username,
-            duration=str(data.get("duration")) if data.get("duration") else None,
+            reason=reason,
         )
+        db.session.add(case)
+        db.session.commit()
 
-    db.session.commit()
-    _audit("moderation_bulk", guild_id=guild.id, target_type="guild", target_id=str(guild.id), details={"action": action})
-    return jsonify(response)
+    return jsonify(result), status
 
 
 @api_bp.get("/moderation/global-bans")
 @login_required
-@admin_required
-def global_bans_list():
-    status, response = call_dissident_api("GET", "moderation/global-bans", current_user)
-    return jsonify(response), status
+def get_global_bans():
+    """List global bans stored in the hub."""
+    cases = ModerationCase.query.filter_by(action="global_ban").order_by(
+        ModerationCase.created_at.desc()
+    ).limit(100).all()
+    return jsonify([c.to_dict() for c in cases])
 
 
 @api_bp.post("/moderation/global-bans")
 @login_required
-@admin_required
-def global_bans_create():
-    data = request.get_json() or {}
-    source_guild = None
-    if data.get("source_guild_id"):
-        source_guild = Guild.query.get(int(data["source_guild_id"]))
+def create_global_ban():
+    """Create a cross-server ban via the Dissident bot backend."""
+    data = request.get_json(silent=True) or {}
+    user_id = str(data.get("user_id", ""))
+    username = data.get("username", "")
+    reason = data.get("reason", "")
+    evidence = data.get("evidence", "")
+    source_guild_id = data.get("source_guild_id")
+    delete_messages = bool(data.get("delete_messages", False))
 
-    status, response = call_dissident_api(
-        "POST",
-        "moderation/global-ban",
-        current_user,
-        json_payload={
-            "userId": data.get("user_id"),
-            "username": data.get("username"),
-            "reason": data.get("reason"),
-            "evidence": data.get("evidence"),
-            "sourceGuildId": source_guild.discord_id if source_guild else None,
-            "deleteMessages": bool(data.get("delete_messages")),
-        },
-    )
-    if status >= 400:
-        return jsonify(response), status
+    if not user_id:
+        return jsonify({"error": "user_id is required"}), 400
 
-    if source_guild:
-        _record_moderation_case(
-            source_guild,
+    guild = Guild.query.get(source_guild_id) if source_guild_id else None
+    source_guild_discord_id = guild.discord_id if guild else None
+
+    json_payload = {
+        "userId": user_id,
+        "username": username,
+        "reason": reason,
+        "evidence": evidence,
+        "sourceGuildId": source_guild_discord_id,
+        "deleteMessages": delete_messages,
+    }
+
+    status, result = call_dissident_api("POST", "moderation/global-ban", current_user, json_payload=json_payload)
+
+    if status < 300:
+        case_num = ModerationCase.query.filter_by(guild_id=source_guild_id).count() + 1 if source_guild_id else 1
+        case = ModerationCase(
+            guild_id=source_guild_id,
+            case_number=case_num,
             action="global_ban",
-            target_id=str(data.get("user_id") or ""),
-            target_name=data.get("username"),
-            reason=data.get("reason"),
-            moderator_id=current_user.discord_id,
+            target_id=user_id,
+            target_name=username or None,
+            moderator_id=str(getattr(current_user, "discord_id", "") or "") or None,
             moderator_name=current_user.username,
+            reason=reason,
         )
+        db.session.add(case)
         db.session.commit()
 
-    _audit("global_ban_create", guild_id=source_guild.id if source_guild else None, target_type="discord_user", target_id=str(data.get("user_id") or ""))
-    return jsonify(response)
-
-
-@api_bp.delete("/moderation/global-bans/<string:user_id>")
-@login_required
-@admin_required
-def global_bans_delete(user_id: str):
-    data = request.get_json(silent=True) or {}
-    status, response = call_dissident_api(
-        "DELETE",
-        f"moderation/global-ban/{user_id}",
-        current_user,
-        json_payload={"reason": data.get("reason")},
-    )
-    _audit("global_ban_delete", target_type="discord_user", target_id=user_id, details={"status": status})
-    return jsonify(response), status
+    return jsonify(result), status
 
 
 @api_bp.get("/moderation/recent")
@@ -631,18 +814,13 @@ def guild_tickets(guild_id: int):
     page = int(request.args.get("page", 1))
     per_page = min(int(request.args.get("per_page", 25)), 100)
     status = request.args.get("status")
-    assigned = request.args.get("assigned")
 
     q = Ticket.query.filter_by(guild_id=guild_id)
     if status:
         q = q.filter_by(status=status)
-    if assigned == "unassigned":
-        q = q.filter(Ticket.assigned_to.is_(None))
-    elif assigned == "assigned":
-        q = q.filter(Ticket.assigned_to.is_not(None))
 
     total = q.count()
-    tickets = q.order_by(Ticket.updated_at.desc(), Ticket.created_at.desc()).paginate(
+    tickets = q.order_by(Ticket.created_at.desc()).paginate(
         page=page, per_page=per_page, error_out=False
     )
     return jsonify({
@@ -689,40 +867,45 @@ def ticket_messages(ticket_id: int):
 @api_bp.post("/tickets/<int:ticket_id>/close")
 @login_required
 def ticket_close(ticket_id: int):
-    ticket = Ticket.query.get_or_404(ticket_id)
-    guild = Guild.query.get(ticket.guild_id)
-    if guild and not current_user.can_manage(guild):
-        return jsonify({"error": "Forbidden"}), 403
-    _set_ticket_status(ticket, "closed", current_user.username)
-    db.session.commit()
-    _audit("ticket_close", guild_id=ticket.guild_id, target_type="ticket", target_id=str(ticket_id))
-    return jsonify({"ok": True})
+    return _ticket_set_status(ticket_id, "closed", None)
 
 
-@api_bp.post("/tickets/<int:ticket_id>/status")
-@login_required
-def ticket_set_status(ticket_id: int):
+def _ticket_set_status(ticket_id: int, status: str, reason: str | None):
     ticket = Ticket.query.get_or_404(ticket_id)
     guild = Guild.query.get(ticket.guild_id)
     if guild and not current_user.can_manage(guild):
         return jsonify({"error": "Forbidden"}), 403
 
-    data = request.get_json(silent=True) or {}
-    status = str(data.get("status", "")).strip().lower()
-    reason = (data.get("reason") or "").strip() or None
-    if status not in TICKET_STATUSES:
-        return jsonify({"error": "status must be one of: open, resolved, closed"}), 400
+    next_status = (status or "").strip().lower()
+    if next_status not in {"open", "resolved", "closed"}:
+        return jsonify({"error": "Invalid status"}), 400
 
-    _set_ticket_status(ticket, status, current_user.username, reason)
+    ticket.status = next_status
+    if next_status == "closed":
+        ticket.closed_by = current_user.username
+        ticket.closed_reason = reason
+        ticket.closed_at = datetime.now(timezone.utc)
+    else:
+        ticket.closed_by = None
+        ticket.closed_reason = None
+        ticket.closed_at = None
+
     db.session.commit()
     _audit(
         "ticket_status_update",
         guild_id=ticket.guild_id,
         target_type="ticket",
         target_id=str(ticket_id),
-        details={"status": status, "reason": reason},
+        details={"status": next_status, "reason": reason},
     )
-    return jsonify({"ok": True, "ticket": ticket.to_dict()})
+    return jsonify({"ok": True, "status": ticket.status, "closed_at": ticket.closed_at.isoformat() if ticket.closed_at else None})
+
+
+@api_bp.post("/tickets/<int:ticket_id>/status")
+@login_required
+def ticket_set_status(ticket_id: int):
+    payload = request.get_json(silent=True) or {}
+    return _ticket_set_status(ticket_id, payload.get("status", ""), payload.get("reason"))
 
 
 @api_bp.post("/tickets/<int:ticket_id>/assign")
@@ -733,9 +916,12 @@ def ticket_assign(ticket_id: int):
     if guild and not current_user.can_manage(guild):
         return jsonify({"error": "Forbidden"}), 403
 
-    data = request.get_json(silent=True) or {}
-    assigned_to = (data.get("assigned_to") or "").strip()
-    ticket.assigned_to = assigned_to or None
+    payload = request.get_json(silent=True) or {}
+    assignee = str(payload.get("assigned_to") or "").strip()
+    if assignee and len(assignee) > 100:
+        return jsonify({"error": "assigned_to is too long"}), 400
+
+    ticket.assigned_to = assignee or None
     db.session.commit()
     _audit(
         "ticket_assignment_update",
@@ -744,7 +930,7 @@ def ticket_assign(ticket_id: int):
         target_id=str(ticket_id),
         details={"assigned_to": ticket.assigned_to},
     )
-    return jsonify({"ok": True, "ticket": ticket.to_dict()})
+    return jsonify({"ok": True, "assigned_to": ticket.assigned_to})
 
 # ── Webhook (bot → hub) ──────────────────────────────────────────
 
@@ -862,29 +1048,17 @@ def _handle_mod_action(payload: dict, guild: Guild | None):
 def _handle_ticket_open(payload: dict, guild: Guild | None):
     if not guild:
         return
-    channel_id = str(payload.get("channel_id", ""))
-    if not channel_id:
-        return
-
-    ticket = Ticket.query.filter_by(guild_id=guild.id, channel_id=channel_id).first()
-    if not ticket:
-        ticket_num = Ticket.query.filter_by(guild_id=guild.id).count() + 1
-        ticket = Ticket(
-            guild_id=guild.id,
-            ticket_number=ticket_num,
-            channel_id=channel_id,
-            opener_id=str(payload.get("opener_id", "")),
-            opener_name=payload.get("opener_name"),
-            subject=payload.get("subject"),
-            priority=payload.get("priority", "normal"),
-        )
-        db.session.add(ticket)
-    else:
-        ticket.opener_id = str(payload.get("opener_id", ticket.opener_id))
-        ticket.opener_name = payload.get("opener_name") or ticket.opener_name
-        ticket.subject = payload.get("subject") or ticket.subject
-        ticket.priority = payload.get("priority", ticket.priority)
-        ticket.status = "open"
+    ticket_num = Ticket.query.filter_by(guild_id=guild.id).count() + 1
+    ticket = Ticket(
+        guild_id=guild.id,
+        ticket_number=ticket_num,
+        channel_id=str(payload.get("channel_id", "")),
+        opener_id=str(payload.get("opener_id", "")),
+        opener_name=payload.get("opener_name"),
+        subject=payload.get("subject"),
+        priority=payload.get("priority", "normal"),
+    )
+    db.session.add(ticket)
 
 
 def _handle_ticket_close(payload: dict, guild: Guild | None):
@@ -976,104 +1150,6 @@ def notification_read(notif_id: int):
     notif.is_read = True
     db.session.commit()
     return jsonify({"ok": True})
-
-
-# ── AI advisor ───────────────────────────────────────────────────
-
-@api_bp.post("/ai/advisor")
-@login_required
-def ai_advisor():
-    data = request.get_json() or {}
-    message = (data.get("message") or "").strip()
-    if not message:
-        return jsonify({"error": "message is required"}), 400
-
-    mode = (data.get("mode") or "ask").strip().lower()
-    guild_id = data.get("guild_id")
-
-    base_url = (os.environ.get("OLLAMA_BASE_URL") or "").strip().rstrip("/")
-    model = (os.environ.get("OLLAMA_MODEL") or "kimi-k2.6:cloud").strip()
-    api_key = (os.environ.get("OLLAMA_API_KEY") or "").strip()
-    timeout = int((os.environ.get("OLLAMA_TIMEOUT_SECONDS") or "120").strip() or 120)
-
-    if not base_url:
-        return jsonify({"error": "OLLAMA_BASE_URL is not configured"}), 503
-
-    system_prompt = (
-        "You are a Discord server architecture advisor. "
-        "Produce practical, actionable setup recommendations for channels, roles, permissions, onboarding, moderation, and ticketing. "
-        "When possible, return a phased implementation checklist."
-    )
-
-    if mode == "interview":
-        system_prompt += (
-            " Start by asking 5-8 focused discovery questions before giving the final plan. "
-            "Do not assume requirements not provided."
-        )
-
-    guild_context = ""
-    if guild_id:
-        guild = Guild.query.get(guild_id)
-        if guild and current_user.can_manage(guild):
-            guild_context = (
-                f"Guild context: name={guild.name}, members={guild.member_count}, "
-                f"channels={guild.channel_count}, roles={guild.role_count}."
-            )
-
-    user_prompt = f"{guild_context}\n\nUser request:\n{message}".strip()
-
-    payload = {
-        "model": model,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ],
-        "temperature": 0.4,
-        "max_tokens": 1200,
-    }
-
-    headers = {"Content-Type": "application/json"}
-    if api_key:
-        headers["Authorization"] = f"Bearer {api_key}"
-
-    endpoint = f"{base_url}/chat/completions"
-    try:
-        response = requests.post(
-            endpoint,
-            json=payload,
-            headers=headers,
-            timeout=timeout,
-        )
-    except requests.RequestException as exc:
-        return jsonify({"error": f"AI upstream request failed: {exc}"}), 502
-
-    if response.status_code >= 400:
-        detail = response.text[:500]
-        return jsonify({
-            "error": f"AI upstream error {response.status_code}",
-            "detail": detail,
-        }), 502
-
-    try:
-        body = response.json()
-    except ValueError:
-        return jsonify({"error": "AI upstream returned non-JSON response"}), 502
-
-    choices = body.get("choices") or []
-    content = ""
-    if choices:
-        content = ((choices[0].get("message") or {}).get("content") or "").strip()
-
-    if not content:
-        content = "No response content returned by AI provider."
-
-    return jsonify({
-        "ok": True,
-        "response": content,
-        "model": model,
-        "endpoint": endpoint,
-        "mode": mode,
-    })
 
 
 # ── Real-time SSE ────────────────────────────────────────────────

@@ -9,7 +9,11 @@ os.environ.setdefault("DISCORD_REDIRECT_URI", "http://localhost/auth/callback")
 
 def test_health_endpoint():
     from dashboard.app import create_app
-    app = create_app({"TESTING": True, "SQLALCHEMY_DATABASE_URI": "sqlite:///:memory:"})
+    app = create_app({
+        "TESTING": True,
+        "SQLALCHEMY_DATABASE_URI": "sqlite:///:memory:",
+        "RATELIMIT_STORAGE_URI": "memory://",
+    })
     client = app.test_client()
     resp = client.get("/health")
     assert resp.status_code == 200

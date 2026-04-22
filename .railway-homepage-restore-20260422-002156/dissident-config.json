@@ -1,0 +1,70 @@
+{
+  "project": {
+    "name": "Dissident",
+    "version": "2.0.0",
+    "description": "Discord Bot Management Platform"
+  },
+  "components": {
+    "frontend": {
+      "name": "Dissident-Website",
+      "repo": "https://github.com/slothyproject/Dissident-Website",
+      "path": "E:\\Projects God Tier\\Dissident-Website",
+      "deployUrl": "https://dissident.mastertibbles.co.uk",
+      "railwayService": "Dissident-Website",
+      "port": 8080,
+      "type": "static"
+    },
+    "backend": {
+      "name": "Dissident-api-backend",
+      "repo": "https://github.com/slothyproject/Dissident-api-backend",
+      "path": "E:\\Projects God Tier\\Dissident-api-backend",
+      "deployUrl": "https://dissident-api-backend-production.up.railway.app",
+      "railwayService": "dissident-api-backend",
+      "port": 3000,
+      "type": "node",
+      "database": "postgresql"
+    },
+    "bot": {
+      "name": "Dissident Bot",
+      "serviceName": "Dissident Bot 2.0",
+      "token": null,
+      "clientId": "1493639167526174830",
+      "deployedIn": "backend",
+      "type": "discord-bot"
+    },
+    "vault": {
+      "name": "Tokens-Vault",
+      "repo": "https://github.com/slothyproject/Tokens-Vault",
+      "path": "E:\\Projects God Tier\\Dissident-Tokens-Vault",
+      "deployUrl": "https://dissidenttokens.mastertibbles.co.uk",
+      "railwayUrl": "https://dissident-tokens-vault-production.up.railway.app",
+      "railwayService": "dissident-tokens-vault",
+      "port": 8080,
+      "type": "static"
+    }
+  },
+  "discord": {
+    "applicationId": "1493639167526174830",
+    "clientId": "1493639167526174830",
+    "clientSecret": null,
+    "botToken": null,
+    "oauthRedirectUri": "https://dissident-api-backend-production.up.railway.app/api/auth/discord/callback",
+    "scopes": ["identify", "guilds", "email"]
+  },
+  "railway": {
+    "projectId": "resplendent-fulfillment",
+    "projectName": "resplendent-fulfillment",
+    "environment": "production"
+  },
+  "domains": {
+    "website": "dissident.mastertibbles.co.uk",
+    "backend": "dissident-api-backend-production.up.railway.app",
+    "bot": "dissidentbot.mastertibbles.co.uk"
+  },
+  "features": {
+    "autoDeploy": true,
+    "healthChecks": true,
+    "logging": true,
+    "monitoring": false
+  }
+}

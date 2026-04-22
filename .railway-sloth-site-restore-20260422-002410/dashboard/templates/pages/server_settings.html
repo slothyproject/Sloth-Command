@@ -1,0 +1,288 @@
+{% extends "base.html" %}
+{% block title %}Settings — {{ guild.name }}{% endblock %}
+{% block page_slug %}servers / {{ guild.name }} / settings{% endblock %}
+
+{% block content %}
+<a href="{{ url_for('core.server_detail', guild_id=guild.id) }}" class="back">← {{ guild.name }}</a>
+
+<div class="guild-header" style="margin-top:10px">
+  {% if guild.icon_url() %}
+    <img src="{{ guild.icon_url(40) }}" class="guild-header__icon" style="width:40px;height:40px" alt="">
+  {% else %}
+    <div class="guild-header__icon--placeholder" style="width:40px;height:40px;font-size:18px">{{ guild.name[0] }}</div>
+  {% endif %}
+  <div>
+    <div style="font-size:16px;font-weight:600;color:var(--text-0)">{{ guild.name }}</div>
+    <div style="font-family:var(--font-mono);font-size:10px;color:var(--text-2)">server settings</div>
+  </div>
+  <div class="guild-header__actions">
+    <button class="btn btn--primary btn--sm" onclick="saveSettings()">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+      Save changes
+    </button>
+  </div>
+</div>
+
+<div id="save-banner" style="display:none" class="alert alert--success">Settings saved and synced to bot.</div>
+<div id="save-error" style="display:none" class="alert alert--danger">Failed to save settings.</div>
+
+<div class="tabs">
+  <button class="tab active" onclick="switchTab('general', this)">General</button>
+  <button class="tab" onclick="switchTab('moderation', this)">Moderation</button>
+  <button class="tab" onclick="switchTab('welcome', this)">Welcome</button>
+  <button class="tab" onclick="switchTab('tickets', this)">Tickets</button>
+  <button class="tab" onclick="switchTab('leveling', this)">Leveling</button>
+  <button class="tab" onclick="switchTab('logging', this)">Logging</button>
+</div>
+
+<div id="tab-general" class="settings-grid">
+  <div class="card">
+    <div class="card__title">GENERAL</div>
+    <div class="form-row">
+      <div class="form-row__left">
+        <div class="form-row__label">Command prefix</div>
+        <div class="form-row__help">Default prefix for text commands</div>
+      </div>
+      <input class="field__input--inline" id="s-prefix" type="text" maxlength="8" placeholder="!">
+    </div>
+    <div class="form-row">
+      <div class="form-row__left">
+        <div class="form-row__label">Timezone</div>
+        <div class="form-row__help">Used for scheduled messages</div>
+      </div>
+      <input class="field__input--inline" id="s-timezone" type="text" placeholder="UTC">
+    </div>
+  </div>
+</div>
+
+<div id="tab-moderation" class="settings-grid" style="display:none">
+  <div class="card">
+    <div class="card__title">AUTO-MODERATION</div>
+    <div class="form-row">
+      <div class="form-row__left">
+        <div class="form-row__label">Enable AutoMod</div>
+        <div class="form-row__help">Automatically filter spam and bad content</div>
+      </div>
+      <label class="toggle"><input type="checkbox" id="s-automod"><span class="toggle__track"></span></label>
+    </div>
+    <div class="form-row">
+      <div class="form-row__left">
+        <div class="form-row__label">Enable AntiNuke</div>
+        <div class="form-row__help">Protect server from mass bans/kicks</div>
+      </div>
+      <label class="toggle"><input type="checkbox" id="s-antinuke"><span class="toggle__track"></span></label>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card__title">WARNINGS</div>
+    <div class="form-row">
+      <div class="form-row__left">
+        <div class="form-row__label">Max warnings before action</div>
+      </div>
+      <input class="field__input--inline" id="s-maxwarns" type="number" min="1" max="20" placeholder="3" style="max-width:80px">
+    </div>
+    <div class="form-row">
+      <div class="form-row__left">
+        <div class="form-row__label">Action on max warns</div>
+      </div>
+      <select class="field__input--inline" id="s-warnaction" style="max-width:120px">
+        <option value="mute">Mute</option>
+        <option value="kick">Kick</option>
+        <option value="ban">Ban</option>
+      </select>
+    </div>
+    <div class="form-row">
+      <div class="form-row__left">
+        <div class="form-row__label">Mod log channel ID</div>
+      </div>
+      <input class="field__input--inline" id="s-modlog" type="text" placeholder="channel ID">
+    </div>
+  </div>
+</div>
+
+<div id="tab-welcome" class="settings-grid" style="display:none">
+  <div class="card" style="grid-column:1/-1">
+    <div class="card__title">WELCOME &amp; FAREWELL</div>
+    <div class="form-row">
+      <div class="form-row__left">
+        <div class="form-row__label">Welcome channel ID</div>
+      </div>
+      <input class="field__input--inline" id="s-welcome-ch" type="text" placeholder="channel ID">
+    </div>
+    <div class="form-row" style="flex-direction:column;align-items:flex-start;gap:8px">
+      <div class="form-row__left">
+        <div class="form-row__label">Welcome message</div>
+        <div class="form-row__help">Use {user} for mention, {server} for server name</div>
+      </div>
+      <textarea class="field__input--inline" id="s-welcome-msg" rows="3" style="max-width:100%;width:100%;resize:vertical" placeholder="Welcome {user} to {server}!"></textarea>
+    </div>
+    <div class="form-row">
+      <div class="form-row__left">
+        <div class="form-row__label">Farewell channel ID</div>
+      </div>
+      <input class="field__input--inline" id="s-farewell-ch" type="text" placeholder="channel ID">
+    </div>
+  </div>
+</div>
+
+<div id="tab-tickets" class="settings-grid" style="display:none">
+  <div class="card">
+    <div class="card__title">TICKET SYSTEM</div>
+    <div class="form-row">
+      <div class="form-row__left">
+        <div class="form-row__label">Ticket channel ID</div>
+        <div class="form-row__help">Where users open tickets</div>
+      </div>
+      <input class="field__input--inline" id="s-ticket-ch" type="text" placeholder="channel ID">
+    </div>
+    <div class="form-row">
+      <div class="form-row__left">
+        <div class="form-row__label">Support role ID</div>
+        <div class="form-row__help">Role that can see all tickets</div>
+      </div>
+      <input class="field__input--inline" id="s-ticket-role" type="text" placeholder="role ID">
+    </div>
+  </div>
+</div>
+
+<div id="tab-leveling" class="settings-grid" style="display:none">
+  <div class="card">
+    <div class="card__title">XP &amp; LEVELING</div>
+    <div class="form-row">
+      <div class="form-row__left">
+        <div class="form-row__label">Enable leveling</div>
+      </div>
+      <label class="toggle"><input type="checkbox" id="s-leveling"><span class="toggle__track"></span></label>
+    </div>
+    <div class="form-row">
+      <div class="form-row__left">
+        <div class="form-row__label">Level-up channel ID</div>
+      </div>
+      <input class="field__input--inline" id="s-level-ch" type="text" placeholder="channel ID">
+    </div>
+    <div class="form-row">
+      <div class="form-row__left">
+        <div class="form-row__label">XP multiplier</div>
+        <div class="form-row__help">Multiply earned XP (0.5–3.0)</div>
+      </div>
+      <input class="field__input--inline" id="s-xpmult" type="number" step="0.1" min="0.1" max="5" placeholder="1.0" style="max-width:80px">
+    </div>
+  </div>
+</div>
+
+<div id="tab-logging" class="settings-grid" style="display:none">
+  <div class="card">
+    <div class="card__title">SERVER LOGS</div>
+    <div class="form-row">
+      <div class="form-row__left">
+        <div class="form-row__label">Log channel ID</div>
+      </div>
+      <input class="field__input--inline" id="s-log-ch" type="text" placeholder="channel ID">
+    </div>
+    <div class="form-row">
+      <div class="form-row__left"><div class="form-row__label">Log member joins</div></div>
+      <label class="toggle"><input type="checkbox" id="s-log-joins"><span class="toggle__track"></span></label>
+    </div>
+    <div class="form-row">
+      <div class="form-row__left"><div class="form-row__label">Log member leaves</div></div>
+      <label class="toggle"><input type="checkbox" id="s-log-leaves"><span class="toggle__track"></span></label>
+    </div>
+    <div class="form-row">
+      <div class="form-row__left"><div class="form-row__label">Log moderation actions</div></div>
+      <label class="toggle"><input type="checkbox" id="s-log-mod"><span class="toggle__track"></span></label>
+    </div>
+    <div class="form-row">
+      <div class="form-row__left">
+        <div class="form-row__label">Log message deletes/edits</div>
+        <div class="form-row__help">High volume — use a dedicated channel</div>
+      </div>
+      <label class="toggle"><input type="checkbox" id="s-log-msgs"><span class="toggle__track"></span></label>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const GUILD_ID = {{ guild.id }};
+let currentSettings = {};
+
+// Tab switching
+function switchTab(name, btn) {
+  document.querySelectorAll('[id^="tab-"]').forEach(el => el.style.display = 'none');
+  document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
+  document.getElementById('tab-' + name).style.display = '';
+  btn.classList.add('active');
+}
+
+// Load settings
+async function loadSettings() {
+  const d = await fetch(`/api/guilds/${GUILD_ID}/settings`).then(r => r.json());
+  currentSettings = d;
+  document.getElementById('s-prefix').value = d.prefix || '!';
+  document.getElementById('s-timezone').value = d.timezone || 'UTC';
+  document.getElementById('s-automod').checked = !!d.automod_enabled;
+  document.getElementById('s-antinuke').checked = !!d.antinuke_enabled;
+  document.getElementById('s-maxwarns').value = d.max_warns || 3;
+  document.getElementById('s-warnaction').value = d.warn_action || 'mute';
+  document.getElementById('s-modlog').value = d.mod_log_channel || '';
+  document.getElementById('s-welcome-ch').value = d.welcome_channel || '';
+  document.getElementById('s-welcome-msg').value = d.welcome_message || '';
+  document.getElementById('s-farewell-ch').value = d.farewell_channel || '';
+  document.getElementById('s-ticket-ch').value = d.ticket_channel || '';
+  document.getElementById('s-ticket-role').value = d.ticket_role || '';
+  document.getElementById('s-leveling').checked = !!d.leveling_enabled;
+  document.getElementById('s-level-ch').value = d.level_channel || '';
+  document.getElementById('s-xpmult').value = d.xp_multiplier || 1.0;
+  document.getElementById('s-log-ch').value = d.log_channel || '';
+  document.getElementById('s-log-joins').checked = d.log_joins !== false;
+  document.getElementById('s-log-leaves').checked = d.log_leaves !== false;
+  document.getElementById('s-log-mod').checked = d.log_moderation !== false;
+  document.getElementById('s-log-msgs').checked = !!d.log_messages;
+}
+
+async function saveSettings() {
+  const payload = {
+    prefix: document.getElementById('s-prefix').value,
+    timezone: document.getElementById('s-timezone').value,
+    automod_enabled: document.getElementById('s-automod').checked,
+    antinuke_enabled: document.getElementById('s-antinuke').checked,
+    max_warns: parseInt(document.getElementById('s-maxwarns').value) || 3,
+    warn_action: document.getElementById('s-warnaction').value,
+    mod_log_channel: document.getElementById('s-modlog').value || null,
+    welcome_channel: document.getElementById('s-welcome-ch').value || null,
+    welcome_message: document.getElementById('s-welcome-msg').value || null,
+    farewell_channel: document.getElementById('s-farewell-ch').value || null,
+    ticket_channel: document.getElementById('s-ticket-ch').value || null,
+    ticket_role: document.getElementById('s-ticket-role').value || null,
+    leveling_enabled: document.getElementById('s-leveling').checked,
+    level_channel: document.getElementById('s-level-ch').value || null,
+    xp_multiplier: parseFloat(document.getElementById('s-xpmult').value) || 1.0,
+    log_channel: document.getElementById('s-log-ch').value || null,
+    log_joins: document.getElementById('s-log-joins').checked,
+    log_leaves: document.getElementById('s-log-leaves').checked,
+    log_moderation: document.getElementById('s-log-mod').checked,
+    log_messages: document.getElementById('s-log-msgs').checked,
+  };
+  try {
+    const r = await fetch(`/api/guilds/${GUILD_ID}/settings`, {
+      method: 'PATCH',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload)
+    });
+    const d = await r.json();
+    const banner = document.getElementById('save-banner');
+    const errBanner = document.getElementById('save-error');
+    if (d.ok) {
+      banner.style.display = 'block';
+      errBanner.style.display = 'none';
+      setTimeout(() => banner.style.display = 'none', 3000);
+    } else {
+      errBanner.style.display = 'block';
+    }
+  } catch { document.getElementById('save-error').style.display = 'block'; }
+}
+
+loadSettings();
+</script>
+{% endblock %}

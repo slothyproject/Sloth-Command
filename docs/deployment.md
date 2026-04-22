@@ -27,6 +27,25 @@ In the Railway service settings, add:
 | `DISCORD_REDIRECT_URI` | `https://hub.mastertibbles.co.uk/auth/callback` |
 | `ADMIN_USER` | Your admin username |
 | `ADMIN_PASS` | A strong password |
+| `BOT_INTERNAL_API_KEY` | Shared secret used by the Discord backend for internal AI routes |
+| `AI_PROVIDER_ENCRYPTION_KEY` | Base64-encoded 32-byte key for encrypting stored per-user AI provider secrets |
+
+Generate `AI_PROVIDER_ENCRYPTION_KEY` with a 32-byte random value, for example:
+
+```bash
+python -c "import base64, secrets; print(base64.b64encode(secrets.token_bytes(32)).decode())"
+```
+
+### 2b. Set backend variables for Discord AI commands
+
+On the Discord backend service, add:
+
+| Variable | Value |
+|----------|-------|
+| `HUB_API_BASE_URL` | `https://hub.mastertibbles.co.uk` |
+| `BOT_INTERNAL_API_KEY` | Exactly the same value configured on the Hub |
+
+The backend can still fall back to `WEBHOOK_SECRET`, but that should be treated as compatibility-only. Use `BOT_INTERNAL_API_KEY` on both services for production.
 
 ### 3. Set the custom domain
 
