@@ -17,8 +17,8 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      - name: Install dependencies
-        run: pip install -r requirements.txt ruff --quiet
+      - name: Install ruff
+        run: pip install ruff --quiet
       - name: Lint
         run: ruff check . --config ruff.toml
 
