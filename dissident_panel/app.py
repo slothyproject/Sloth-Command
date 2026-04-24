@@ -20,7 +20,6 @@ from flask import (
     Flask, render_template, request, jsonify, abort,
     redirect, url_for, session, send_from_directory
 )
-from werkzeug.security import check_password_hash, generate_password_hash
 
 # Add web_panel to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -31,7 +30,6 @@ import push_api
 import user_auth as auth
 import discord_auth
 import bot_bridge
-import push_notifications
 
 # ============================================================================
 # LOGGING SETUP
@@ -665,7 +663,7 @@ def api_db_stats():
             'size': size_str,
             'lastUpdated': 'Live'
         })
-    except Exception as e:
+    except Exception:
         return jsonify({'tables': 0, 'rows': 0, 'size': 'Error', 'lastUpdated': 'N/A'})
 
 
@@ -817,9 +815,7 @@ def api_notifications_delete(notif_id):
 @login_required
 def api_backup():
 
-    import shutil
     import zipfile
-    from io import BytesIO
 
     data = request.json or {}
     backup_name = data.get('name', f'backup_{datetime.now().strftime("%Y%m%d_%H%M%S")}')
