@@ -13,7 +13,7 @@ import os
 import threading
 import time
 from pathlib import Path
-from typing import Dict, List, Optional, Callable
+from typing import Dict, Optional, Callable
 
 DATA_DIR = Path(__file__).parent.parent / "data"
 STATE_FILE = DATA_DIR / "bot_state.json"
