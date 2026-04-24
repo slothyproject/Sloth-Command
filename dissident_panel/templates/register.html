@@ -1,0 +1,78 @@
+{% extends "auth_base.html" %}
+
+{% block title %}Register Server | Dissident Bot{% endblock %}
+
+{% block content %}
+<div class="ds-glass rounded-3xl p-8 md:p-10" x-data="{
+    step: 1, serverId: '', serverName: '', inviteLink: '', contact: '', loading: false, error: '', success: '',
+    async submit() {
+        if (this.step === 1) { if (!this.serverId || !this.serverName) { this.error = 'Fill in server ID and name'; return; } this.step = 2; this.error = ''; return; }
+        this.loading = true; this.error = '';
+        try {
+            const res = await fetch('/api/register/servers', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({server_id: this.serverId, server_name: this.serverName, invite_link: this.inviteLink, contact: this.contact}) });
+            const data = await res.json();
+            if (data.success) this.success = data.message || 'Server registered successfully!';
+            else this.error = data.error || 'Registration failed';
+        } catch(e) { this.error = 'Connection error. Try again.'; }
+        this.loading = false;
+    }
+}">
+    <div class="text-center mb-8">
+        <div class="w-16 h-16 rounded-2xl gradient-bg flex items-center justify-center text-white text-2xl font-bold shadow-lg shadow-primary/30 mx-auto mb-4">
+            <svg class="w-8 h-8" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M7 7h10M7 12h10M7 17h10"/></svg>
+        </div>
+        <h2 class="text-2xl font-extrabold"><span class="gradient-text">Register Server</span></h2>
+        <p class="text-sm text-muted-foreground mt-1">add your Discord server to the Dissident Bot family</p>
+    </div>
+
+    <div class="flex gap-2 mb-6">
+        <div class="flex-1 py-2 text-center rounded-lg text-xs font-semibold transition-all" :class="step >= 1 ? 'gradient-bg text-white' : 'bg-surface text-muted-foreground'">1. Server Info</div>
+        <div class="flex-1 py-2 text-center rounded-lg text-xs font-semibold transition-all" :class="step >= 2 ? 'gradient-bg text-white' : 'bg-surface text-muted-foreground'">2. Additional</div>
+    </div>
+
+    <div x-show="success" x-transition class="p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-emerald-500 text-sm text-center mb-4" x-text="success"></div>
+    <div x-show="error" x-transition class="p-3 bg-destructive/10 border border-destructive/30 rounded-xl text-destructive text-sm text-center mb-4" x-text="error"></div>
+
+    <template x-if="step === 1 && !success">
+        <form @submit.prevent="submit()">
+            <div class="mb-5">
+                <label class="block text-sm font-medium text-muted-foreground mb-2">Server ID</label>
+                <input type="text" x-model="serverId" class="w-full px-4 py-3 bg-background border border-border rounded-xl text-foreground placeholder-muted-foreground/50 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-colors" placeholder="e.g. 123456789012345678" required>
+            </div>
+            <div class="mb-5">
+                <label class="block text-sm font-medium text-muted-foreground mb-2">Server Name</label>
+                <input type="text" x-model="serverName" class="w-full px-4 py-3 bg-background border border-border rounded-xl text-foreground placeholder-muted-foreground/50 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-colors" placeholder="My Awesome Server" required>
+            </div>
+            <button type="submit" class="w-full py-3 font-bold text-white rounded-xl gradient-bg hover:shadow-lg hover:shadow-primary/40 hover:-translate-y-0.5 transition-all">Next</button>
+        </form>
+    </template>
+
+    <template x-if="step === 2 && !success">
+        <form @submit.prevent="submit()">
+            <div class="mb-5">
+                <label class="block text-sm font-medium text-muted-foreground mb-2">Invite Link (optional)</label>
+                <input type="text" x-model="inviteLink" class="w-full px-4 py-3 bg-background border border-border rounded-xl text-foreground placeholder-muted-foreground/50 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-colors" placeholder="https://discord.gg/...">
+            </div>
+            <div class="mb-5">
+                <label class="block text-sm font-medium text-muted-foreground mb-2">Contact (optional)</label>
+                <input type="text" x-model="contact" class="w-full px-4 py-3 bg-background border border-border rounded-xl text-foreground placeholder-muted-foreground/50 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-colors" placeholder="Discord username or email">
+            </div>
+            <div class="flex gap-3">
+                <button type="button" @click="step = 1; error = ''" class="flex-1 py-3 font-semibold border border-border rounded-xl text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors">Back</button>
+                <button type="submit" class="flex-1 py-3 font-bold text-white rounded-xl gradient-bg hover:shadow-lg hover:shadow-primary/40 transition-all disabled:opacity-50" :disabled="loading">
+                    <span x-show="!loading">Register</span>
+                    <span x-show="loading">Registering...</span>
+                </button>
+            </div>
+        </form>
+    </template>
+
+    <div x-show="success" class="mt-4 text-center">
+        <a href="/login" class="text-sm text-primary hover:text-primary-hover transition-colors">Head to login &rarr;</a>
+    </div>
+
+    <div class="mt-6 text-center">
+        <a href="/login" class="text-sm text-primary hover:text-primary-hover transition-colors">&larr; back to login</a>
+    </div>
+</div>
+{% endblock %}

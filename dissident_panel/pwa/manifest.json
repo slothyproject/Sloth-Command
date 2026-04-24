@@ -1,0 +1,45 @@
+{
+  "name": "Dissident Bot Dashboard",
+  "short_name": "Dissident",
+  "description": "Full-featured Discord bot admin dashboard",
+  "start_url": "/dashboard",
+  "display": "standalone",
+  "background_color": "#0d1117",
+  "theme_color": "#a855f7",
+  "orientation": "any",
+  "scope": "/",
+  "icons": [
+    {
+      "src": "/static/pwa/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["utilities", "productivity"],
+  "shortcuts": [
+    {
+      "name": "Dashboard",
+      "short_name": "Dashboard",
+      "description": "View bot dashboard",
+      "url": "/dashboard",
+      "icons": [{ "src": "/static/pwa/icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+    },
+    {
+      "name": "Plugins",
+      "short_name": "Plugins",
+      "description": "Manage plugins",
+      "url": "/plugins",
+      "icons": [{ "src": "/static/pwa/icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+    },
+    {
+      "name": "Logs",
+      "short_name": "Logs",
+      "description": "View logs",
+      "url": "/logs",
+      "icons": [{ "src": "/static/pwa/icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+    }
+  ],
+  "related_applications": [],
+  "prefer_related_applications": false
+}

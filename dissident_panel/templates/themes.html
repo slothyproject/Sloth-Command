@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% block title %}Themes | Dissident Bot{% endblock %}
+
+{% block content %}
+<div x-data="themesApp()" x-init="init()">
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+        <div>
+            <h1 class="text-2xl font-bold text-foreground">Themes</h1>
+            <p class="text-sm text-muted-foreground mt-1">Customize your dashboard appearance</p>
+        </div>
+        <button @click="showCreateModal=true" class="inline-flex items-center gap-2 px-4 h-10 rounded-lg gradient-bg text-white text-sm font-medium">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 5v14m-7-7h14"/></svg>
+            Create Theme
+        </button>
+    </div>
+
+    <div class="flex gap-2 mb-6 overflow-x-auto pb-2">
+        <template x-for="cat in ['all','dark','light','colorful','minimal']" :key="cat">
+            <button @click="category=cat; filterThemes()" class="px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap" :class="category===cat ? 'gradient-bg text-white' : 'bg-card border border-card-border text-muted-foreground hover:text-foreground'" x-text="cat.charAt(0).toUpperCase()+cat.slice(1)"></button>
+        </template>
+    </div>
+
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+        <template x-for="theme in filteredThemes" :key="theme.id">
+            <div class="rounded-xl bg-card border overflow-hidden hover:-translate-y-0.5 transition-all" :class="theme.id===activeThemeId ? 'border-emerald-500 shadow-lg shadow-emerald-500/10' : 'border-card-border hover:border-primary/30'">
+                <div class="h-32 relative flex" :style="'background:'+theme.preview">
+                    <div class="w-1/4 h-full bg-black/20"></div>
+                    <div class="flex-1 p-2 flex flex-col gap-1.5">
+                        <div class="h-3 bg-white/20 rounded-sm"></div>
+                        <div class="h-6 bg-white/10 rounded-sm"></div>
+                        <div class="h-6 bg-white/10 rounded-sm"></div>
+                    </div>
+                    <div x-show="theme.id===activeThemeId" class="absolute top-2 right-2 w-7 h-7 rounded-full bg-emerald-500 flex items-center justify-center">
+                        <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg>
+                    </div>
+                </div>
+                <div class="p-4">
+                    <div class="flex items-center justify-between mb-1">
+                        <h3 class="text-sm font-semibold text-foreground" x-text="theme.name"></h3>
+                        <span class="px-2 py-0.5 rounded text-xs uppercase bg-surface text-muted-foreground" x-text="theme.type"></span>
+                    </div>
+                    <p class="text-xs text-muted-foreground line-clamp-2 mb-3" x-text="theme.description"></p>
+                    <div class="flex items-center gap-3 text-xs text-muted-foreground mb-3">
+                        <span class="flex items-center gap-1">
+                            <svg class="w-3.5 h-3.5 text-yellow-500" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.579-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>
+                            <span x-text="theme.rating"></span>
+                        </span>
+                        <span class="flex items-center gap-1">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2M12 7a4 4 0 100 8 4 4 0 000-8z"/></svg>
+                            <span x-text="theme.author"></span>
+                        </span>
+                    </div>
+                    <div class="flex gap-2">
+                        <button @click="applyTheme(theme)" x-show="theme.id!==activeThemeId" class="flex-1 px-3 py-2 rounded-lg text-xs font-medium gradient-bg text-white">Apply</button>
+                        <button @click="applyTheme(theme)" x-show="theme.id===activeThemeId" class="flex-1 px-3 py-2 rounded-lg text-xs font-medium bg-emerald-500/10 text-emerald-500">Active</button>
+                        <button @click="previewTheme(theme)" class="px-3 py-2 rounded-lg text-xs font-medium bg-surface text-foreground hover:bg-surface/80 transition-colors">Preview</button>
+                    </div>
+                </div>
+            </div>
+        </template>
+    </div>
+
+    <div x-show="showCreateModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" @click.self="showCreateModal=false">
+        <div class="w-full max-w-md mx-4 rounded-2xl bg-card border border-card-border p-6">
+            <h3 class="text-lg font-semibold text-foreground mb-4">Create Custom Theme</h3>
+            <div class="space-y-4">
+                <div><label class="block text-sm font-medium text-foreground mb-1">Theme Name</label><input type="text" x-model="newTheme.name" placeholder="My Custom Theme" class="w-full h-10 px-3 rounded-lg bg-surface border border-card-border text-foreground text-sm focus:border-primary focus:outline-none"></div>
+                <div><label class="block text-sm font-medium text-foreground mb-1">Description</label><input type="text" x-model="newTheme.description" placeholder="A beautiful dark theme" class="w-full h-10 px-3 rounded-lg bg-surface border border-card-border text-foreground text-sm focus:border-primary focus:outline-none"></div>
+                <div><label class="block text-sm font-medium text-foreground mb-1">Type</label><select x-model="newTheme.type" class="w-full h-10 px-3 rounded-lg bg-surface border border-card-border text-foreground text-sm focus:border-primary focus:outline-none"><option value="dark">Dark</option><option value="light">Light</option><option value="colorful">Colorful</option><option value="minimal">Minimal</option></select></div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div><label class="block text-sm font-medium text-foreground mb-1">Primary</label><input type="color" x-model="newTheme.primary" class="w-full h-10 rounded-lg border border-card-border cursor-pointer"></div>
+                    <div><label class="block text-sm font-medium text-foreground mb-1">Accent</label><input type="color" x-model="newTheme.accent" class="w-full h-10 rounded-lg border border-card-border cursor-pointer"></div>
+                </div>
+            </div>
+            <div class="flex gap-3 mt-6">
+                <button @click="showCreateModal=false" class="flex-1 px-4 py-2 rounded-lg bg-surface text-foreground text-sm font-medium">Cancel</button>
+                <button @click="createTheme()" class="flex-1 px-4 py-2 rounded-lg gradient-bg text-white text-sm font-medium">Create</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function themesApp() {
+    return {
+        themes: [], filteredThemes: [], category: 'all',
+        activeThemeId: localStorage.getItem('dissident-theme')||'theme-dissident',
+        showCreateModal: false,
+        newTheme: { name:'', description:'', type:'dark', primary:'#a855f7', accent:'#58a6ff', background:'#0d1117', surface:'#161b22' },
+        init() { this.loadThemes(); },
+        loadThemes() {
+            this.themes = [
+                { id:'theme-dissident', name:'Dissident Dark', description:'Classic dark theme with purple accents', type:'dark', rating:4.8, downloads:12453, author:'Dissident', custom:false, preview:'linear-gradient(135deg,#0d1117,#161b22)' },
+                { id:'theme-dissident-light', name:'Dissident Light', description:'Clean light theme for bright environments', type:'light', rating:4.5, downloads:3421, author:'Dissident', custom:false, preview:'linear-gradient(135deg,#ffffff,#f6f8fa)' },
+                { id:'midnight', name:'Midnight Purple', description:'Deep purple tones with neon accents', type:'colorful', rating:4.9, downloads:8934, author:'NeonDev', custom:false, preview:'linear-gradient(135deg,#1a0033,#2d1b4e)' },
+                { id:'ocean', name:'Ocean Blue', description:'Calming ocean-inspired color scheme', type:'colorful', rating:4.7, downloads:5678, author:'SeaCoder', custom:false, preview:'linear-gradient(135deg,#0c1929,#1a3a5c)' },
+                { id:'nordic', name:'Nordic Frost', description:'Cool Nordic-inspired tones', type:'minimal', rating:4.6, downloads:3456, author:'NordicDev', custom:false, preview:'linear-gradient(135deg,#2e3440,#3b4252)' },
+                { id:'forest', name:'Forest Green', description:'Nature-inspired green theme', type:'colorful', rating:4.6, downloads:2345, author:'NatureFan', custom:false, preview:'linear-gradient(135deg,#0d1f0d,#1a3a1a)' },
+                { id:'minimal', name:'Minimal', description:'Ultra-clean minimal design', type:'minimal', rating:4.4, downloads:1234, author:'Minimalist', custom:false, preview:'linear-gradient(135deg,#1a1a1a,#2d2d2d)' },
+                { id:'sunset', name:'Sunset Glow', description:'Warm sunset colors', type:'colorful', rating:4.8, downloads:4567, author:'ArtisticDev', custom:false, preview:'linear-gradient(135deg,#1f0d1f,#3d1a2e)' }
+            ];
+            this.filterThemes();
+        },
+        filterThemes() { this.filteredThemes = this.category==='all' ? [...this.themes] : this.themes.filter(t=>t.type===this.category); },
+        applyTheme(t) { this.activeThemeId=t.id; document.documentElement.setAttribute('data-theme',t.id); localStorage.setItem('dissident-theme',t.id); },
+        previewTheme(t) { document.documentElement.setAttribute('data-theme',t.id); },
+        createTheme() { if(!this.newTheme.name) return; this.themes.push({ id:'custom_'+Date.now(), ...this.newTheme, rating:0, downloads:0, author:'Me', custom:true, preview:'linear-gradient(135deg,'+this.newTheme.background+','+this.newTheme.surface+')' }); this.filterThemes(); this.showCreateModal=false; this.newTheme={name:'',description:'',type:'dark',primary:'#a855f7',accent:'#58a6ff',background:'#0d1117',surface:'#161b22'}; }
+    };
+}
+</script>
+{% endblock %}

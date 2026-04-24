@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Users | Dissident Bot{% endblock %}
+{% block content %}
+<div x-data="usersApp()" x-init="init()">
+    <div class="mb-6 flex items-center justify-between flex-wrap gap-4">
+        <div>
+            <h1 class="text-2xl font-bold text-foreground">Users</h1>
+            <p class="text-sm text-muted-foreground mt-1">Search and manage bot users</p>
+        </div>
+        <div class="relative">
+            <svg class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+            <input type="text" x-model="search" placeholder="Search users..." class="pl-10 pr-4 py-2 rounded-lg bg-card border border-card-border text-foreground text-sm placeholder:text-muted-foreground focus:border-primary focus:outline-none transition-colors w-64">
+        </div>
+    </div>
+
+    <div class="rounded-xl bg-card border border-card-border overflow-hidden">
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead><tr class="border-b border-card-divider text-left text-muted-foreground">
+                    <th class="px-5 py-3 font-medium">Username</th>
+                    <th class="px-5 py-3 font-medium">Join Date</th>
+                    <th class="px-5 py-3 font-medium w-28">Status</th>
+                </tr></thead>
+                <tbody>
+                    <template x-for="u in filteredUsers()" :key="u.username">
+                        <tr class="border-b border-card-divider last:border-0 hover:bg-surface transition-colors">
+                            <td class="px-5 py-3">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-bold" x-text="u.username.charAt(0).toUpperCase()"></div>
+                                    <span class="font-semibold text-foreground" x-text="u.username"></span>
+                                </div>
+                            </td>
+                            <td class="px-5 py-3 text-muted-foreground" x-text="u.joined || u.join_date || 'N/A'"></td>
+                            <td class="px-5 py-3">
+                                <span class="px-2.5 py-1 rounded-md text-xs font-semibold" :class="u.active!=='false'&&u.status!=='inactive'?'bg-emerald-500/10 text-emerald-500':'bg-surface text-muted-foreground'" x-text="u.active!=='false'&&u.status!=='inactive'?'Active':'Inactive'"></span>
+                            </td>
+                        </tr>
+                    </template>
+                    <tr x-show="filteredUsers().length===0">
+                        <td colspan="3" class="px-5 py-8 text-center text-muted-foreground">No users found</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+function usersApp(){
+    return{
+        users:[],search:'',
+        init(){this.load()},
+        async load(){try{var r=await fetch('/api/users');if(r.ok){var d=await r.json();this.users=d.users||d||[];}}catch(e){this.users=[];}},
+        filteredUsers(){if(!this.search)return this.users;var q=this.search.toLowerCase();return this.users.filter(function(u){return(u.username||'').toLowerCase().includes(q)||(u.joined||u.join_date||'').toLowerCase().includes(q);});}
+    };
+}
+</script>
+{% endblock %}

@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+
+{% block title %}Settings | Dissident Bot{% endblock %}
+
+{% block content %}
+<div x-data="settingsApp()" x-init="init()">
+    <div class="flex items-center justify-between mb-6">
+        <div>
+            <h1 class="text-2xl font-bold text-foreground">Settings</h1>
+            <p class="text-sm text-muted-foreground mt-1">Configure your bot</p>
+        </div>
+        <button @click="save()" :disabled="saving" class="px-4 py-2 text-sm font-medium rounded-lg gradient-bg text-white hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center gap-2">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg>
+            <span x-text="saving?'Saving...':'Save Changes'"></span>
+        </button>
+    </div>
+
+    <div class="space-y-6">
+        <div class="rounded-xl bg-card border border-card-border overflow-hidden">
+            <div class="px-5 py-4 border-b border-card-divider">
+                <h3 class="text-sm font-semibold text-foreground flex items-center gap-2">
+                    <svg class="w-4 h-4 text-primary" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.573-1.066z"/><circle cx="12" cy="12" r="3"/></svg>
+                    General
+                </h3>
+            </div>
+            <div class="p-5 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-xs font-medium text-muted-foreground mb-1.5">Bot Name</label>
+                    <input type="text" x-model="form.bot_name" class="w-full px-3 py-2 text-sm rounded-lg bg-surface border border-card-border text-foreground placeholder-muted-foreground focus:outline-none focus:border-primary" placeholder="Dissident Bot">
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-muted-foreground mb-1.5">Prefix</label>
+                    <input type="text" x-model="form.prefix" class="w-full px-3 py-2 text-sm rounded-lg bg-surface border border-card-border text-foreground placeholder-muted-foreground focus:outline-none focus:border-primary" placeholder="!">
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-muted-foreground mb-1.5">Status</label>
+                    <select x-model="form.status" class="w-full px-3 py-2 text-sm rounded-lg bg-surface border border-card-border text-foreground focus:outline-none focus:border-primary">
+                        <option value="online">Online</option>
+                        <option value="idle">Idle</option>
+                        <option value="dnd">Do Not Disturb</option>
+                        <option value="invisible">Invisible</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-muted-foreground mb-1.5">Activity</label>
+                    <input type="text" x-model="form.activity" class="w-full px-3 py-2 text-sm rounded-lg bg-surface border border-card-border text-foreground placeholder-muted-foreground focus:outline-none focus:border-primary" placeholder="Watching you...">
+                </div>
+            </div>
+        </div>
+
+        <div class="rounded-xl bg-card border border-card-border overflow-hidden">
+            <div class="px-5 py-4 border-b border-card-divider">
+                <h3 class="text-sm font-semibold text-foreground flex items-center gap-2">
+                    <svg class="w-4 h-4 text-primary" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+                    Moderation
+                </h3>
+            </div>
+            <div class="p-5 space-y-4">
+                <label class="flex items-center justify-between cursor-pointer">
+                    <div><div class="text-sm font-medium text-foreground">Auto-Moderation</div><div class="text-xs text-muted-foreground">Automatically filter and act on rule violations</div></div>
+                    <div class="relative" @click="form.auto_mod=!form.auto_mod">
+                        <div class="w-10 h-5 rounded-full transition-colors" :class="form.auto_mod?'bg-primary':'bg-surface'"></div>
+                        <div class="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform" :class="form.auto_mod?'translate-x-5':''"></div>
+                    </div>
+                </label>
+                <div>
+                    <label class="block text-xs font-medium text-muted-foreground mb-1.5">Log Channel ID</label>
+                    <input type="text" x-model="form.log_channel" class="w-full px-3 py-2 text-sm rounded-lg bg-surface border border-card-border text-foreground placeholder-muted-foreground focus:outline-none focus:border-primary" placeholder="000000000000000000">
+                </div>
+            </div>
+        </div>
+
+        <div class="rounded-xl bg-card border border-card-border overflow-hidden">
+            <div class="px-5 py-4 border-b border-card-divider">
+                <h3 class="text-sm font-semibold text-foreground flex items-center gap-2">
+                    <svg class="w-4 h-4 text-primary" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/></svg>
+                    Notifications
+                </h3>
+            </div>
+            <div class="p-5 space-y-4">
+                <div>
+                    <label class="block text-xs font-medium text-muted-foreground mb-1.5">Webhook URL</label>
+                    <input type="text" x-model="form.webhook_url" class="w-full px-3 py-2 text-sm rounded-lg bg-surface border border-card-border text-foreground placeholder-muted-foreground focus:outline-none focus:border-primary" placeholder="https://discord.com/api/webhooks/...">
+                </div>
+                <label class="flex items-center justify-between cursor-pointer">
+                    <div><div class="text-sm font-medium text-foreground">Error Alerts</div><div class="text-xs text-muted-foreground">Send alerts for bot errors</div></div>
+                    <div class="relative" @click="form.error_alerts=!form.error_alerts">
+                        <div class="w-10 h-5 rounded-full transition-colors" :class="form.error_alerts?'bg-primary':'bg-surface'"></div>
+                        <div class="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform" :class="form.error_alerts?'translate-x-5':''"></div>
+                    </div>
+                </label>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function settingsApp(){
+    return {
+        saving:false,
+        form:{bot_name:'',prefix:'!',status:'online',activity:'',auto_mod:true,log_channel:'',webhook_url:'',error_alerts:true},
+        init(){this.loadSettings();},
+        async loadSettings(){try{var r=await Dissident.apiCall('/api/settings');Object.assign(this.form,r);}catch(e){}try{var r=await Dissident.apiCall('/api/stats');if(r.prefix)this.form.prefix=r.prefix;if(r.status)this.form.status=r.status;}catch(e){}},
+        async save(){this.saving=true;try{await Dissident.apiCall('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(this.form)});Dissident.showToast('Settings saved successfully','success');}catch(e){Dissident.showToast('Failed to save settings','error');}this.saving=false;}
+    };
+}
+</script>
+{% endblock %}

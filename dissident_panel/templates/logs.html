@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+
+{% block title %}Logs | Dissident Bot{% endblock %}
+
+{% block content %}
+<div x-data="logsApp()" x-init="init()">
+    <div class="flex items-center justify-between mb-6">
+        <div>
+            <h1 class="text-2xl font-bold text-foreground">System Logs</h1>
+            <p class="text-sm text-muted-foreground mt-1">View bot activity and errors</p>
+        </div>
+        <div class="flex items-center gap-2">
+            <button @click="exportLogs()" class="px-3 py-1.5 text-xs font-medium rounded-lg bg-surface text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1.5">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+                Export
+            </button>
+            <button @click="load()" class="px-3 py-1.5 text-xs font-medium rounded-lg bg-surface text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1.5">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M1 4v6h6M23 20v-6h-6M20.49 9A9 9 0 005.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 013.51 15"/></svg>
+                Refresh
+            </button>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+        <div class="rounded-xl bg-card border border-card-border p-4 text-center">
+            <div class="text-xl font-bold text-secondary" x-text="counts.info">0</div>
+            <div class="text-xs text-muted-foreground">Info</div>
+        </div>
+        <div class="rounded-xl bg-card border border-card-border p-4 text-center">
+            <div class="text-xl font-bold text-orange-500" x-text="counts.warn">0</div>
+            <div class="text-xs text-muted-foreground">Warnings</div>
+        </div>
+        <div class="rounded-xl bg-card border border-card-border p-4 text-center">
+            <div class="text-xl font-bold text-red-500" x-text="counts.error">0</div>
+            <div class="text-xs text-muted-foreground">Errors</div>
+        </div>
+        <div class="rounded-xl bg-card border border-card-border p-4 text-center">
+            <div class="text-xl font-bold text-foreground" x-text="logs.length">0</div>
+            <div class="text-xs text-muted-foreground">Total</div>
+        </div>
+    </div>
+
+    <div class="rounded-xl bg-card border border-card-border overflow-hidden">
+        <div class="flex items-center justify-between px-4 py-3 border-b border-card-divider flex-wrap gap-2">
+            <div class="flex gap-1.5">
+                <template x-for="l in levels" :key="l.key">
+                    <button @click="level=l.key" class="px-2.5 py-1 text-xs font-medium rounded-md transition-colors"
+                            :class="level===l.key?'bg-primary text-white':'bg-surface text-muted-foreground hover:text-foreground'"
+                            x-text="l.label"></button>
+                </template>
+            </div>
+            <div class="relative">
+                <svg class="w-4 h-4 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                <input type="text" x-model="search" placeholder="Search logs..." class="pl-8 pr-3 py-1.5 text-xs rounded-lg bg-surface border border-card-border text-foreground placeholder-muted-foreground focus:outline-none focus:border-primary w-48">
+            </div>
+        </div>
+
+        <div x-ref="logContainer" class="max-h-[500px] overflow-y-auto font-mono text-xs">
+            <template x-for="log in filtered" :key="log.id || log.timestamp">
+                <div class="flex gap-3 px-4 py-2.5 border-b border-card-divider hover:bg-surface transition-colors items-start">
+                    <span class="text-muted-foreground whitespace-nowrap flex-shrink-0" x-text="log.timestamp"></span>
+                    <span class="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase whitespace-nowrap flex-shrink-0"
+                          :class="log.level==='ERROR'?'bg-red-500/10 text-red-500':log.level==='WARNING'?'bg-orange-500/10 text-orange-500':log.level==='DEBUG'?'bg-surface text-muted-foreground':'bg-secondary/10 text-secondary'"
+                          x-text="log.level"></span>
+                    <span class="flex-1 break-words text-foreground" x-text="log.message"></span>
+                </div>
+            </template>
+            <div x-show="filtered.length===0" class="py-12 text-center">
+                <p class="text-sm text-muted-foreground">No logs found</p>
+            </div>
+        </div>
+        <div class="px-4 py-2 border-t border-card-divider text-xs text-muted-foreground">
+            <span x-text="filtered.length"></span> entries
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function logsApp(){
+    return {
+        logs:[],search:'',level:'all',
+        levels:[{key:'all',label:'All'},{key:'INFO',label:'Info'},{key:'WARNING',label:'Warn'},{key:'ERROR',label:'Error'}],
+        get counts(){var c={info:0,warn:0,error:0};this.logs.forEach(function(l){var lv=(l.level||'').toUpperCase();if(lv==='INFO')c.info++;else if(lv==='WARNING'||lv==='WARN')c.warn++;else if(lv==='ERROR')c.error++;});return c;},
+        get filtered(){var self=this;var f=this.logs;if(this.level!=='all')f=f.filter(function(l){return(l.level||'').toUpperCase()===self.level;});if(this.search){var q=this.search.toLowerCase();f=f.filter(function(l){return(l.message||'').toLowerCase().includes(q)||(l.source||'').toLowerCase().includes(q);});}return f;},
+        init(){this.load();},
+        async load(){try{var r=await Dissident.apiCall('/api/logs?limit=100');this.logs=r.logs||r||[];this.$nextTick(function(){var c=this.$refs.logContainer;if(c)c.scrollTop=c.scrollHeight;}.bind(this));}catch(e){this.logs=[];}},
+        exportLogs(){var data=JSON.stringify(this.logs,null,2);var blob=new Blob([data],{type:'application/json'});var url=URL.createObjectURL(blob);var a=document.createElement('a');a.href=url;a.download='dissident-logs.json';a.click();}
+    };
+}
+</script>
+{% endblock %}

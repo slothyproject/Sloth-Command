@@ -1,0 +1,92 @@
+{# Stats card component — reusable KPI card
+   Params: icon (SVG path d), label, value, trend (up/down/neutral), trend_text, color (primary/secondary/emerald/orange/red) #}
+{% macro stats_card(icon='', label='—', value='—', trend='', trend_text='', color='primary') %}
+<div class="rounded-xl bg-card border border-card-border p-5 flex flex-col gap-3 hover:border-primary/30 transition-colors">
+    <div class="flex items-start justify-between">
+        <div class="w-10 h-10 rounded-lg flex items-center justify-center
+            {% if color == 'primary' %}bg-primary/10 text-primary
+            {% elif color == 'secondary' %}bg-secondary/10 text-secondary
+            {% elif color == 'emerald' %}bg-emerald-500/10 text-emerald-500
+            {% elif color == 'orange' %}bg-orange-500/10 text-orange-500
+            {% elif color == 'red' %}bg-red-500/10 text-red-500
+            {% else %}bg-primary/10 text-primary
+            {% endif %}">
+            {% if icon %}
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="{{ icon }}"/></svg>
+            {% endif %}
+        </div>
+        {% if trend %}
+        <div class="flex items-center gap-1 text-xs font-semibold
+            {% if trend == 'up' %}text-emerald-500
+            {% elif trend == 'down' %}text-red-500
+            {% else %}text-muted-foreground
+            {% endif %}">
+            {% if trend == 'up' %}
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="m7 17 5-5 5 5M7 7l5 5 5-5"/></svg>
+            {% elif trend == 'down' %}
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="m17 7-5 5-5-5M7 17l5-5 5 5"/></svg>
+            {% else %}
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M5 12h14"/></svg>
+            {% endif %}
+            <span>{{ trend_text }}</span>
+        </div>
+        {% endif %}
+    </div>
+    <div>
+        <div class="text-2xl font-bold text-foreground">{{ value }}</div>
+        <div class="text-sm text-muted-foreground mt-0.5">{{ label }}</div>
+    </div>
+</div>
+{% endmacro %}
+
+{# Hero stats card — larger highlighted card with gradient background #}
+{% macro hero_card(icon='', label='—', value='—', trend='up', trend_text='', color='primary') %}
+<div class="rounded-xl overflow-hidden relative
+    {% if color == 'primary' %}gradient-bg
+    {% elif color == 'secondary' %}bg-gradient-to-br from-cyan-500 to-cyan-600
+    {% elif color == 'emerald' %}bg-gradient-to-br from-emerald-500 to-emerald-600
+    {% elif color == 'orange' %}bg-gradient-to-br from-orange-500 to-orange-600
+    {% else %}gradient-bg
+    {% endif %} text-white p-6">
+    <div class="relative z-10">
+        <div class="w-12 h-12 rounded-xl bg-white/20 flex items-center justify-center mb-3">
+            {% if icon %}
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="{{ icon }}"/></svg>
+            {% endif %}
+        </div>
+        <div class="text-3xl font-bold">{{ value }}</div>
+        <div class="text-sm opacity-90 mt-0.5">{{ label }}</div>
+        {% if trend_text %}
+        <div class="flex items-center gap-1 text-sm mt-2 opacity-90">
+            {% if trend == 'up' %}
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="m7 17 5-5 5 5M7 7l5 5 5-5"/></svg>
+            {% elif trend == 'down' %}
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="m17 7-5 5-5-5M7 17l5-5 5 5"/></svg>
+            {% endif %}
+            <span>{{ trend_text }}</span>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endmacro %}
+
+{# Mini stats card — compact card for grids #}
+{% macro mini_stat(icon='', label='—', value='—', color='primary') %}
+<div class="flex items-center gap-3 p-3 rounded-lg bg-surface">
+    <div class="w-8 h-8 rounded-lg flex items-center justify-center
+        {% if color == 'primary' %}bg-primary/10 text-primary
+        {% elif color == 'secondary' %}bg-secondary/10 text-secondary
+        {% elif color == 'emerald' %}bg-emerald-500/10 text-emerald-500
+        {% elif color == 'orange' %}bg-orange-500/10 text-orange-500
+        {% else %}bg-primary/10 text-primary
+        {% endif %}">
+        {% if icon %}
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="{{ icon }}"/></svg>
+        {% endif %}
+    </div>
+    <div class="min-w-0">
+        <div class="text-sm font-bold text-foreground">{{ value }}</div>
+        <div class="text-xs text-muted-foreground truncate">{{ label }}</div>
+    </div>
+</div>
+{% endmacro %}

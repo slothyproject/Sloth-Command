@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+
+{% block title %}Plugins | Dissident Bot{% endblock %}
+
+{% block content %}
+<div x-data="pluginsApp()" x-init="init()">
+    <div class="flex items-center justify-between mb-6">
+        <div>
+            <h1 class="text-2xl font-bold text-foreground">Plugin Manager</h1>
+            <p class="text-sm text-muted-foreground mt-1" x-text="plugins.length+' plugins installed'"></p>
+        </div>
+        <button @click="showInstall=true" class="px-4 py-2 text-sm font-medium rounded-lg gradient-bg text-white hover:opacity-90 transition-opacity flex items-center gap-2">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 4v16m8-8H4"/></svg>
+            Install Plugin
+        </button>
+    </div>
+
+    <div class="relative mb-6">
+        <svg class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+        <input type="text" x-model="search" placeholder="Search plugins..." class="w-full pl-9 pr-4 py-2.5 text-sm rounded-xl bg-card border border-card-border text-foreground placeholder-muted-foreground focus:outline-none focus:border-primary">
+    </div>
+
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <template x-for="p in filtered" :key="p.name">
+            <div class="rounded-xl bg-card border border-card-border p-5 flex flex-col gap-4 hover:border-primary/30 transition-colors">
+                <div class="flex items-start justify-between">
+                    <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 rounded-lg flex items-center justify-center bg-primary/10 text-primary">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M11 4a2 2 0 114 0v1a1 1 0 001 1h3a1 1 0 011 1v3a1 1 0 01-1 1h-1a2 2 0 100 4h1a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 01-1-1v-1a2 2 0 10-4 0v1a1 1 0 01-1 1H7a1 1 0 01-1-1v-3a1 1 0 00-1-1H4a2 2 0 110-4h1a1 1 0 001-1V7a1 1 0 011-1h3a1 1 0 001-1V4z"/></svg>
+                        </div>
+                        <div>
+                            <div class="text-sm font-semibold text-foreground" x-text="p.name"></div>
+                            <div class="text-xs text-muted-foreground" x-text="'v'+(p.version||'1.0.0')"></div>
+                        </div>
+                    </div>
+                    <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase"
+                          :class="p.status==='loaded'?'bg-emerald-500/10 text-emerald-500':p.status==='error'?'bg-red-500/10 text-red-500':'bg-surface text-muted-foreground'"
+                          x-text="p.status||'disabled'"></span>
+                </div>
+                <p class="text-xs text-muted-foreground line-clamp-2" x-text="p.description||'No description'"></p>
+                <div class="mt-auto flex items-center justify-between pt-3 border-t border-card-divider">
+                    <span class="text-xs text-muted-foreground" x-text="(p.commands||0)+' commands'"></span>
+                    <button @click="togglePlugin(p)" class="px-3 py-1 text-xs font-medium rounded-lg transition-colors"
+                            :class="p.status==='loaded'?'bg-red-500/10 text-red-500 hover:bg-red-500/20':'bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20'"
+                            x-text="p.status==='loaded'?'Unload':'Load'"></button>
+                </div>
+            </div>
+        </template>
+        <div x-show="filtered.length===0" class="col-span-full py-12 text-center">
+            <svg class="w-10 h-10 mx-auto text-muted-foreground/50 mb-2" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M11 4a2 2 0 114 0v1a1 1 0 001 1h3a1 1 0 011 1v3a1 1 0 01-1 1h-1a2 2 0 100 4h1a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 01-1-1v-1a2 2 0 10-4 0v1a1 1 0 01-1 1H7a1 1 0 01-1-1v-3a1 1 0 00-1-1H4a2 2 0 110-4h1a1 1 0 001-1V7a1 1 0 011-1h3a1 1 0 001-1V4z"/></svg>
+            <p class="text-sm text-muted-foreground">No plugins found</p>
+        </div>
+    </div>
+
+    <div x-show="showInstall" x-transition.opacity class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" @click.self="showInstall=false">
+        <div class="rounded-xl bg-card border border-card-border p-6 w-full max-w-md" @click.stop>
+            <h3 class="text-lg font-semibold text-foreground mb-4">Install Plugin</h3>
+            <div class="space-y-3">
+                <div>
+                    <label class="block text-xs font-medium text-muted-foreground mb-1.5">Plugin Name</label>
+                    <input type="text" x-model="installName" class="w-full px-3 py-2 text-sm rounded-lg bg-surface border border-card-border text-foreground placeholder-muted-foreground focus:outline-none focus:border-primary" placeholder="plugin-name">
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-muted-foreground mb-1.5">Source</label>
+                    <select x-model="installSource" class="w-full px-3 py-2 text-sm rounded-lg bg-surface border border-card-border text-foreground focus:outline-none focus:border-primary">
+                        <option value="marketplace">Marketplace</option>
+                        <option value="github">GitHub URL</option>
+                        <option value="local">Local File</option>
+                    </select>
+                </div>
+            </div>
+            <div class="flex justify-end gap-2 mt-6">
+                <button @click="showInstall=false" class="px-4 py-2 text-sm font-medium rounded-lg bg-surface text-muted-foreground hover:text-foreground transition-colors">Cancel</button>
+                <button @click="install()" class="px-4 py-2 text-sm font-medium rounded-lg gradient-bg text-white hover:opacity-90 transition-opacity">Install</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function pluginsApp(){
+    return {
+        plugins:[],search:'',showInstall:false,installName:'',installSource:'marketplace',
+        get filtered(){var q=this.search.toLowerCase();if(!q)return this.plugins;return this.plugins.filter(function(p){return(p.name||'').toLowerCase().includes(q)||(p.description||'').toLowerCase().includes(q);});},
+        init(){this.load();},
+        async load(){try{var r=await Dissident.apiCall('/api/plugins');this.plugins=r.plugins||[];}catch(e){this.plugins=[];}},
+        async togglePlugin(p){var action=p.status==='loaded'?'unload':'load';try{await Dissident.apiCall('/api/plugins/'+p.name+'/'+action,{method:'POST'});Dissident.showToast(p.name+' '+(action==='load'?'loaded':'unloaded'),'success');this.load();}catch(e){Dissident.showToast('Failed to '+action+' '+p.name,'error');}},
+        async install(){if(!this.installName){Dissident.showToast('Enter a plugin name','warning');return;}this.showInstall=false;try{await Dissident.apiCall('/api/plugins/install',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:this.installName,source:this.installSource})});Dissident.showToast('Plugin installed','success');this.load();}catch(e){Dissident.showToast('Install failed','error');}this.installName='';}
+    };
+}
+</script>
+{% endblock %}

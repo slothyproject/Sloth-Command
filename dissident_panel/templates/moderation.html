@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}Moderation | Dissident Bot{% endblock %}
+{% block content %}
+<div x-data="moderationApp()" x-init="init()">
+    <div class="mb-6">
+        <h1 class="text-2xl font-bold text-foreground">Moderation Cases</h1>
+        <p class="text-sm text-muted-foreground mt-1">Recent moderation actions across servers</p>
+    </div>
+
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <div class="rounded-xl bg-card border border-card-border p-5 flex flex-col gap-3 hover:border-primary/30 transition-colors">
+            <div class="w-10 h-10 rounded-lg flex items-center justify-center bg-orange-500/10 text-orange-500">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
+            </div>
+            <div class="text-2xl font-bold text-foreground" x-text="counts.warns">0</div>
+            <div class="text-sm text-muted-foreground">Warns</div>
+        </div>
+        <div class="rounded-xl bg-card border border-card-border p-5 flex flex-col gap-3 hover:border-primary/30 transition-colors">
+            <div class="w-10 h-10 rounded-lg flex items-center justify-center bg-red-500/10 text-red-500">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M4.93 4.93l14.14 14.14"/></svg>
+            </div>
+            <div class="text-2xl font-bold text-foreground" x-text="counts.bans">0</div>
+            <div class="text-sm text-muted-foreground">Bans</div>
+        </div>
+        <div class="rounded-xl bg-card border border-card-border p-5 flex flex-col gap-3 hover:border-primary/30 transition-colors">
+            <div class="w-10 h-10 rounded-lg flex items-center justify-center bg-purple-500/10 text-purple-500">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"/><path d="M17 9l4 4m0-4l-4 4"/></svg>
+            </div>
+            <div class="text-2xl font-bold text-foreground" x-text="counts.mutes">0</div>
+            <div class="text-sm text-muted-foreground">Mutes</div>
+        </div>
+        <div class="rounded-xl bg-card border border-card-border p-5 flex flex-col gap-3 hover:border-primary/30 transition-colors">
+            <div class="w-10 h-10 rounded-lg flex items-center justify-center bg-primary/10 text-primary">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>
+            </div>
+            <div class="text-2xl font-bold text-foreground" x-text="counts.kicks">0</div>
+            <div class="text-sm text-muted-foreground">Kicks</div>
+        </div>
+    </div>
+
+    <div class="space-y-3">
+        <template x-for="c in filteredCases()" :key="c.id">
+            <div class="rounded-xl bg-card border border-card-border p-4 hover:border-primary/30 transition-colors">
+                <div class="flex items-start justify-between gap-3">
+                    <div class="flex items-center gap-3">
+                        <span class="px-2.5 py-1 rounded-md text-xs font-bold uppercase" :class="c.type==='ban'?'bg-red-500/10 text-red-500':c.type==='mute'?'bg-purple-500/10 text-purple-500':c.type==='kick'?'bg-primary/10 text-primary':'bg-orange-500/10 text-orange-500'" x-text="c.type"></span>
+                        <div>
+                            <span class="text-sm font-semibold text-foreground" x-text="c.user"></span>
+                            <span class="text-xs text-muted-foreground ml-2">by <span x-text="c.moderator"></span></span>
+                        </div>
+                    </div>
+                    <span class="text-xs text-muted-foreground flex-shrink-0" x-text="c.time"></span>
+                </div>
+                <p class="text-sm text-muted-foreground mt-2" x-text="c.reason"></p>
+            </div>
+        </template>
+        <div x-show="filteredCases().length===0" class="rounded-xl bg-card border border-card-border p-8 text-center text-muted-foreground">
+            No moderation cases found
+        </div>
+    </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+function moderationApp(){
+    return{
+        cases:[],filter:'all',
+        counts:{warns:0,bans:0,mutes:0,kicks:0},
+        init(){this.load()},
+        async load(){try{var r=await fetch('/api/moderation');if(r.ok){var d=await r.json();this.cases=Array.isArray(d)?d:d.cases||[];this.counts={warns:this.cases.filter(function(c){return c.type==='warn'}).length,bans:this.cases.filter(function(c){return c.type==='ban'}).length,mutes:this.cases.filter(function(c){return c.type==='mute'}).length,kicks:this.cases.filter(function(c){return c.type==='kick'}).length};}}catch(e){this.cases=[];}},
+        filteredCases(){return this.filter==='all'?this.cases:this.cases.filter(function(c){return c.type===this.filter}.bind(this))}
+    };
+}
+</script>
+{% endblock %}

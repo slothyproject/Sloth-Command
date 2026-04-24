@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% block title %}Marketplace | Dissident Bot{% endblock %}
+
+{% block content %}
+<div x-data="marketplaceApp()" x-init="init()">
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+        <div>
+            <h1 class="text-2xl font-bold text-foreground">Plugin Marketplace</h1>
+            <p class="text-sm text-muted-foreground mt-1">Browse and install plugins for your bot</p>
+        </div>
+        <div class="flex items-center gap-3">
+            <div class="relative">
+                <svg class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+                <input type="text" x-model="search" @input="filterPlugins()" placeholder="Search plugins..." class="w-64 h-10 pl-10 pr-4 rounded-lg bg-surface border border-card-border text-foreground text-sm focus:border-primary focus:outline-none">
+            </div>
+            <button @click="refresh()" class="inline-flex items-center gap-2 px-4 h-10 rounded-lg bg-card border border-card-border text-foreground text-sm hover:border-primary/30 transition-colors">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M1 4v6h6M23 20v-6h-6"/><path d="M20.49 9A9 9 0 005.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 013.51 15"/></svg>
+                Refresh
+            </button>
+        </div>
+    </div>
+
+    <div class="flex gap-2 mb-6 overflow-x-auto pb-2">
+        <template x-for="cat in [{key:'all',label:'All'},{key:'moderation',label:'Moderation'},{key:'economy',label:'Economy'},{key:'fun',label:'Fun'},{key:'utility',label:'Utility'},{key:'integration',label:'Integration'}]" :key="cat.key">
+            <button @click="category=cat.key; filterPlugins()" class="px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap" :class="category===cat.key ? 'gradient-bg text-white' : 'bg-card border border-card-border text-muted-foreground hover:text-foreground hover:border-primary/30'" x-text="cat.label"></button>
+        </template>
+    </div>
+
+    <div class="flex items-center justify-between mb-4">
+        <p class="text-sm text-muted-foreground">Showing <span x-text="filteredPlugins.length"></span> plugins</p>
+        <select x-model="sortBy" @change="filterPlugins()" class="h-9 px-3 rounded-lg bg-surface border border-card-border text-foreground text-sm focus:outline-none focus:border-primary">
+            <option value="popular">Most Popular</option>
+            <option value="rating">Top Rated</option>
+            <option value="newest">Newest</option>
+            <option value="name">Name A-Z</option>
+        </select>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <template x-for="plugin in filteredPlugins" :key="plugin.id">
+            <div class="rounded-xl bg-card border border-card-border hover:border-primary/30 transition-all hover:-translate-y-0.5">
+                <div class="flex items-start justify-between p-4 border-b border-card-divider">
+                    <div class="w-12 h-12 rounded-lg flex items-center justify-center text-white text-lg font-bold" :style="'background:'+plugin.color" x-text="plugin.name.charAt(0)"></div>
+                    <div class="flex gap-1.5">
+                        <span class="px-2 py-0.5 rounded text-xs font-semibold uppercase" :class="plugin.category==='moderation'?'bg-red-500/10 text-red-500':plugin.category==='economy'?'bg-emerald-500/10 text-emerald-500':plugin.category==='fun'?'bg-purple-500/10 text-purple-500':plugin.category==='utility'?'bg-blue-500/10 text-blue-500':'bg-orange-500/10 text-orange-500'" x-text="plugin.category"></span>
+                        <span x-show="plugin.price===0" class="px-2 py-0.5 rounded text-xs font-semibold bg-emerald-500/10 text-emerald-500">Free</span>
+                    </div>
+                </div>
+                <div class="p-4">
+                    <h3 class="text-base font-semibold text-foreground" x-text="plugin.name"></h3>
+                    <p class="text-xs text-muted-foreground mt-0.5">by <span x-text="plugin.author"></span></p>
+                    <p class="text-sm text-muted-foreground mt-2 line-clamp-2" x-text="plugin.description"></p>
+                    <div class="flex items-center gap-4 mt-3 text-xs text-muted-foreground">
+                        <span class="flex items-center gap-1"><svg class="w-3.5 h-3.5 text-yellow-500" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.579-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg> <span x-text="plugin.rating"></span></span>
+                        <span class="flex items-center gap-1"><svg class="w-3.5 h-3.5 text-primary" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg> <span x-text="plugin.downloads"></span></span>
+                        <span class="flex items-center gap-1"><svg class="w-3.5 h-3.5 text-muted-foreground" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6m6 0V9a2 2 0 012-2h2a2 2 0 012 2v10m6 0v-4a2 2 0 012-2h2a2 2 0 012 2v4"/></svg> <span x-text="plugin.version"></span></span>
+                    </div>
+                </div>
+                <div class="flex gap-2 p-4 border-t border-card-divider">
+                    <button @click="viewPlugin(plugin)" class="flex-1 px-3 py-2 rounded-lg text-sm font-medium bg-surface text-foreground hover:bg-surface/80 transition-colors">View</button>
+                    <button @click="isInstalled(plugin.id) ? uninstallPlugin(plugin) : installPlugin(plugin)" :disabled="installing===plugin.id" class="flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-colors" :class="isInstalled(plugin.id) ? 'bg-surface text-foreground border border-card-border' : 'gradient-bg text-white'" x-text="installing===plugin.id ? 'Installing...' : isInstalled(plugin.id) ? 'Uninstall' : 'Install'"></button>
+                </div>
+            </div>
+        </template>
+    </div>
+
+    <div x-show="filteredPlugins.length===0 && !loading" class="text-center py-16">
+        <svg class="w-16 h-16 mx-auto text-muted-foreground/30 mb-4" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+        <h3 class="text-lg font-semibold text-foreground">No plugins found</h3>
+        <p class="text-sm text-muted-foreground mt-1">Try adjusting your search or filters</p>
+    </div>
+</div>
+
+<div x-show="showDetail" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" @click.self="showDetail=false">
+    <div class="w-full max-w-2xl mx-4 rounded-2xl bg-card border border-card-border overflow-hidden max-h-[85vh] flex flex-col">
+        <div class="flex items-center justify-between p-5 border-b border-card-divider" x-show="selectedPlugin">
+            <h3 class="text-lg font-semibold text-foreground" x-text="selectedPlugin?.name"></h3>
+            <button @click="showDetail=false" class="p-1 rounded-lg hover:bg-surface text-muted-foreground"><svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+        </div>
+        <div class="p-5 overflow-y-auto" x-show="selectedPlugin">
+            <p class="text-sm text-muted-foreground" x-text="selectedPlugin?.fullDescription || selectedPlugin?.description"></p>
+            <div class="flex items-center gap-4 mt-4 text-sm text-muted-foreground">
+                <span x-text="'by '+selectedPlugin?.author"></span>
+                <span class="flex items-center gap-1"><svg class="w-4 h-4 text-yellow-500" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.579-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg> <span x-text="selectedPlugin?.rating"></span></span>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function marketplaceApp() {
+    return {
+        plugins: [], filteredPlugins: [], installedPlugins: [],
+        search: '', category: 'all', sortBy: 'popular',
+        loading: false, installing: null,
+        showDetail: false, selectedPlugin: null,
+        async init() {
+            await this.loadPlugins();
+            this.loadInstalled();
+        },
+        async loadPlugins() {
+            this.loading = true;
+            try {
+                const r = await fetch('/api/marketplace/plugins');
+                const d = await r.json();
+                this.plugins = d.plugins || [];
+            } catch(e) { this.plugins = []; }
+            this.filterPlugins();
+            this.loading = false;
+        },
+        async loadInstalled() {
+            try { const d = await (await fetch('/api/plugins')).json(); this.installedPlugins = (d.plugins||[]).map(p=>p.name); } catch(e) {}
+        },
+        filterPlugins() {
+            let f = [...this.plugins];
+            if(this.category!=='all') f = f.filter(p=>p.category===this.category);
+            if(this.search) { const q=this.search.toLowerCase(); f=f.filter(p=>p.name.toLowerCase().includes(q)||p.description.toLowerCase().includes(q)); }
+            switch(this.sortBy) { case 'popular': f.sort((a,b)=>b.downloads-a.downloads); break; case 'rating': f.sort((a,b)=>b.rating-a.rating); break; case 'newest': f.sort((a,b)=>new Date(b.added||0)-new Date(a.added||0)); break; case 'name': f.sort((a,b)=>a.name.localeCompare(b.name)); break; }
+            this.filteredPlugins = f;
+        },
+        isInstalled(id) { return this.installedPlugins.includes(id); },
+        viewPlugin(p) { this.selectedPlugin=p; this.showDetail=true; },
+        async installPlugin(p) { this.installing=p.id; try { const d=await(await fetch('/api/marketplace/install',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pluginId:p.id})})).json(); if(d.success) this.installedPlugins.push(p.id); } catch(e){ this.installedPlugins.push(p.id); } this.installing=null; },
+        async uninstallPlugin(p) { if(!confirm('Uninstall '+p.name+'?')) return; this.installing=p.id; try { await fetch('/api/marketplace/uninstall',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pluginId:p.id})}); } catch(e){} this.installedPlugins=this.installedPlugins.filter(id=>id!==p.id); this.installing=null; },
+        refresh() { this.loadPlugins(); this.loadInstalled(); }
+    };
+}
+</script>
+{% endblock %}

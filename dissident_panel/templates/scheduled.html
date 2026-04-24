@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+{% block title %}Scheduled Tasks | Dissident Bot{% endblock %}
+
+{% block content %}
+<div x-data="scheduledApp()" x-init="init()">
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+        <div>
+            <h1 class="text-2xl font-bold text-foreground">Scheduled Tasks</h1>
+            <p class="text-sm text-muted-foreground mt-1">Manage cron jobs and deferred tasks</p>
+        </div>
+        <div class="flex gap-3">
+            <button @click="runAllTasks()" class="inline-flex items-center gap-2 px-4 h-10 rounded-lg bg-card border border-card-border text-foreground text-sm font-medium hover:border-primary/30 transition-colors">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                Run All
+            </button>
+            <button @click="showAddModal=true" class="inline-flex items-center gap-2 px-4 h-10 rounded-lg gradient-bg text-white text-sm font-medium">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 5v14m-7-7h14"/></svg>
+                Add Task
+            </button>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <div class="rounded-xl bg-card border border-card-border p-5 flex items-center gap-4">
+            <div class="w-10 h-10 rounded-lg bg-blue-500/10 text-blue-500 flex items-center justify-center"><svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 6h16M4 10h16M4 14h16M4 18h16"/></svg></div>
+            <div><div class="text-2xl font-bold text-foreground" x-text="tasks.length">0</div><div class="text-sm text-muted-foreground">Total Tasks</div></div>
+        </div>
+        <div class="rounded-xl bg-card border border-card-border p-5 flex items-center gap-4">
+            <div class="w-10 h-10 rounded-lg bg-emerald-500/10 text-emerald-500 flex items-center justify-center"><svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg></div>
+            <div><div class="text-2xl font-bold text-foreground" x-text="tasks.filter(t=>t.enabled).length">0</div><div class="text-sm text-muted-foreground">Active</div></div>
+        </div>
+        <div class="rounded-xl bg-card border border-card-border p-5 flex items-center gap-4">
+            <div class="w-10 h-10 rounded-lg bg-purple-500/10 text-purple-500 flex items-center justify-center"><svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg></div>
+            <div><div class="text-2xl font-bold text-foreground" x-text="runsToday">0</div><div class="text-sm text-muted-foreground">Runs Today</div></div>
+        </div>
+        <div class="rounded-xl bg-card border border-card-border p-5 flex items-center gap-4">
+            <div class="w-10 h-10 rounded-lg bg-orange-500/10 text-orange-500 flex items-center justify-center"><svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg></div>
+            <div><div class="text-2xl font-bold text-foreground" x-text="failed24h">0</div><div class="text-sm text-muted-foreground">Failed (24h)</div></div>
+        </div>
+    </div>
+
+    <div class="flex gap-2 mb-4">
+        <template x-for="f in [{k:'all',l:'All'},{k:'active',l:'Active'},{k:'paused',l:'Paused'}]" :key="f.k">
+            <button @click="filter=f.k" class="px-4 py-2 rounded-lg text-sm font-medium transition-colors" :class="filter===f.k ? 'gradient-bg text-white' : 'bg-card border border-card-border text-muted-foreground hover:text-foreground'" x-text="f.l"></button>
+        </template>
+    </div>
+
+    <div class="space-y-2 mb-6">
+        <template x-for="task in filteredTasks" :key="task.id">
+            <div class="flex items-center gap-4 p-4 rounded-xl bg-card border border-card-border hover:border-primary/30 transition-all" :class="!task.enabled && 'opacity-60'">
+                <label class="relative inline-flex items-center cursor-pointer flex-shrink-0">
+                    <input type="checkbox" :checked="task.enabled" @change="toggleTask(task)" class="sr-only peer">
+                    <div class="w-11 h-6 bg-surface rounded-full peer peer-checked:bg-primary transition-colors after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-full"></div>
+                </label>
+                <div class="flex-1 min-w-0">
+                    <div class="flex items-center gap-2">
+                        <span class="text-sm font-semibold text-foreground" x-text="task.name"></span>
+                        <span class="px-2 py-0.5 rounded text-xs font-semibold uppercase bg-blue-500/10 text-blue-500" x-text="task.type"></span>
+                    </div>
+                    <div class="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
+                        <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+                        <span x-text="task.interval"></span>
+                        <span x-show="task.time">at <span x-text="task.time"></span></span>
+                        <span class="text-muted-foreground">| Next: <span x-text="task.nextRun||'N/A'"></span></span>
+                    </div>
+                </div>
+                <div class="flex items-center gap-1 flex-shrink-0">
+                    <button @click="runTask(task)" class="p-2 rounded-lg hover:bg-surface text-muted-foreground hover:text-foreground transition-colors" title="Run Now"><svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg></button>
+                    <button @click="deleteTask(task)" class="p-2 rounded-lg hover:bg-surface text-muted-foreground hover:text-red-500 transition-colors" title="Delete"><svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg></button>
+                </div>
+            </div>
+        </template>
+        <div x-show="filteredTasks.length===0" class="text-center py-12">
+            <svg class="w-16 h-16 mx-auto text-muted-foreground/30 mb-4" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+            <h3 class="text-lg font-semibold text-foreground">No tasks found</h3>
+            <p class="text-sm text-muted-foreground mt-1">Create your first scheduled task</p>
+        </div>
+    </div>
+
+    <div class="rounded-xl bg-card border border-card-border overflow-hidden">
+        <div class="px-5 py-3 border-b border-card-divider"><h3 class="text-sm font-semibold text-foreground">Recent Runs</h3></div>
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead><tr class="border-b border-card-divider"><th class="text-left p-3 text-muted-foreground font-medium">Task</th><th class="text-left p-3 text-muted-foreground font-medium">Started</th><th class="text-left p-3 text-muted-foreground font-medium">Duration</th><th class="text-left p-3 text-muted-foreground font-medium">Status</th></tr></thead>
+                <tbody>
+                    <template x-for="h in history" :key="h.id">
+                        <tr class="border-b border-card-divider last:border-0"><td class="p-3 text-foreground font-medium" x-text="h.task"></td><td class="p-3 text-muted-foreground" x-text="h.started"></td><td class="p-3 text-muted-foreground" x-text="h.duration"></td><td class="p-3"><span class="px-2 py-0.5 rounded text-xs font-semibold" :class="h.status==='success'?'bg-emerald-500/10 text-emerald-500':'bg-red-500/10 text-red-500'" x-text="h.status"></span></td></tr>
+                    </template>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div x-show="showAddModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" @click.self="showAddModal=false">
+        <div class="w-full max-w-md mx-4 rounded-2xl bg-card border border-card-border p-6">
+            <h3 class="text-lg font-semibold text-foreground mb-4">Add Scheduled Task</h3>
+            <div class="space-y-4">
+                <div><label class="block text-sm font-medium text-foreground mb-1">Task Name</label><input type="text" x-model="newTask.name" placeholder="Daily Cleanup" class="w-full h-10 px-3 rounded-lg bg-surface border border-card-border text-foreground text-sm focus:border-primary focus:outline-none"></div>
+                <div><label class="block text-sm font-medium text-foreground mb-1">Type</label><select x-model="newTask.type" class="w-full h-10 px-3 rounded-lg bg-surface border border-card-border text-foreground text-sm focus:border-primary focus:outline-none"><option value="command">Command</option><option value="backup">Backup</option><option value="cleanup">Cleanup</option><option value="custom">Custom</option></select></div>
+                <div><label class="block text-sm font-medium text-foreground mb-1">Command</label><input type="text" x-model="newTask.command" placeholder="!cleanup" class="w-full h-10 px-3 rounded-lg bg-surface border border-card-border text-foreground text-sm focus:border-primary focus:outline-none"></div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div><label class="block text-sm font-medium text-foreground mb-1">Interval</label><select x-model="newTask.interval" class="w-full h-10 px-3 rounded-lg bg-surface border border-card-border text-foreground text-sm focus:border-primary focus:outline-none"><option value="hourly">Hourly</option><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option></select></div>
+                    <div><label class="block text-sm font-medium text-foreground mb-1">Time</label><input type="time" x-model="newTask.time" value="00:00" class="w-full h-10 px-3 rounded-lg bg-surface border border-card-border text-foreground text-sm focus:border-primary focus:outline-none"></div>
+                </div>
+            </div>
+            <div class="flex gap-3 mt-6"><button @click="showAddModal=false" class="flex-1 px-4 py-2 rounded-lg bg-surface text-foreground text-sm font-medium">Cancel</button><button @click="createTask()" class="flex-1 px-4 py-2 rounded-lg gradient-bg text-white text-sm font-medium">Create</button></div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function scheduledApp() {
+    return {
+        tasks: [], history: [], filter: 'all', showAddModal: false, runsToday: 0, failed24h: 0,
+        newTask: { name:'', type:'command', command:'', interval:'daily', time:'00:00' },
+        get filteredTasks() {
+            if(this.filter==='active') return this.tasks.filter(t=>t.enabled);
+            if(this.filter==='paused') return this.tasks.filter(t=>!t.enabled);
+            return this.tasks;
+        },
+        async init() {
+            try { const r=await fetch('/api/scheduled'); const d=await r.json(); this.tasks=d.tasks||[]; this.history=d.history||[]; this.runsToday=d.runsToday||0; this.failed24h=d.failed24h||0; } catch(e) { this.tasks=[]; this.history=[]; }
+        },
+        async toggleTask(t) { t.enabled=!t.enabled; try { await fetch('/api/scheduled/'+t.id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:t.enabled})}); } catch(e){} },
+        async runTask(t) { try { await fetch('/api/scheduled/'+t.id+'/run',{method:'POST'}); } catch(e){} },
+        async runAllTasks() { try { await fetch('/api/scheduled/run-all',{method:'POST'}); this.init(); } catch(e){} },
+        async deleteTask(t) { if(!confirm('Delete "'+t.name+'"?')) return; try { await fetch('/api/scheduled/'+t.id,{method:'DELETE'}); this.tasks=this.tasks.filter(x=>x.id!==t.id); } catch(e){ this.tasks=this.tasks.filter(x=>x.id!==t.id); } },
+        async createTask() { if(!this.newTask.name) return; try { const r=await fetch('/api/scheduled',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(this.newTask)}); if(r.ok){ this.showAddModal=false; this.newTask={name:'',type:'command',command:'',interval:'daily',time:'00:00'}; this.init(); } } catch(e){} }
+    };
+}
+</script>
+{% endblock %}

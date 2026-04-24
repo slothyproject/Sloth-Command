@@ -1,0 +1,145 @@
+{# Navbar component — Preline-styled top bar with search, theme switch, notifications, user menu #}
+<nav class="sticky top-0 z-30 h-16 bg-navbar border-b border-navbar-border flex items-center px-4 md:px-6 gap-3">
+    {# Mobile sidebar toggle #}
+    <button class="lg:hidden flex items-center justify-center w-10 h-10 rounded-lg text-muted-foreground hover:text-foreground hover:bg-surface transition-colors" onclick="window.openSidebar()" aria-label="Open sidebar">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16"/></svg>
+    </button>
+
+    {# Page title (set via Jinja2 block) #}
+    {% block navbar_title %}
+    <div class="flex items-center gap-2 flex-1 min-w-0">
+        <h1 class="text-lg font-semibold text-foreground truncate">{% block page_title %}Dashboard{% endblock %}</h1>
+    </div>
+    {% endblock %}
+
+    <div class="flex items-center gap-2 ml-auto">
+        {# Live connection indicator #}
+        <div x-data="{ connected: false }" x-init="window.addEventListener('socket:status', e => connected = e.detail.connected)" class="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border" :class="connected ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-500' : 'bg-destructive/10 border-destructive/30 text-destructive'">
+            <span class="w-2 h-2 rounded-full" :class="connected ? 'bg-emerald-500 animate-pulse' : 'bg-destructive'"></span>
+            <span x-text="connected ? 'Live' : 'Offline'"></span>
+        </div>
+
+        {# Search (Ctrl+K) #}
+        <button class="flex items-center justify-center w-10 h-10 rounded-lg text-muted-foreground hover:text-foreground hover:bg-surface transition-colors" @click="document.getElementById('search-modal').classList.remove('hidden')" title="Search (Ctrl+K)">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+        </button>
+
+        {# Theme switcher #}
+        <div x-data="{ themes: ['theme-dissident', 'theme-dissident-light', 'theme-amoled'], labels: { 'theme-dissident': 'Dark', 'theme-dissident-light': 'Light', 'theme-amoled': 'AMOLED' }, current: localStorage.getItem('dissident-theme') || 'theme-dissident' }" class="relative">
+            <button class="flex items-center justify-center w-10 h-10 rounded-lg text-muted-foreground hover:text-foreground hover:bg-surface transition-colors" @click="
+                const idx = themes.indexOf(current);
+                current = themes[(idx + 1) % themes.length];
+                document.documentElement.setAttribute('data-theme', current);
+                localStorage.setItem('dissident-theme', current);
+                window.dispatchEvent(new CustomEvent('theme-changed', { detail: current }));
+            " :title="'Switch theme (' + labels[current] + ')'">
+                <svg x-show="current === 'theme-dissident'" class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+                <svg x-show="current === 'theme-dissident-light'" class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+                <svg x-show="current === 'theme-amoled'" class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="20" rx="3"/></svg>
+            </button>
+        </div>
+
+        {# Notifications dropdown — Preline HSDropdown #}
+        <div class="relative" data-hs-dropdown="{&quot;placement&quot;:&quot;bottom-end&quot;}">
+            <button class="flex items-center justify-center w-10 h-10 rounded-lg text-muted-foreground hover:text-foreground hover:bg-surface transition-colors relative" id="notif-btn">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/></svg>
+                <span id="notif-badge" class="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] bg-destructive text-destructive-foreground rounded-full text-[10px] font-bold flex items-center justify-center hidden">0</span>
+            </button>
+            <div class="hs-dropdown-menu hidden min-w-80 bg-dropdown border border-dropdown-border rounded-xl shadow-xl z-50 transition-[opacity,margin] duration-300 opacity-0 mt-2" aria-labelledby="notif-btn">
+                <div class="flex items-center justify-between px-4 py-3 border-b border-dropdown-divider">
+                    <h4 class="text-sm font-semibold text-foreground">Notifications</h4>
+                    <button class="text-xs text-primary hover:text-primary-hover" onclick="window.Dissident.clearNotifications()">Mark all read</button>
+                </div>
+                <div id="notif-list" class="max-h-64 overflow-y-auto divide-y divide-dropdown-divider">
+                    <div class="px-4 py-6 text-center text-sm text-muted-foreground">No new notifications</div>
+                </div>
+            </div>
+        </div>
+
+        {# Refresh #}
+        <button class="flex items-center justify-center w-10 h-10 rounded-lg text-muted-foreground hover:text-foreground hover:bg-surface transition-colors" onclick="location.reload()" title="Refresh">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M1 4v6h6M23 20v-6h-6"/><path d="M20.49 9A9 9 0 005.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 013.51 15"/></svg>
+        </button>
+
+        {# User menu — Preline HSDropdown #}
+        <div class="relative" data-hs-dropdown="{&quot;placement&quot;:&quot;bottom-end&quot;}">
+            <button class="flex items-center gap-2 rounded-lg border border-border px-2 py-1.5 hover:border-primary/50 hover:bg-surface transition-colors" id="user-btn">
+                <div class="w-8 h-8 rounded-lg gradient-bg flex items-center justify-center text-white text-sm font-bold">A</div>
+                <svg class="w-3.5 h-3.5 text-muted-foreground" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>
+            </button>
+            <div class="hs-dropdown-menu hidden min-w-52 bg-dropdown border border-dropdown-border rounded-xl shadow-xl z-50 transition-[opacity,margin] duration-300 opacity-0 mt-2" aria-labelledby="user-btn">
+                <div class="px-4 py-3 border-b border-dropdown-divider">
+                    <p class="text-sm font-semibold text-foreground">Admin</p>
+                    <p class="text-xs text-muted-foreground">admin@dissident.local</p>
+                </div>
+                <div class="py-1">
+                    <a href="/settings" class="flex items-center gap-2 px-4 py-2 text-sm text-dropdown-item-foreground hover:bg-dropdown-item-hover transition-colors">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.573-1.066z"/><circle cx="12" cy="12" r="3"/></svg>
+                        Settings
+                    </a>
+                </div>
+                <div class="border-t border-dropdown-divider py-1">
+                    <button onclick="window.Dissident.logout()" class="flex items-center gap-2 px-4 py-2 text-sm text-destructive hover:bg-destructive/10 transition-colors w-full text-left">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9"/></svg>
+                        Logout
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</nav>
+
+{# Search modal #}
+<div id="search-modal" class="hidden fixed inset-0 z-[60] flex items-start justify-center pt-[20vh]" x-data="{ query: '', results: [], allPages: [
+    { title: 'Dashboard', icon: 'home', url: '/dashboard', category: 'Main' },
+    { title: 'Servers', icon: 'server', url: '/servers', category: 'Main' },
+    { title: 'Health', icon: 'heart', url: '/health', category: 'System' },
+    { title: 'Activity', icon: 'activity', url: '/activity', category: 'Analytics' },
+    { title: 'Moderation', icon: 'shield', url: '/moderation', category: 'Management' },
+    { title: 'Economy', icon: 'coins', url: '/economy', category: 'Management' },
+    { title: 'Tickets', icon: 'ticket', url: '/tickets', category: 'Management' },
+    { title: 'Users', icon: 'users', url: '/users', category: 'Management' },
+    { title: 'Database', icon: 'database', url: '/database', category: 'Tools' },
+    { title: 'Commands', icon: 'terminal', url: '/commands', category: 'Tools' },
+    { title: 'Plugins', icon: 'puzzle', url: '/plugins', category: 'System' },
+    { title: 'Settings', icon: 'settings', url: '/settings', category: 'System' },
+    { title: 'Marketplace', icon: 'store', url: '/marketplace', category: 'Store' },
+    { title: 'Premium', icon: 'crown', url: '/premium', category: 'Store' },
+    { title: 'Analytics', icon: 'chart', url: '/analytics', category: 'Analytics' },
+    { title: 'Logs', icon: 'file', url: '/logs', category: 'System' },
+    { title: 'Backups', icon: 'archive', url: '/backups', category: 'System' }
+] }" @keydown.escape="document.getElementById('search-modal').classList.add('hidden')">
+    <div class="fixed inset-0 bg-black/60 backdrop-blur-sm" @click="document.getElementById('search-modal').classList.add('hidden')"></div>
+    <div class="relative w-full max-w-lg mx-4 bg-dropdown border border-dropdown-border rounded-2xl shadow-2xl overflow-hidden">
+        <div class="flex items-center gap-3 px-4 border-b border-dropdown-divider">
+            <svg class="w-5 h-5 text-muted-foreground flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+            <input type="text" x-model="query" @input="results = allPages.filter(p => p.title.toLowerCase().includes(query.toLowerCase()) || p.category.toLowerCase().includes(query.toLowerCase()))" class="flex-1 bg-transparent py-4 text-foreground placeholder-muted-foreground focus:outline-none text-sm" placeholder="Search pages, settings, commands..." x-ref="searchInput" x-init="$watch('query', () => $nextTick(() => {}))">
+            <kbd class="hidden sm:inline-flex items-center px-2 py-0.5 text-[10px] font-mono text-muted-foreground bg-surface rounded border border-border">ESC</kbd>
+        </div>
+        <div class="max-h-72 overflow-y-auto py-1">
+            <template x-for="r in (query ? results : allPages)" :key="r.url">
+                <a :href="r.url" class="flex items-center gap-3 px-4 py-2.5 hover:bg-dropdown-item-hover transition-colors" @click="document.getElementById('search-modal').classList.add('hidden')">
+                    <svg class="w-4 h-4 text-muted-foreground" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3"/></svg>
+                    <div class="flex-1 min-w-0">
+                        <span class="text-sm text-foreground" x-text="r.title"></span>
+                    </div>
+                    <span class="text-xs text-muted-foreground" x-text="r.category"></span>
+                </a>
+            </template>
+            <div x-show="query && results.length === 0" class="px-4 py-6 text-sm text-muted-foreground text-center">No results for "<span x-text="query"></span>"</div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('keydown', function(e) {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault();
+        const modal = document.getElementById('search-modal');
+        modal.classList.toggle('hidden');
+        if (!modal.classList.contains('hidden')) {
+            setTimeout(() => modal.querySelector('input')?.focus(), 50);
+        }
+    }
+});
+</script>

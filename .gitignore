@@ -55,6 +55,15 @@ DISSIDENT_STATUS*
 # Node / frontend local state
 node_modules/
 
+# dissident_panel standalone build files (not needed when embedded)
+dissident_panel/Dockerfile
+dissident_panel/.dockerignore
+dissident_panel/run_railway.py
+dissident_panel/run_web_panel.py
+dissident_panel/package.json
+dissident_panel/package-lock.json
+dissident_panel/requirements.txt
+
 # Test caches
 .pytest_cache/
 

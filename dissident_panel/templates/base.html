@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="theme-dissident">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#0d1117">
+    <meta name="description" content="{% block description %}Dissident Bot Dashboard{% endblock %}">
+    <meta name="csrf-token" content="{{ csrf_token() if csrf_token is defined else '' }}">
+    <title>{% block title %}Dissident Bot{% endblock %}</title>
+
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect fill='%23a855f7' width='100' height='100' rx='20'/><text y='70' x='50' text-anchor='middle' font-size='60' fill='white'>D</text></svg>">
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+    <link rel="stylesheet" href="/static/css/output.css">
+
+    {% block head %}{% endblock %}
+
+    <script>
+        (function() {
+            var stored = localStorage.getItem('dissident-theme');
+            if (stored) document.documentElement.setAttribute('data-theme', stored);
+        })();
+    </script>
+</head>
+<body class="min-h-screen bg-background text-foreground font-sans antialiased" x-data>
+
+    <div class="flex min-h-screen" id="app-layout">
+
+        <div id="sidebar-overlay" class="fixed inset-0 bg-black/50 z-40 hidden lg:hidden" onclick="window.closeSidebar()"></div>
+
+        {% include 'components/sidebar.html' %}
+
+        <div class="lg:ml-72 flex-1 flex flex-col min-h-screen">
+            {% include 'components/navbar.html' %}
+
+            <main class="flex-1 p-4 md:p-6 lg:p-8">
+                {% block content %}{% endblock %}
+            </main>
+
+            <footer class="border-t border-border px-6 py-4 text-center text-sm text-muted-foreground">
+                Dissident Bot v{{ version }} &mdash; made with &#9829; and questionable life choices
+            </footer>
+        </div>
+    </div>
+
+    <div id="toast-container" class="fixed top-4 right-4 z-[100] space-y-2"></div>
+
+    <script src="/static/js/app.js"></script>
+
+    {% if use_charts %}
+    <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+    <script src="/static/js/charts.js"></script>
+    {% endif %}
+
+    <script src="https://cdn.jsdelivr.net/npm/preline@4.1/dist/preline.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+
+    {% if use_socketio %}
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+    <script src="/static/js/socket.js"></script>
+    {% endif %}
+
+    {% block scripts %}{% endblock %}
+
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', function() {
+                navigator.serviceWorker.register('/static/sw.js').catch(function() {});
+            });
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,193 @@
+/* AMOLED Theme — True Black for OLED */
+[data-theme="theme-amoled"] {
+  --background: #000000;
+  --background-1: #0a0a0a;
+  --background-2: #1a1a1a;
+  --background-plain: #000000;
+
+  --foreground: #f5f5f5;
+  --foreground-inverse: #000000;
+  --inverse: #f5f5f5;
+
+  --border: #262626;
+  --border-line-inverse: #f5f5f5;
+  --border-line-1: #0a0a0a;
+  --border-line-2: #262626;
+  --border-line-3: #404040;
+  --border-line-4: #525252;
+  --border-line-5: #737373;
+  --border-line-6: #a3a3a3;
+  --border-line-7: #d4d4d4;
+  --border-line-8: #f5f5f5;
+
+  --primary-50: #faf5ff;
+  --primary-100: #f3e8ff;
+  --primary-200: #e9d5ff;
+  --primary-300: #d8b4fe;
+  --primary-400: #c084fc;
+  --primary-500: #a855f7;
+  --primary-600: #9333ea;
+  --primary-700: #7e22ce;
+  --primary-800: #6b21a8;
+  --primary-900: #581c87;
+  --primary-950: #3b0764;
+
+  --primary: #a855f7;
+  --primary-line: rgba(168, 85, 247, 0.2);
+  --primary-foreground: #ffffff;
+  --primary-hover: #c084fc;
+  --primary-focus: #c084fc;
+  --primary-active: #d8b4fe;
+  --primary-checked: #a855f7;
+
+  --secondary: #06b6d4;
+  --secondary-line: transparent;
+  --secondary-foreground: #000000;
+  --secondary-hover: #22d3ee;
+  --secondary-focus: #22d3ee;
+  --secondary-active: #67e8f9;
+
+  --layer: #0a0a0a;
+  --layer-line: #262626;
+  --layer-foreground: #f5f5f5;
+  --layer-hover: #1a1a1a;
+  --layer-focus: #1a1a1a;
+  --layer-active: #1a1a1a;
+
+  --surface: #141414;
+  --surface-1: #1f1f1f;
+  --surface-2: #262626;
+  --surface-3: #404040;
+  --surface-4: #525252;
+  --surface-5: #737373;
+  --surface-line: transparent;
+  --surface-foreground: #f5f5f5;
+  --surface-hover: #1f1f1f;
+  --surface-focus: #1f1f1f;
+  --surface-active: #1f1f1f;
+
+  --muted: #0a0a0a;
+  --muted-foreground: #737373;
+  --muted-foreground-1: #525252;
+  --muted-foreground-2: #404040;
+  --muted-hover: #1a1a1a;
+  --muted-focus: #1a1a1a;
+  --muted-active: #1a1a1a;
+
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+  --destructive-hover: #f87171;
+  --destructive-focus: #f87171;
+
+  --navbar: #000000;
+  --navbar-border: #262626;
+  --navbar-divider: #262626;
+  --navbar-nav-foreground: #f5f5f5;
+  --navbar-nav-hover: #0a0a0a;
+  --navbar-nav-focus: #0a0a0a;
+  --navbar-nav-active: #0a0a0a;
+  --navbar-nav-list-divider: #262626;
+  --navbar-inverse: #a855f7;
+
+  --sidebar: #000000;
+  --sidebar-border: #262626;
+  --sidebar-divider: #262626;
+  --sidebar-nav-foreground: #737373;
+  --sidebar-nav-hover: #0a0a0a;
+  --sidebar-nav-focus: #0a0a0a;
+  --sidebar-nav-active: rgba(168, 85, 247, 0.12);
+  --sidebar-nav-list-divider: #262626;
+  --sidebar-inverse: #a855f7;
+
+  --card: #0a0a0a;
+  --card-border: #262626;
+  --card-divider: #262626;
+  --card-header: #1a1a1a;
+  --card-footer: #1a1a1a;
+  --card-inverse: #f5f5f5;
+
+  --dropdown: #0a0a0a;
+  --dropdown-1: #1a1a1a;
+  --dropdown-border: #262626;
+  --dropdown-divider: #262626;
+  --dropdown-header: #1a1a1a;
+  --dropdown-footer: #1a1a1a;
+  --dropdown-item-foreground: #f5f5f5;
+  --dropdown-item-hover: #1a1a1a;
+  --dropdown-item-focus: #1a1a1a;
+  --dropdown-item-active: rgba(168, 85, 247, 0.12);
+  --dropdown-inverse: #f5f5f5;
+
+  --select: #0a0a0a;
+  --select-1: #1a1a1a;
+  --select-border: #262626;
+  --select-item-foreground: #f5f5f5;
+  --select-item-hover: #1a1a1a;
+  --select-item-focus: #1a1a1a;
+  --select-item-active: rgba(168, 85, 247, 0.12);
+  --select-inverse: #f5f5f5;
+
+  --overlay: #0a0a0a;
+  --overlay-border: #262626;
+  --overlay-divider: #262626;
+  --overlay-header: #1a1a1a;
+  --overlay-footer: #1a1a1a;
+  --overlay-inverse: #f5f5f5;
+
+  --popover: #0a0a0a;
+  --popover-border: #262626;
+
+  --tooltip: #1a1a1a;
+  --tooltip-foreground: #f5f5f5;
+  --tooltip-border: transparent;
+
+  --table-border: #262626;
+
+  --switch: #0a0a0a;
+
+  --footer: #000000;
+  --footer-border: #262626;
+  --footer-inverse: #f5f5f5;
+
+  --scrollbar-track: #0a0a0a;
+  --scrollbar-thumb: #262626;
+  --scrollbar-track-inverse: #f5f5f5;
+  --scrollbar-thumb-inverse: #d4d4d4;
+
+  /* Chart colors */
+  --chart-primary: #a855f7;
+  --chart-colors-primary: #a855f7;
+  --chart-colors-primary-hex: #a855f7;
+  --chart-colors-background: #000000;
+  --chart-colors-foreground: #737373;
+  --chart-1: rgba(168, 85, 247, 0.08);
+  --chart-colors-chart-1-hex: #a855f714;
+  --chart-2: rgba(168, 85, 247, 0.25);
+  --chart-colors-chart-2-hex: #a855f740;
+  --chart-3: #c084fc;
+  --chart-colors-chart-3-hex: #c084fc;
+  --chart-4: #7e22ce;
+  --chart-colors-chart-4-hex: #7e22ce;
+  --chart-5: #06b6d4;
+  --chart-colors-chart-5-hex: #06b6d4;
+  --chart-6: #22d3ee;
+  --chart-colors-chart-6-hex: #22d3ee;
+  --chart-7: #f97316;
+  --chart-colors-chart-7-hex: #f97316;
+  --chart-8: #1a1a1a;
+  --chart-colors-chart-8-hex: #1a1a1a;
+  --chart-9: #262626;
+  --chart-colors-chart-9-hex: #262626;
+  --chart-10: #404040;
+  --chart-colors-chart-10-hex: #404040;
+  --chart-colors-labels: #737373;
+  --chart-colors-xaxis-labels: #737373;
+  --chart-colors-yaxis-labels: #737373;
+  --chart-colors-grid-border: #262626;
+  --chart-colors-bar-ranges: #262626;
+
+  --map-colors-primary: #a855f7;
+  --map-colors-default: #404040;
+  --map-colors-highlight: #c084fc;
+  --map-colors-border: #262626;
+}

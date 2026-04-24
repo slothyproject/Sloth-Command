@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+
+{% block title %}Bot Health | Dissident Bot{% endblock %}
+
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+<script src="/static/js/charts.js"></script>
+{% endblock %}
+
+{% block content %}
+<div x-data="healthApp()" x-init="init()">
+    <div class="flex items-center justify-between mb-6">
+        <div>
+            <h1 class="text-2xl font-bold text-foreground">Bot Health</h1>
+            <p class="text-sm text-muted-foreground mt-1">System monitoring and diagnostics</p>
+        </div>
+        <div class="flex items-center gap-3">
+            <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold"
+                  :class="health.status==='healthy'?'bg-emerald-500/10 text-emerald-500':'bg-red-500/10 text-red-500'">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"
+                     :path="health.status==='healthy'?'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z':'M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z'">
+                </svg>
+                <span x-text="health.status==='healthy'?'All Systems Operational':'Issues Detected'"></span>
+            </span>
+            <button @click="refresh()" class="px-3 py-1.5 text-xs font-medium rounded-lg bg-surface text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1.5">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M1 4v6h6M23 20v-6h-6M20.49 9A9 9 0 005.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 013.51 15"/></svg>
+                Refresh
+            </button>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <div class="rounded-xl bg-card border border-card-border p-5 flex flex-col gap-3">
+            <div class="w-10 h-10 rounded-lg flex items-center justify-center" :class="health.status==='healthy'?'bg-emerald-500/10 text-emerald-500':'bg-red-500/10 text-red-500'">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/></svg>
+            </div>
+            <div><div class="text-2xl font-bold text-foreground" x-text="health.status==='healthy'?'Healthy':'Unhealthy'"></div><div class="text-sm text-muted-foreground">Overall Status</div></div>
+        </div>
+        <div class="rounded-xl bg-card border border-card-border p-5 flex flex-col gap-3">
+            <div class="w-10 h-10 rounded-lg flex items-center justify-center bg-secondary/10 text-secondary">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            </div>
+            <div><div class="text-2xl font-bold text-foreground" x-text="Dissident.formatUptime(health.uptime_seconds||0)"></div><div class="text-sm text-muted-foreground">Uptime</div></div>
+        </div>
+        <div class="rounded-xl bg-card border border-card-border p-5 flex flex-col gap-3">
+            <div class="w-10 h-10 rounded-lg flex items-center justify-center" :class="(health.cpu_percent||0)<50?'bg-emerald-500/10 text-emerald-500':(health.cpu_percent||0)<80?'bg-orange-500/10 text-orange-500':'bg-red-500/10 text-red-500'">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+            </div>
+            <div><div class="text-2xl font-bold text-foreground" x-text="(health.cpu_percent||0).toFixed(1)+'%'"></div><div class="text-sm text-muted-foreground">CPU Usage</div></div>
+        </div>
+        <div class="rounded-xl bg-card border border-card-border p-5 flex flex-col gap-3">
+            <div class="w-10 h-10 rounded-lg flex items-center justify-center bg-primary/10 text-primary">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2"/></svg>
+            </div>
+            <div><div class="text-2xl font-bold text-foreground" x-text="(health.memory_mb||0).toFixed(1)+' MB'"></div><div class="text-sm text-muted-foreground">Memory</div></div>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+        <div class="rounded-xl bg-card border border-card-border overflow-hidden">
+            <div class="flex items-center justify-between px-5 py-4 border-b border-card-divider">
+                <h3 class="text-sm font-semibold text-foreground">CPU Usage</h3>
+                <span class="text-sm font-semibold" :class="(health.cpu_percent||0)<50?'text-emerald-500':(health.cpu_percent||0)<80?'text-orange-500':'text-red-500'" x-text="(health.cpu_percent||0).toFixed(1)+'%'"></span>
+            </div>
+            <div class="p-4" style="height:200px"><div id="cpu-gauge" style="height:100%"></div></div>
+        </div>
+        <div class="rounded-xl bg-card border border-card-border overflow-hidden">
+            <div class="flex items-center justify-between px-5 py-4 border-b border-card-divider">
+                <h3 class="text-sm font-semibold text-foreground">Memory Usage</h3>
+                <span class="text-sm font-semibold text-primary" x-text="(health.memory_mb||0).toFixed(1)+' MB'"></span>
+            </div>
+            <div class="p-4" style="height:200px"><div id="memory-gauge" style="height:100%"></div></div>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div class="rounded-xl bg-card border border-card-border overflow-hidden">
+            <div class="px-5 py-4 border-b border-card-divider"><h3 class="text-sm font-semibold text-foreground">System Resources</h3></div>
+            <div class="p-4 space-y-4">
+                <template x-for="r in resources" :key="r.label">
+                    <div>
+                        <div class="flex justify-between text-sm mb-1.5">
+                            <span class="text-muted-foreground" x-text="r.label"></span>
+                            <span class="font-semibold" :class="r.color" x-text="r.value"></span>
+                        </div>
+                        <div class="h-2 bg-surface rounded-full overflow-hidden">
+                            <div class="h-full rounded-full transition-all" :class="r.barColor" :style="'width:'+r.pct+'%'"></div>
+                        </div>
+                    </div>
+                </template>
+            </div>
+        </div>
+        <div class="rounded-xl bg-card border border-card-border overflow-hidden">
+            <div class="px-5 py-4 border-b border-card-divider"><h3 class="text-sm font-semibold text-foreground">Services</h3></div>
+            <div class="p-2 space-y-1">
+                <template x-for="s in services" :key="s.name">
+                    <div class="flex items-center gap-3 p-3 rounded-lg hover:bg-surface transition-colors">
+                        <div class="w-8 h-8 rounded-lg flex items-center justify-center bg-surface text-primary">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path x-bind:d="s.icon"/></svg>
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <p class="text-sm font-semibold text-foreground" x-text="s.name"></p>
+                            <p class="text-xs text-muted-foreground" x-text="s.desc"></p>
+                        </div>
+                        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium" :class="s.ok?'bg-emerald-500/10 text-emerald-500':'bg-red-500/10 text-red-500'" x-text="s.ok?'Online':'Offline'"></span>
+                    </div>
+                </template>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function healthApp(){
+    return {
+        health:{status:'loading',uptime_seconds:0,cpu_percent:0,memory_mb:0,connections:0,errors_today:0,version:'unknown',latency_ms:0},
+        cpuGauge:null,memGauge:null,
+        get resources(){var h=this.health;return[
+            {label:'CPU',value:(h.cpu_percent||0).toFixed(1)+'%',pct:Math.min(h.cpu_percent||0,100),color:(h.cpu_percent||0)<50?'text-emerald-500':(h.cpu_percent||0)<80?'text-orange-500':'text-red-500',barColor:(h.cpu_percent||0)<50?'bg-emerald-500':(h.cpu_percent||0)<80?'bg-orange-500':'bg-red-500'},
+            {label:'Memory',value:(h.memory_mb||0).toFixed(1)+' MB',pct:Math.min((h.memory_mb||0)/5,100),color:'text-primary',barColor:'bg-primary'},
+            {label:'Latency',value:(h.latency_ms||0)+'ms',pct:Math.min((h.latency_ms||0)/2,100),color:(h.latency_ms||0)<100?'text-emerald-500':'text-orange-500',barColor:(h.latency_ms||0)<100?'bg-emerald-500':'bg-orange-500'}
+        ];},
+        services:[{name:'Database',desc:'SQLite connection',icon:'M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7',ok:true},{name:'Discord Gateway',desc:'WebSocket connection',icon:'M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-4.7C3.527 13.973 3 12.542 3 11c0-4.418 4.03-8 9-8s9 3.582 9 8z',ok:true},{name:'API Server',desc:'REST API endpoint',icon:'M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2',ok:true},{name:'Scheduler',desc:'Background tasks',icon:'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z',ok:true}],
+        init(){this.loadHealth();setInterval(()=>this.poll(),5000);},
+        async loadHealth(){try{var r=await Dissident.apiCall('/api/health');this.health=r;var r2=await Dissident.apiCall('/api/stats');Object.assign(this.health,r2);}catch(e){}this.$nextTick(()=>this.initGauges());},
+        async poll(){try{var r=await Dissident.apiCall('/api/stats');Object.assign(this.health,r);}catch(e){}},
+        initGauges(){var ce=document.getElementById('cpu-gauge');var me=document.getElementById('memory-gauge');if(!ce||!me)return;if(this.cpuGauge)this.cpuGauge.destroy();if(this.memGauge)this.memGauge.destroy();var t=DissidentCharts.getComputedTheme();this.cpuGauge=new ApexCharts(ce,DissidentCharts.baseOptions({chart:{type:'radialBar',height:'100%'},series:[this.health.cpu_percent||0],plotOptions:{radialBar:{startAngle:-135,endAngle:135,dataLabels:{name:{show:true,fontSize:'14px',color:t.muted},value:{show:true,fontSize:'28px',fontWeight:700,color:t.foreground,formatter:function(v){return v.toFixed(1)+'%'}}},track:{background:t.border,strokeWidth:'70%'}}}}));this.memGauge=new ApexCharts(me,DissidentCharts.baseOptions({chart:{type:'radialBar',height:'100%'},series:[Math.min((this.health.memory_mb||0)/5,100)],plotOptions:{radialBar:{startAngle:-135,endAngle:135,dataLabels:{name:{show:true,fontSize:'14px',color:t.muted},value:{show:true,fontSize:'28px',fontWeight:700,color:t.foreground,formatter:function(v){return v.toFixed(1)+'%'}}},track:{background:t.border,strokeWidth:'70%'}}}}));this.cpuGauge.render();this.memGauge.render();},
+        refresh(){this.loadHealth();}
+    };
+}
+</script>
+{% endblock %}

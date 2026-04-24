@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% block title %}Notifications | Dissident Bot{% endblock %}
+
+{% block content %}
+<div x-data="notificationsApp()" x-init="init()">
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+        <div>
+            <h1 class="text-2xl font-bold text-foreground">Notifications</h1>
+            <p class="text-sm text-muted-foreground mt-1">Manage alerts and messages</p>
+        </div>
+        <button @click="markAllRead()" class="inline-flex items-center gap-2 px-4 h-10 rounded-lg bg-card border border-card-border text-foreground text-sm font-medium hover:border-primary/30 transition-colors">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            Mark All Read
+        </button>
+    </div>
+
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+        <div class="rounded-xl bg-card border border-card-border p-5 flex items-center gap-4">
+            <div class="w-10 h-10 rounded-lg bg-blue-500/10 text-blue-500 flex items-center justify-center"><svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0"/></svg></div>
+            <div><div class="text-2xl font-bold text-foreground" x-text="unreadCount">0</div><div class="text-sm text-muted-foreground">Unread</div></div>
+        </div>
+        <div class="rounded-xl bg-card border border-card-border p-5 flex items-center gap-4">
+            <div class="w-10 h-10 rounded-lg bg-emerald-500/10 text-emerald-500 flex items-center justify-center"><svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg></div>
+            <div><div class="text-2xl font-bold text-foreground" x-text="notifications.length">0</div><div class="text-sm text-muted-foreground">Total</div></div>
+        </div>
+        <div class="rounded-xl bg-card border border-card-border p-5 flex items-center gap-4">
+            <div class="w-10 h-10 rounded-lg bg-purple-500/10 text-purple-500 flex items-center justify-center"><svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg></div>
+            <div><div class="text-2xl font-bold text-foreground">7d</div><div class="text-sm text-muted-foreground">Retention</div></div>
+        </div>
+    </div>
+
+    <div class="flex flex-col sm:flex-row gap-3 mb-6">
+        <div class="relative flex-1">
+            <svg class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+            <input type="text" x-model="search" @input="filterNotifications()" placeholder="Search notifications..." class="w-full h-10 pl-10 pr-4 rounded-lg bg-surface border border-card-border text-foreground text-sm focus:border-primary focus:outline-none">
+        </div>
+        <select x-model="filterType" @change="filterNotifications()" class="h-10 px-3 rounded-lg bg-surface border border-card-border text-foreground text-sm focus:outline-none focus:border-primary">
+            <option value="all">All Types</option><option value="info">Info</option><option value="warning">Warning</option><option value="error">Error</option><option value="success">Success</option>
+        </select>
+        <select x-model="filterStatus" @change="filterNotifications()" class="h-10 px-3 rounded-lg bg-surface border border-card-border text-foreground text-sm focus:outline-none focus:border-primary">
+            <option value="all">All Status</option><option value="unread">Unread</option><option value="read">Read</option>
+        </select>
+    </div>
+
+    <div class="space-y-2">
+        <template x-for="notif in filteredNotifications" :key="notif.id">
+            <div @click="markRead(notif)" class="flex items-start gap-4 p-4 rounded-xl bg-card border cursor-pointer hover:-translate-y-0.5 transition-all" :class="notif.read ? 'border-card-border hover:border-primary/30' : 'border-primary/30 bg-primary/5'">
+                <div class="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0" :class="notif.type==='success'?'bg-emerald-500/10 text-emerald-500':notif.type==='warning'?'bg-orange-500/10 text-orange-500':notif.type==='error'?'bg-red-500/10 text-red-500':'bg-blue-500/10 text-blue-500'">
+                    <svg x-show="notif.type==='info'" class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
+                    <svg x-show="notif.type==='success'" class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    <svg x-show="notif.type==='warning'" class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                    <svg x-show="notif.type==='error'" class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M15 9l-6 6m0-6l6 6"/></svg>
+                </div>
+                <div class="flex-1 min-w-0">
+                    <div class="text-sm font-semibold text-foreground" x-text="notif.title"></div>
+                    <div class="text-sm text-muted-foreground mt-0.5" x-text="notif.message"></div>
+                    <div class="flex items-center gap-3 mt-1.5 text-xs text-muted-foreground">
+                        <span class="flex items-center gap-1"><svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg> <span x-text="notif.time"></span></span>
+                        <span x-text="notif.source" x-show="notif.source"></span>
+                    </div>
+                </div>
+                <button @click.stop="deleteNotification(notif)" class="p-1.5 rounded-lg hover:bg-surface text-muted-foreground hover:text-red-500 transition-colors flex-shrink-0">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                </button>
+            </div>
+        </template>
+        <div x-show="filteredNotifications.length===0" class="text-center py-16">
+            <svg class="w-16 h-16 mx-auto text-muted-foreground/30 mb-4" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/></svg>
+            <h3 class="text-lg font-semibold text-foreground">No notifications</h3>
+            <p class="text-sm text-muted-foreground mt-1">You're all caught up!</p>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function notificationsApp() {
+    return {
+        notifications: [], filteredNotifications: [],
+        search: '', filterType: 'all', filterStatus: 'all',
+        async init() {
+            try { const r=await fetch('/api/notifications'); const d=await r.json(); this.notifications=d.notifications||[]; } catch(e) { this.notifications=[]; }
+            this.filterNotifications();
+        },
+        get unreadCount() { return this.notifications.filter(n=>!n.read).length; },
+        filterNotifications() {
+            let f=[...this.notifications];
+            if(this.search){const q=this.search.toLowerCase();f=f.filter(n=>n.title.toLowerCase().includes(q)||n.message.toLowerCase().includes(q));}
+            if(this.filterType!=='all') f=f.filter(n=>n.type===this.filterType);
+            if(this.filterStatus==='unread') f=f.filter(n=>!n.read); else if(this.filterStatus==='read') f=f.filter(n=>n.read);
+            this.filteredNotifications=f;
+        },
+        markRead(n) { n.read=true; this.filterNotifications(); },
+        markAllRead() { this.notifications.forEach(n=>n.read=true); this.filterNotifications(); },
+        deleteNotification(n) { this.notifications=this.notifications.filter(x=>x.id!==n.id); this.filterNotifications(); }
+    };
+}
+</script>
+{% endblock %}

@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+
+{% block title %}Backups | Dissident Bot{% endblock %}
+
+{% block content %}
+<div x-data="backupsApp()" x-init="init()">
+    <div class="flex items-center justify-between mb-6">
+        <div>
+            <h1 class="text-2xl font-bold text-foreground">Backup Manager</h1>
+            <p class="text-sm text-muted-foreground mt-1" x-text="backups.length+' backups'"></p>
+        </div>
+        <button @click="create()" :disabled="creating" class="px-4 py-2 text-sm font-medium rounded-lg gradient-bg text-white hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center gap-2">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 4v16m8-8H4"/></svg>
+            <span x-text="creating?'Creating...':'Create Backup'"></span>
+        </button>
+    </div>
+
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+        <div class="rounded-xl bg-card border border-card-border p-5 flex flex-col gap-3">
+            <div class="w-10 h-10 rounded-lg flex items-center justify-center bg-secondary/10 text-secondary">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/></svg>
+            </div>
+            <div><div class="text-2xl font-bold text-foreground" x-text="backups.length">0</div><div class="text-sm text-muted-foreground">Total Backups</div></div>
+        </div>
+        <div class="rounded-xl bg-card border border-card-border p-5 flex flex-col gap-3">
+            <div class="w-10 h-10 rounded-lg flex items-center justify-center bg-primary/10 text-primary">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7"/></svg>
+            </div>
+            <div><div class="text-2xl font-bold text-foreground" x-text="totalSize">0 MB</div><div class="text-sm text-muted-foreground">Total Size</div></div>
+        </div>
+        <div class="rounded-xl bg-card border border-card-border p-5 flex flex-col gap-3">
+            <div class="w-10 h-10 rounded-lg flex items-center justify-center bg-emerald-500/10 text-emerald-500">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            </div>
+            <div><div class="text-2xl font-bold text-foreground" x-text="lastBackup">Never</div><div class="text-sm text-muted-foreground">Last Backup</div></div>
+        </div>
+    </div>
+
+    <div class="rounded-xl bg-card border border-card-border overflow-hidden">
+        <div class="px-5 py-4 border-b border-card-divider">
+            <h3 class="text-sm font-semibold text-foreground">Backup History</h3>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead>
+                    <tr class="border-b border-card-divider">
+                        <th class="text-left px-5 py-3 text-xs font-medium text-muted-foreground uppercase">Date</th>
+                        <th class="text-left px-5 py-3 text-xs font-medium text-muted-foreground uppercase">Type</th>
+                        <th class="text-left px-5 py-3 text-xs font-medium text-muted-foreground uppercase">Size</th>
+                        <th class="text-left px-5 py-3 text-xs font-medium text-muted-foreground uppercase">Status</th>
+                        <th class="text-right px-5 py-3 text-xs font-medium text-muted-foreground uppercase">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <template x-for="b in backups" :key="b.name">
+                        <tr class="border-b border-card-divider hover:bg-surface transition-colors">
+                            <td class="px-5 py-3 text-foreground" x-text="b.created||b.date"></td>
+                            <td class="px-5 py-3"><span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-primary/10 text-primary" x-text="b.type||'full'"></span></td>
+                            <td class="px-5 py-3 text-muted-foreground" x-text="b.size"></td>
+                            <td class="px-5 py-3">
+                                <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase"
+                                      :class="b.status==='success'?'bg-emerald-500/10 text-emerald-500':'bg-red-500/10 text-red-500'"
+                                      x-text="b.status"></span>
+                            </td>
+                            <td class="px-5 py-3 text-right">
+                                <div class="flex items-center justify-end gap-1">
+                                    <button @click="download(b)" class="p-1.5 rounded-lg hover:bg-surface text-muted-foreground hover:text-foreground transition-colors" title="Download">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+                                    </button>
+                                    <button @click="deleteBackup(b)" class="p-1.5 rounded-lg hover:bg-red-500/10 text-muted-foreground hover:text-red-500 transition-colors" title="Delete">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                    </template>
+                </tbody>
+            </table>
+            <div x-show="backups.length===0" class="py-12 text-center">
+                <svg class="w-10 h-10 mx-auto text-muted-foreground/50 mb-2" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8"/></svg>
+                <p class="text-sm text-muted-foreground">No backups yet</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function backupsApp(){
+    return {
+        backups:[],creating:false,
+        get totalSize(){var s=0;this.backups.forEach(function(b){var v=parseFloat(b.size)||0;var u=(b.size||'').toLowerCase();if(u.includes('gb'))s+=v*1024;else if(u.includes('mb'))s+=v;else if(u.includes('kb'))s+=v/1024;});return s.toFixed(1)+' MB';},
+        get lastBackup(){if(!this.backups.length)return'Never';return Dissident.formatRelativeTime(this.backups[0].created||this.backups[0].date);},
+        init(){this.load();},
+        async load(){try{var r=await Dissident.apiCall('/api/backups');this.backups=r.backups||[];}catch(e){this.backups=[];}},
+        async create(){this.creating=true;try{await Dissident.apiCall('/api/backups',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:'full'})});Dissident.showToast('Backup created','success');this.load();}catch(e){Dissident.showToast('Backup failed','error');}this.creating=false;},
+        download(b){var name=b.name||b.file;window.location.href='/api/backups/download?file='+encodeURIComponent(name);},
+        async deleteBackup(b){if(!confirm('Delete backup "'+b.name+'"?'))return;try{await Dissident.apiCall('/api/backups/'+encodeURIComponent(b.name),{method:'DELETE'});Dissident.showToast('Backup deleted','success');this.load();}catch(e){Dissident.showToast('Delete failed','error');}}
+    };
+}
+</script>
+{% endblock %}

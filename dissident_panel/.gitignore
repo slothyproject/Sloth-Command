@@ -1,0 +1,36 @@
+# Web Panel
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+env/
+.env
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs
+*.log
+logs/
+
+# Session data
+session_data/
+
+# Uploaded files
+uploads/
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Secrets
+secrets.json
+config.local.yaml

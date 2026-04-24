@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}Economy | Dissident Bot{% endblock %}
+{% block content %}
+<div x-data="economyApp()" x-init="init()">
+    <div class="mb-6">
+        <h1 class="text-2xl font-bold text-foreground">Economy Leaderboard</h1>
+        <p class="text-sm text-muted-foreground mt-1">Top users ranked by balance</p>
+    </div>
+
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <div class="rounded-xl bg-card border border-card-border p-5 flex flex-col gap-3 hover:border-primary/30 transition-colors">
+            <div class="w-10 h-10 rounded-lg flex items-center justify-center bg-yellow-500/10 text-yellow-500">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v12M8 10h8M8 14h8"/></svg>
+            </div>
+            <div class="text-2xl font-bold text-foreground" x-text="formatNum(stats.total_coins)">0</div>
+            <div class="text-sm text-muted-foreground">Total Coins</div>
+        </div>
+        <div class="rounded-xl bg-card border border-card-border p-5 flex flex-col gap-3 hover:border-primary/30 transition-colors">
+            <div class="w-10 h-10 rounded-lg flex items-center justify-center bg-emerald-500/10 text-emerald-500">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
+            </div>
+            <div class="text-2xl font-bold text-foreground" x-text="formatNum(stats.daily_payout)">0</div>
+            <div class="text-sm text-muted-foreground">Daily Payout</div>
+        </div>
+        <div class="rounded-xl bg-card border border-card-border p-5 flex flex-col gap-3 hover:border-primary/30 transition-colors">
+            <div class="w-10 h-10 rounded-lg flex items-center justify-center bg-primary/10 text-primary">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>
+            </div>
+            <div class="text-2xl font-bold text-foreground" x-text="stats.active_traders">0</div>
+            <div class="text-sm text-muted-foreground">Active Traders</div>
+        </div>
+        <div class="rounded-xl bg-card border border-card-border p-5 flex flex-col gap-3 hover:border-primary/30 transition-colors">
+            <div class="w-10 h-10 rounded-lg flex items-center justify-center bg-purple-500/10 text-purple-500">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 3h18v18H3zM6 7h12M6 12h12M6 17h12"/></svg>
+            </div>
+            <div class="text-2xl font-bold text-foreground" x-text="stats.shop_items">0</div>
+            <div class="text-sm text-muted-foreground">Shop Items</div>
+        </div>
+    </div>
+
+    <div class="rounded-xl bg-card border border-card-border overflow-hidden">
+        <div class="flex items-center justify-between px-5 py-4 border-b border-card-divider">
+            <h3 class="text-sm font-semibold text-foreground flex items-center gap-2">
+                <svg class="w-4 h-4 text-primary" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>
+                Richest Users
+            </h3>
+            <button @click="load()" class="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M1 4v6h6M23 20v-6h-6M20.49 9A9 9 0 005.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 013.51 15"/></svg>
+                Refresh
+            </button>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead><tr class="border-b border-card-divider text-left text-muted-foreground">
+                    <th class="px-5 py-3 font-medium w-16">Rank</th>
+                    <th class="px-5 py-3 font-medium">Username</th>
+                    <th class="px-5 py-3 font-medium text-right">Balance</th>
+                </tr></thead>
+                <tbody>
+                    <template x-for="(user, idx) in leaders" :key="user.user || idx">
+                        <tr class="border-b border-card-divider last:border-0 hover:bg-surface transition-colors">
+                            <td class="px-5 py-3">
+                                <span class="inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold" :class="idx===0?'bg-yellow-500/20 text-yellow-500':idx===1?'bg-gray-400/20 text-gray-400':idx===2?'bg-orange-500/20 text-orange-500':'bg-surface text-muted-foreground'" x-text="idx+1"></span>
+                            </td>
+                            <td class="px-5 py-3 font-semibold text-foreground" x-text="user.user"></td>
+                            <td class="px-5 py-3 text-right font-mono text-foreground" x-text="formatNum(user.coins + user.bank)"></td>
+                        </tr>
+                    </template>
+                    <tr x-show="leaders.length === 0">
+                        <td colspan="3" class="px-5 py-8 text-center text-muted-foreground">No economy data available</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+function economyApp(){
+    return{
+        leaders:[],stats:{total_coins:0,daily_payout:0,active_traders:0,shop_items:0},
+        init(){this.load()},
+        async load(){try{var r=await fetch('/api/economy');if(r.ok){var d=await r.json();this.leaders=d.leaders||[];this.stats=d.stats||this.stats;}}catch(e){this.leaders=[];}},
+        formatNum(n){if(n>=1e6)return(n/1e6).toFixed(1)+'M';if(n>=1e3)return(n/1e3).toFixed(1)+'K';return n!=null?n.toString():'0';}
+    };
+}
+</script>
+{% endblock %}

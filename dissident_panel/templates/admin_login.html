@@ -1,0 +1,58 @@
+{% extends "auth_base.html" %}
+
+{% block title %}Admin Login | Dissident Bot{% endblock %}
+
+{% block content %}
+<div class="ds-glass rounded-3xl p-8 md:p-10" x-data="{
+    showPassword: false, loading: false, error: '', username: '', password: '',
+    async handleLogin() {
+        if (!this.username || !this.password) { this.error = 'Fill in both fields'; return; }
+        this.loading = true; this.error = '';
+        try {
+            const res = await fetch('/api/login', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({username: this.username, password: this.password}) });
+            const data = await res.json();
+            if (data.success) window.location.href = '/dashboard';
+            else this.error = data.error || 'Invalid credentials';
+        } catch(e) { this.error = 'Connection error. Try again.'; }
+        this.loading = false;
+    }
+}">
+    <div class="text-center mb-6">
+        <div class="w-14 h-14 rounded-2xl bg-destructive/20 flex items-center justify-center text-destructive mx-auto mb-4">
+            <svg class="w-7 h-7" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        </div>
+        <h2 class="text-xl font-bold text-destructive">Admin Access</h2>
+    </div>
+
+    <div class="p-3 bg-destructive/10 border border-destructive/30 rounded-xl text-sm text-destructive text-center mb-6">
+        Restricted area. Admin credentials required.
+    </div>
+
+    <form @submit.prevent="handleLogin()">
+        <div class="mb-5">
+            <label class="block text-sm font-medium text-muted-foreground mb-2">Admin Username</label>
+            <input type="text" x-model="username" class="w-full px-4 py-3 bg-background border border-border rounded-xl text-foreground placeholder-muted-foreground/50 focus:outline-none focus:border-destructive focus:ring-2 focus:ring-destructive/20 transition-colors" placeholder="Enter admin username" required>
+        </div>
+        <div class="mb-5">
+            <label class="block text-sm font-medium text-muted-foreground mb-2">Admin Password</label>
+            <div class="relative">
+                <input :type="showPassword ? 'text' : 'password'" x-model="password" class="w-full px-4 py-3 bg-background border border-border rounded-xl text-foreground placeholder-muted-foreground/50 focus:outline-none focus:border-destructive focus:ring-2 focus:ring-destructive/20 transition-colors pr-10" placeholder="Enter admin password" required>
+                <button type="button" @click="showPassword = !showPassword" class="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors">
+                    <svg x-show="!showPassword" class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                    <svg x-show="showPassword" class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                </button>
+            </div>
+        </div>
+        <button type="submit" class="w-full py-3 font-bold text-destructive-foreground bg-destructive hover:bg-destructive-hover rounded-xl transition-all hover:shadow-lg hover:shadow-destructive/40 disabled:opacity-50 disabled:cursor-not-allowed" :disabled="loading">
+            <span x-show="!loading">Admin Login</span>
+            <span x-show="loading">Verifying...</span>
+        </button>
+        <div x-show="error" x-transition class="mt-4 p-3 bg-destructive/10 border border-destructive/30 rounded-xl text-destructive text-sm text-center" x-text="error"></div>
+    </form>
+
+    <div class="flex justify-between mt-6 text-sm">
+        <a href="/login" class="text-muted-foreground hover:text-foreground transition-colors">&larr; Regular Login</a>
+        <a href="/homepage" class="text-muted-foreground hover:text-foreground transition-colors">Homepage</a>
+    </div>
+</div>
+{% endblock %}

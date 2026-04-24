@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+
+{% block title %}Server Dashboard | Dissident Bot{% endblock %}
+
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+<script src="/static/js/charts.js"></script>
+{% endblock %}
+
+{% block content %}
+<div x-data="serverApp()" x-init="init()">
+    <div class="mb-6">
+        <a href="/servers" class="text-sm text-muted-foreground hover:text-foreground transition-colors">&larr; Back to Servers</a>
+        <h1 class="text-2xl font-bold text-foreground mt-2" x-text="server.name || 'Server Dashboard'">Loading...</h1>
+        <p class="text-sm text-muted-foreground mt-1">ID: <span x-text="serverId">-</span></p>
+    </div>
+
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <div class="rounded-xl bg-card border border-card-border p-5">
+            <div class="text-sm text-muted-foreground">Members</div>
+            <div class="text-2xl font-bold text-foreground" x-text="Dissident.formatNumber(server.member_count || 0)">0</div>
+        </div>
+        <div class="rounded-xl bg-card border border-card-border p-5">
+            <div class="text-sm text-muted-foreground">Channels</div>
+            <div class="text-2xl font-bold text-foreground" x-text="server.channels || 0">0</div>
+        </div>
+        <div class="rounded-xl bg-card border border-card-border p-5">
+            <div class="text-sm text-muted-foreground">Roles</div>
+            <div class="text-2xl font-bold text-foreground" x-text="server.roles || 0">0</div>
+        </div>
+        <div class="rounded-xl bg-card border border-card-border p-5">
+            <div class="text-sm text-muted-foreground">Bot Latency</div>
+            <div class="text-2xl font-bold text-foreground" x-text="(server.latency_ms || 0) + 'ms'">0ms</div>
+        </div>
+    </div>
+
+    <div class="rounded-xl bg-card border border-card-border overflow-hidden">
+        <div class="px-5 py-4 border-b border-card-divider">
+            <h3 class="text-sm font-semibold text-foreground">Server Details</h3>
+        </div>
+        <div class="p-4">
+            <div x-show="!server.id" class="py-12 text-center">
+                <p class="text-muted-foreground">Loading server data...</p>
+                <a href="/servers" class="text-primary hover:text-primary-hover text-sm">Return to server list</a>
+            </div>
+            <div x-show="server.id" class="space-y-3">
+                <div class="flex justify-between py-2 border-b border-border"><span class="text-muted-foreground">Name</span><span class="font-medium" x-text="server.name">-</span></div>
+                <div class="flex justify-between py-2 border-b border-border"><span class="text-muted-foreground">ID</span><span class="font-mono text-sm" x-text="server.id">-</span></div>
+                <div class="flex justify-between py-2 border-b border-border"><span class="text-muted-foreground">Owner</span><span class="font-medium" x-text="server.owner || 'Unknown'">-</span></div>
+                <div class="flex justify-between py-2 border-b border-border"><span class="text-muted-foreground">Region</span><span class="font-medium" x-text="server.region || 'Unknown'">-</span></div>
+                <div class="flex justify-between py-2"><span class="text-muted-foreground">Created</span><span class="font-medium" x-text="server.created_at || 'Unknown'">-</span></div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function serverApp() {
+    return {
+        serverId: '{{ server_id or request.args.get("server_id", "") }}',
+        server: {},
+        init() {
+            var self = this;
+            this.loadServer();
+        },
+        async loadServer() {
+            try {
+                var r = await Dissident.apiCall('/api/servers/' + this.serverId);
+                if (r && r.id) {
+                    this.server = r;
+                } else {
+                    this.server = { name: 'Server Not Found', member_count: 0 };
+                }
+            } catch(e) {
+                this.server = { name: 'Error Loading Server', member_count: 0 };
+            }
+        }
+    };
+}
+</script>
+{% endblock %}

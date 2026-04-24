@@ -4,7 +4,7 @@ dockerfilePath = "Dockerfile"
 
 [deploy]
 numReplicas = 1
-startCommand = "gunicorn --bind 0.0.0.0:8080 --workers 2 --worker-class gevent --timeout 120 dashboard.app:app"
+startCommand = "gunicorn --bind 0.0.0.0:8080 --workers 2 --worker-class gevent --timeout 120 wsgi:application"
 healthcheckPath = "/health"
 healthcheckTimeout = 30
 restartPolicyType = "ON_FAILURE"

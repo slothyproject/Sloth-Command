@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}Tickets | Dissident Bot{% endblock %}
+{% block content %}
+<div x-data="ticketsApp()" x-init="init()">
+    <div class="mb-6">
+        <h1 class="text-2xl font-bold text-foreground">Support Tickets</h1>
+        <p class="text-sm text-muted-foreground mt-1">Manage open and closed support requests</p>
+    </div>
+
+    <div class="flex gap-2 mb-6 flex-wrap">
+        <template x-for="tab in [{k:'all',l:'All'},{k:'open',l:'Open'},{k:'closed',l:'Closed'}]" :key="tab.k">
+            <button @click="filter=tab.k" class="px-4 py-2 rounded-lg text-sm font-medium transition-colors" :class="filter===tab.k?'gradient-bg text-white':'bg-card border border-card-border text-muted-foreground hover:text-foreground'" x-text="tab.l"></button>
+        </template>
+    </div>
+
+    <div class="rounded-xl bg-card border border-card-border overflow-hidden">
+        <div class="flex items-center justify-between px-5 py-4 border-b border-card-divider">
+            <h3 class="text-sm font-semibold text-foreground flex items-center gap-2">
+                <svg class="w-4 h-4 text-primary" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+                Ticket Queue
+            </h3>
+            <button @click="load()" class="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M1 4v6h6M23 20v-6h-6M20.49 9A9 9 0 005.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 013.51 15"/></svg>
+                Refresh
+            </button>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead><tr class="border-b border-card-divider text-left text-muted-foreground">
+                    <th class="px-5 py-3 font-medium w-16">ID</th>
+                    <th class="px-5 py-3 font-medium">Subject</th>
+                    <th class="px-5 py-3 font-medium w-24">Status</th>
+                    <th class="px-5 py-3 font-medium w-40">Created</th>
+                </tr></thead>
+                <tbody>
+                    <template x-for="t in filteredTickets()" :key="t.id">
+                        <tr class="border-b border-card-divider last:border-0 hover:bg-surface transition-colors">
+                            <td class="px-5 py-3 font-mono text-muted-foreground" x-text="'#'+t.id"></td>
+                            <td class="px-5 py-3 text-foreground" x-text="t.subject"></td>
+                            <td class="px-5 py-3">
+                                <span class="px-2.5 py-1 rounded-md text-xs font-semibold" :class="t.status==='open'?'bg-emerald-500/10 text-emerald-500':'bg-surface text-muted-foreground'" x-text="t.status"></span>
+                            </td>
+                            <td class="px-5 py-3 text-muted-foreground" x-text="t.created"></td>
+                        </tr>
+                    </template>
+                    <tr x-show="filteredTickets().length===0">
+                        <td colspan="4" class="px-5 py-8 text-center text-muted-foreground">No tickets found</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+function ticketsApp(){
+    return{
+        tickets:[],filter:'all',
+        init(){this.load()},
+        async load(){try{var r=await fetch('/api/tickets');if(r.ok){var d=await r.json();this.tickets=d.tickets||d||[];}}catch(e){this.tickets=[];}},
+        filteredTickets(){if(this.filter==='all')return this.tickets;return this.tickets.filter(function(t){return t.status===this.filter}.bind(this))}
+    };
+}
+</script>
+{% endblock %}

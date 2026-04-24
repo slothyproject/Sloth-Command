@@ -1,0 +1,200 @@
+/* Dissident Dark Theme — default */
+[data-theme="theme-dissident"] {
+  --background: #0d1117;
+  --background-1: #161b22;
+  --background-2: #1c2333;
+  --background-plain: #0d1117;
+
+  --foreground: #e6edf3;
+  --foreground-inverse: #0d1117;
+  --inverse: #e6edf3;
+
+  --border: #30363d;
+  --border-line-inverse: #f0f6fc;
+  --border-line-1: #161b22;
+  --border-line-2: #30363d;
+  --border-line-3: #484f58;
+  --border-line-4: #6e7681;
+  --border-line-5: #8b949e;
+  --border-line-6: #c9d1d9;
+  --border-line-7: #d0d7de;
+  --border-line-8: #e6edf3;
+
+  --primary-50: #faf5ff;
+  --primary-100: #f3e8ff;
+  --primary-200: #e9d5ff;
+  --primary-300: #d8b4fe;
+  --primary-400: #c084fc;
+  --primary-500: #a855f7;
+  --primary-600: #9333ea;
+  --primary-700: #7e22ce;
+  --primary-800: #6b21a8;
+  --primary-900: #581c87;
+  --primary-950: #3b0764;
+
+  --primary: #a855f7;
+  --primary-line: rgba(168, 85, 247, 0.2);
+  --primary-foreground: #ffffff;
+  --primary-hover: #9333ea;
+  --primary-focus: #9333ea;
+  --primary-active: #7e22ce;
+  --primary-checked: #a855f7;
+
+  --secondary: #06b6d4;
+  --secondary-line: transparent;
+  --secondary-foreground: #0d1117;
+  --secondary-hover: #0891b2;
+  --secondary-focus: #0891b2;
+  --secondary-active: #0e7490;
+
+  --layer: #161b22;
+  --layer-line: #30363d;
+  --layer-foreground: #e6edf3;
+  --layer-hover: #1c2333;
+  --layer-focus: #1c2333;
+  --layer-active: #1c2333;
+
+  --surface: #21262d;
+  --surface-1: #30363d;
+  --surface-2: #484f58;
+  --surface-3: #6e7681;
+  --surface-4: #8b949e;
+  --surface-5: #c9d1d9;
+  --surface-line: transparent;
+  --surface-foreground: #e6edf3;
+  --surface-hover: #30363d;
+  --surface-focus: #30363d;
+  --surface-active: #30363d;
+
+  --muted: #161b22;
+  --muted-foreground: #8b949e;
+  --muted-foreground-1: #6e7681;
+  --muted-foreground-2: #484f58;
+  --muted-hover: #1c2333;
+  --muted-focus: #1c2333;
+  --muted-active: #1c2333;
+
+  --destructive: #f85149;
+  --destructive-foreground: #ffffff;
+  --destructive-hover: #da3633;
+  --destructive-focus: #da3633;
+
+  --navbar: #0d1117;
+  --navbar-border: #30363d;
+  --navbar-divider: #30363d;
+  --navbar-nav-foreground: #e6edf3;
+  --navbar-nav-hover: #1c2333;
+  --navbar-nav-focus: #1c2333;
+  --navbar-nav-active: #1c2333;
+  --navbar-nav-list-divider: #30363d;
+  --navbar-inverse: #f0f6fc;
+
+  --sidebar: #0d1117;
+  --sidebar-border: #30363d;
+  --sidebar-divider: #30363d;
+  --sidebar-nav-foreground: #8b949e;
+  --sidebar-nav-hover: #161b22;
+  --sidebar-nav-focus: #161b22;
+  --sidebar-nav-active: rgba(168, 85, 247, 0.15);
+  --sidebar-nav-list-divider: #30363d;
+  --sidebar-inverse: #f0f6fc;
+
+  --card: #161b22;
+  --card-border: #30363d;
+  --card-divider: #30363d;
+  --card-header: #21262d;
+  --card-footer: #21262d;
+  --card-inverse: #f0f6fc;
+
+  --dropdown: #161b22;
+  --dropdown-1: #1c2333;
+  --dropdown-border: #30363d;
+  --dropdown-divider: #30363d;
+  --dropdown-header: #21262d;
+  --dropdown-footer: #21262d;
+  --dropdown-item-foreground: #e6edf3;
+  --dropdown-item-hover: #1c2333;
+  --dropdown-item-focus: #1c2333;
+  --dropdown-item-active: rgba(168, 85, 247, 0.15);
+  --dropdown-inverse: #f0f6fc;
+
+  --select: #161b22;
+  --select-1: #1c2333;
+  --select-border: #30363d;
+  --select-item-foreground: #e6edf3;
+  --select-item-hover: #1c2333;
+  --select-item-focus: #1c2333;
+  --select-item-active: rgba(168, 85, 247, 0.15);
+  --select-inverse: #f0f6fc;
+
+  --overlay: #161b22;
+  --overlay-border: #30363d;
+  --overlay-divider: #30363d;
+  --overlay-header: #21262d;
+  --overlay-footer: #21262d;
+  --overlay-inverse: #f0f6fc;
+
+  --popover: #161b22;
+  --popover-border: #30363d;
+
+  --tooltip: #1c2333;
+  --tooltip-foreground: #e6edf3;
+  --tooltip-border: transparent;
+
+  --table-border: #30363d;
+
+  --switch: #161b22;
+
+  --footer: #0d1117;
+  --footer-border: #30363d;
+  --footer-inverse: #f0f6fc;
+
+  --scrollbar-track: #161b22;
+  --scrollbar-thumb: #30363d;
+  --scrollbar-track-inverse: #f6f8fa;
+  --scrollbar-thumb-inverse: #d0d7de;
+
+  /* Chart colors (hex for ApexCharts) */
+  --chart-primary: #a855f7;
+  --chart-colors-primary: #a855f7;
+  --chart-colors-primary-inverse: #c084fc;
+  --chart-colors-primary-hex: #a855f7;
+  --chart-colors-primary-hex-inverse: #c084fc;
+  --chart-colors-background: #0d1117;
+  --chart-colors-background-inverse: #ffffff;
+  --chart-colors-foreground: #8b949e;
+  --chart-colors-foreground-inverse: #6b7280;
+  --chart-1: rgba(168, 85, 247, 0.1);
+  --chart-colors-chart-1: rgba(168, 85, 247, 0.1);
+  --chart-colors-chart-1-inverse: rgba(168, 85, 247, 0.1);
+  --chart-colors-chart-1-hex: #a855f71a;
+  --chart-colors-chart-1-hex-inverse: #a855f71a;
+  --chart-2: rgba(168, 85, 247, 0.3);
+  --chart-3: #c084fc;
+  --chart-colors-chart-3-hex: #c084fc;
+  --chart-4: #7e22ce;
+  --chart-colors-chart-4-hex: #7e22ce;
+  --chart-5: #06b6d4;
+  --chart-colors-chart-5-hex: #06b6d4;
+  --chart-6: #22d3ee;
+  --chart-colors-chart-6-hex: #22d3ee;
+  --chart-7: #f97316;
+  --chart-colors-chart-7-hex: #f97316;
+  --chart-8: #30363d;
+  --chart-colors-chart-8-hex: #30363d;
+  --chart-9: #484f58;
+  --chart-colors-chart-9-hex: #484f58;
+  --chart-10: #6e7681;
+  --chart-colors-chart-10-hex: #6e7681;
+  --chart-colors-labels: #8b949e;
+  --chart-colors-labels-inverse: #6b7280;
+  --chart-colors-xaxis-labels: #8b949e;
+  --chart-colors-yaxis-labels: #8b949e;
+  --chart-colors-grid-border: #30363d;
+  --chart-colors-grid-border-inverse: #e5e7eb;
+
+  --map-colors-primary: #a855f7;
+  --map-colors-default: #484f58;
+  --map-colors-highlight: #c084fc;
+  --map-colors-border: #30363d;
+}

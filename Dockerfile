@@ -35,7 +35,7 @@ COPY --from=frontend-builder /frontend/dist ./frontend/dist
 RUN echo "unknown" > /tmp/commit.txt && \
     if [ -f /app/commit.txt ]; then cp /app/commit.txt /tmp/commit.txt; fi
 
-RUN mkdir -p /app/logs
+RUN mkdir -p /app/logs /app/data
 
 EXPOSE 8080
 
@@ -50,4 +50,4 @@ CMD ["gunicorn", \
      "--access-logfile", "-", \
      "--error-logfile", "-", \
      "--log-level", "info", \
-     "dashboard.app:app"]
+    "wsgi:application"]
