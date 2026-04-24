@@ -10,7 +10,7 @@ import os
 from datetime import datetime, timedelta, timezone
 from functools import wraps
 
-from flask import Blueprint, abort, jsonify, request, stream_with_context, Response
+from flask import Blueprint, abort, current_app, jsonify, request, stream_with_context, Response
 from flask_login import current_user, login_required
 
 from dashboard.extensions import db, redis_client
@@ -1590,3 +1590,75 @@ def admin_action(action: str):
     push_bot_command(action)
     _audit(f"admin_action:{action}")
     return jsonify({"ok": True, "action": action})
+
+
+# ── Admin guild sync (trigger bot to re-emit all guild_join events) ──────────
+
+@api_bp.post("/admin/sync-guilds")
+@login_required
+@admin_required
+def admin_sync_guilds():
+    """Trigger a guild sync via the bot's internal HTTP endpoint.
+
+    Requires ``BOT_INTERNAL_URL`` env var pointing at the bot service (e.g.
+    ``https://bot-service.up.railway.app``).  The call is authenticated with
+    ``BOT_INTERNAL_API_KEY`` / ``WEBHOOK_SECRET``.
+
+    Falls back to reading from Redis bot state when the bot URL is not set.
+    """
+    import requests as _req  # local import keeps startup fast
+
+    bot_url = os.environ.get("BOT_INTERNAL_URL", "").rstrip("/")
+    api_key = os.environ.get("BOT_INTERNAL_API_KEY") or os.environ.get("WEBHOOK_SECRET", "")
+
+    if bot_url:
+        try:
+            resp = _req.post(
+                f"{bot_url}/internal/sync-guilds",
+                headers={"Authorization": f"Bearer {api_key}"},
+                timeout=20,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            _audit("admin_sync_guilds", details={"via": "bot_internal_api", "guilds": data.get("guilds")})
+            return jsonify({"ok": True, "guilds": data.get("guilds", 0),
+                            "message": "Bot is syncing guilds to hub now. Refresh in a few seconds."})
+        except Exception as exc:  # noqa: BLE001
+            current_app.logger.error("admin_sync_guilds: bot call failed: %s", exc)
+            return jsonify({"ok": False, "message": f"Bot sync failed: {exc}"}), 502
+
+    # Fallback: try to sync from Redis bot state
+    from dashboard.services.bot_state import get_bot_state
+
+    bot_state = get_bot_state()
+    raw_guilds = bot_state.get("guilds", [])
+
+    if not raw_guilds:
+        return jsonify({
+            "ok": False,
+            "message": (
+                "BOT_INTERNAL_URL is not set and no guilds found in bot state. "
+                "Set BOT_INTERNAL_URL on the hub service pointing to the bot, "
+                "or redeploy the bot — it will auto-sync guilds on startup."
+            ),
+            "synced": 0,
+        }), 422
+
+    synced = 0
+    for g in raw_guilds:
+        try:
+            _handle_guild_join({
+                "guild_id": g.get("id"),
+                "name": g.get("name", "Unknown"),
+                "icon": g.get("icon"),
+                "owner_id": g.get("owner_id") or g.get("ownerId"),
+                "member_count": g.get("member_count") or g.get("memberCount", 0),
+                "channel_count": g.get("channel_count") or g.get("channelCount", 0),
+            })
+            synced += 1
+        except Exception as exc:  # noqa: BLE001
+            current_app.logger.warning("admin_sync_guilds: failed to sync guild %s: %s", g.get("id"), exc)
+
+    db.session.commit()
+    _audit("admin_sync_guilds", details={"via": "redis_state", "synced": synced, "total": len(raw_guilds)})
+    return jsonify({"ok": True, "synced": synced, "total": len(raw_guilds)})

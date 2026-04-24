@@ -3,6 +3,7 @@ console.log('>>> API STARTING - VERSION 2026-04-21-bridge-fix');
 
 require('dotenv').config();
 
+const crypto = require('crypto');
 const express = require('express');
 const passport = require('passport');
 const DiscordStrategy = require('passport-discord').Strategy;
@@ -1611,6 +1612,36 @@ app.get('/api/health', (req, res) => {
     deploymentVersion: diagnostics.deploymentVersion,
     moderationRouteCount: Object.keys(diagnostics.moderationRoutes).length,
   });
+});
+
+// Internal: trigger guild sync (hub → bot, protected by BOT_INTERNAL_API_KEY)
+app.post('/internal/sync-guilds', async (req, res) => {
+  const expectedKey = process.env.BOT_INTERNAL_API_KEY || process.env.WEBHOOK_SECRET || '';
+  if (!expectedKey) {
+    return res.status(503).json({ error: 'BOT_INTERNAL_API_KEY not configured' });
+  }
+  const authHeader = req.headers['authorization'] || '';
+  const providedKey = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
+  // Constant-time comparison to prevent timing attacks
+  if (!providedKey || !crypto.timingSafeEqual(
+    Buffer.from(expectedKey, 'utf8'),
+    Buffer.from(providedKey.padEnd(expectedKey.length, '\0').slice(0, expectedKey.length), 'utf8'),
+  )) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  try {
+    const bot = app.locals.bot;
+    if (!bot || !bot.syncAllGuilds) {
+      return res.status(503).json({ error: 'Bot not ready' });
+    }
+    await bot.syncAllGuilds();
+    const guildCount = bot.getClient?.()?.guilds?.cache?.size ?? 0;
+    return res.json({ ok: true, guilds: guildCount });
+  } catch (err) {
+    console.error('Internal sync-guilds error:', err);
+    return res.status(500).json({ error: 'Sync failed', details: err.message });
+  }
 });
 
 app.get('/api/deployment-info', (req, res) => {

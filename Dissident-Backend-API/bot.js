@@ -46,6 +46,9 @@ class DissidentBot {
       
       // Register slash commands
       await this.registerSlashCommands();
+
+      // Sync all current guilds to the hub so they appear in the dashboard
+      await this.syncAllGuilds();
     });
     
     // Event: Guild create (bot joins server)
@@ -134,6 +137,34 @@ class DissidentBot {
     });
   }
   
+  // Sync all current guilds to the hub on startup
+  async syncAllGuilds() {
+    if (!this.hubApiBaseUrl || !this.webhookSecret) {
+      console.warn('⚠️  HUB_API_BASE_URL or WEBHOOK_SECRET not set — skipping guild sync');
+      return;
+    }
+    const guilds = this.client.guilds.cache.values();
+    let synced = 0;
+    for (const guild of guilds) {
+      try {
+        // Fetch full guild details (member counts require a full fetch)
+        const fullGuild = await guild.fetch().catch(() => guild);
+        await this.emitHubEvent('guild_join', {
+          guild_id: fullGuild.id,
+          name: fullGuild.name,
+          icon: fullGuild.icon,
+          owner_id: fullGuild.ownerId,
+          member_count: fullGuild.memberCount,
+          channel_count: fullGuild.channels.cache.size,
+        });
+        synced++;
+      } catch (err) {
+        console.error(`Failed to sync guild ${guild.name}:`, err.message);
+      }
+    }
+    console.log(`✅ Guild startup sync complete — ${synced} guild(s) synced to hub`);
+  }
+
   // Initialize guild settings
   async initializeGuild(guild) {
     try {
