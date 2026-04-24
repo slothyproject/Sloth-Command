@@ -6,6 +6,7 @@
 <div class="page-header">
   <h1 class="page-header__title">Dashboard</h1>
   <span class="page-header__sub">// live ecosystem overview</span>
+  <p class="page-header__lead">Command-center visibility for moderation, tickets, and guild health without leaving the Sloth Lee flow.</p>
   <a href="#" id="dashboard-invite-link" class="btn btn--primary btn--sm" target="_blank" rel="noopener">invite bot</a>
   {% if bot.stale %}<span class="badge badge--stale">stale</span>{% endif %}
 </div>
@@ -57,13 +58,174 @@
   </div>
 </div>
 
-<div class="section" style="margin-top:18px">
+<section class="ops-grid" aria-label="Operational priorities">
+  <article class="ops-card">
+    <p class="ops-card__label">UNREAD ALERTS</p>
+    <p class="ops-card__value">{{ unread_notifs }}</p>
+    <p class="ops-card__meta">Notifications requiring your review</p>
+  </article>
+  <article class="ops-card">
+    <p class="ops-card__label">RESPONSE POSTURE</p>
+    {% if not bot.online %}
+      <p class="ops-card__value ops-card__value--danger">DEGRADED</p>
+      <p class="ops-card__meta">Bot is offline. Prioritize health and reconnect actions.</p>
+    {% elif bot.latency_ms > 350 %}
+      <p class="ops-card__value ops-card__value--warn">WATCH</p>
+      <p class="ops-card__meta">Latency is elevated at {{ bot.latency_ms }}ms.</p>
+    {% else %}
+      <p class="ops-card__value ops-card__value--ok">NOMINAL</p>
+      <p class="ops-card__meta">Latency and availability are within expected limits.</p>
+    {% endif %}
+  </article>
+  <article class="ops-card">
+    <p class="ops-card__label">ACTIVE FOOTPRINT</p>
+    <p class="ops-card__value">{{ guilds|length }}</p>
+    <p class="ops-card__meta">Guilds currently visible in your command scope</p>
+  </article>
+</section>
+
+<section class="quick-actions" aria-label="Quick actions">
+  <a href="{{ url_for('core.moderation') }}" class="quick-action">Open moderation queue</a>
+  <a href="{{ url_for('core.tickets') }}" class="quick-action">Open ticket queue</a>
+  <a href="{{ url_for('core.servers') }}" class="quick-action">Review connected servers</a>
+  <a href="{{ url_for('core.settings') }}" class="quick-action">Check system settings</a>
+  <button type="button" class="quick-action quick-action--command" id="open-command-palette" aria-haspopup="dialog" aria-controls="command-palette">Command launcher (Ctrl+K)</button>
+</section>
+
+<section class="ops-board" aria-label="Live operations board">
+  <article class="ops-board__panel">
+    <div class="ops-board__head">
+      <h2 class="ops-board__title">LIVE SIGNAL BOARD</h2>
+      <p class="ops-board__sub">High-priority runtime checks for on-call flow.</p>
+    </div>
+    <div class="signal-list">
+      <div class="signal-row">
+        <span class="signal-row__label">Reachability</span>
+        <span class="signal-row__value" id="wb-online">{{ "ONLINE" if bot.online else "OFFLINE" }}</span>
+      </div>
+      <div class="signal-row">
+        <span class="signal-row__label">Latency</span>
+        <span class="signal-row__value" id="wb-latency">{{ bot.latency_ms }}ms</span>
+      </div>
+      <div class="signal-row">
+        <span class="signal-row__label">Unread alerts</span>
+        <span class="signal-row__value" id="wb-notifs">{{ unread_notifs }}</span>
+      </div>
+      <div class="signal-row">
+        <span class="signal-row__label">AI readiness</span>
+        <span class="signal-row__value" id="wb-ai">checking...</span>
+      </div>
+      <div class="signal-row">
+        <span class="signal-row__label">Last refresh</span>
+        <span class="signal-row__value" id="wb-refresh">just now</span>
+      </div>
+      <div class="signal-row">
+        <span class="signal-row__label">Incident level</span>
+        <span class="signal-row__value" id="wb-incident">normal</span>
+      </div>
+    </div>
+    <div class="incident-drilldown" id="incident-drilldown">
+      <div class="incident-drilldown__head">
+        <span class="incident-drilldown__label">Recommended runbook</span>
+        <span class="incident-drilldown__status" id="wb-ack-state">unacknowledged</span>
+      </div>
+      <p class="incident-drilldown__note" id="wb-runbook-note">Monitor dashboard trendline and queue depth.</p>
+      <div class="incident-drilldown__actions">
+        <button type="button" class="btn btn--ghost btn--sm" id="wb-ack-btn">acknowledge incident</button>
+        <a href="{{ url_for('core.tickets') }}" class="btn btn--ghost btn--sm">open ticket queue</a>
+        <a href="{{ url_for('core.moderation') }}" class="btn btn--ghost btn--sm">open moderation queue</a>
+      </div>
+    </div>
+    <button type="button" class="btn btn--ghost btn--sm" onclick="toggleNotifPanel()">open notifications</button>
+  </article>
+
+  <article class="ops-board__panel">
+    <div class="ops-board__head">
+      <h2 class="ops-board__title">PRIORITY SERVERS</h2>
+      <p class="ops-board__sub">Largest communities currently in scope.</p>
+    </div>
+    <div class="priority-controls">
+      <label class="priority-filter-wrap" for="priority-filter">
+        <span class="priority-filter-wrap__label">Filter</span>
+        <input id="priority-filter" class="priority-filter" type="text" placeholder="search server" autocomplete="off">
+      </label>
+      <label class="priority-sort-wrap" for="priority-sort">
+        <span class="priority-filter-wrap__label">Sort</span>
+        <select id="priority-sort" class="priority-sort">
+          <option value="size">largest first</option>
+          <option value="risk">highest risk</option>
+        </select>
+      </label>
+    </div>
+    <ul class="priority-list" id="priority-server-list">
+      {% for guild in (guilds|sort(attribute='member_count', reverse=True))[:5] %}
+      <li class="priority-row">
+        <span class="priority-row__name">{{ guild.name }}</span>
+        <span class="priority-row__meta">{{ "{:,}".format(guild.member_count) }} members</span>
+        {% if guild.member_count >= 50000 %}
+          <span class="risk-chip risk-chip--danger">critical</span>
+        {% elif guild.member_count >= 15000 %}
+          <span class="risk-chip risk-chip--warn">watch</span>
+        {% else %}
+          <span class="risk-chip risk-chip--ok">stable</span>
+        {% endif %}
+      </li>
+      {% else %}
+      <li class="priority-row priority-row--empty">No servers loaded yet.</li>
+      {% endfor %}
+    </ul>
+    <a href="{{ url_for('core.servers') }}" class="btn btn--ghost btn--sm">inspect all servers</a>
+  </article>
+</section>
+
+<section class="ops-aux" aria-label="Operational analytics and timeline">
+  <article class="ops-aux__panel">
+    <div class="ops-board__head">
+      <h2 class="ops-board__title">TELEMETRY SNAPSHOT</h2>
+      <p class="ops-board__sub">Rolling latency analytics from recent samples.</p>
+    </div>
+    <div class="snapshot-grid">
+      <div class="snapshot-cell"><span class="snapshot-cell__label">AVG</span><span class="snapshot-cell__value" id="wb-latency-avg">—</span></div>
+      <div class="snapshot-cell"><span class="snapshot-cell__label">MIN</span><span class="snapshot-cell__value" id="wb-latency-min">—</span></div>
+      <div class="snapshot-cell"><span class="snapshot-cell__label">MAX</span><span class="snapshot-cell__value" id="wb-latency-max">—</span></div>
+      <div class="snapshot-cell"><span class="snapshot-cell__label">P95</span><span class="snapshot-cell__value" id="wb-latency-p95">—</span></div>
+      <div class="snapshot-cell"><span class="snapshot-cell__label">SAMPLES</span><span class="snapshot-cell__value" id="wb-latency-samples">0</span></div>
+      <div class="snapshot-cell"><span class="snapshot-cell__label">MODE</span><span class="snapshot-cell__value" id="wb-refresh-mode">live</span></div>
+    </div>
+    <div class="ops-toolbar">
+      <label class="ops-toolbar__group" for="wb-refresh-rate">
+        <span class="priority-filter-wrap__label">Refresh</span>
+        <select id="wb-refresh-rate" class="priority-sort">
+          <option value="5000">5s</option>
+          <option value="10000" selected>10s</option>
+          <option value="15000">15s</option>
+          <option value="30000">30s</option>
+        </select>
+      </label>
+      <button type="button" class="btn btn--ghost btn--sm" id="wb-toggle-refresh">pause live</button>
+      <button type="button" class="btn btn--ghost btn--sm" id="wb-copy-report">copy report</button>
+      <button type="button" class="btn btn--ghost btn--sm" id="wb-download-report">download report</button>
+    </div>
+  </article>
+
+  <article class="ops-aux__panel">
+    <div class="ops-board__head">
+      <h2 class="ops-board__title">INCIDENT TIMELINE</h2>
+      <p class="ops-board__sub">Recent state transitions and runbook events.</p>
+    </div>
+    <ul class="timeline-list" id="incident-timeline">
+      <li class="timeline-item timeline-item--empty">Waiting for operational events...</li>
+    </ul>
+  </article>
+</section>
+
+<div class="section section--mt-lg">
   <div class="section__header">
     <span class="section__title">AI READINESS</span>
     <a href="{{ url_for('core.settings') }}" class="btn btn--ghost btn--sm">manage provider</a>
   </div>
-  <div class="card" style="padding:16px">
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;align-items:start">
+  <div class="card card--compact">
+    <div class="ai-readiness-grid">
       <div>
         <div class="card__label">STATUS</div>
         <div class="stat-card__val stat-card__val--mono stat-card__val--sm" id="ai-ready-status">loading...</div>
@@ -85,7 +247,7 @@
         <div class="card__value" id="ai-ready-usage">0 req / 0 tok</div>
       </div>
     </div>
-    <div id="ai-ready-feedback" style="margin-top:12px;font-size:12px;color:var(--text-1)">Checking whether your personal AI provider is ready to use.</div>
+    <div id="ai-ready-feedback" class="ai-readiness-feedback">Checking whether your personal AI provider is ready to use.</div>
   </div>
 </div>
 
@@ -103,7 +265,7 @@
       {% else %}
         <div class="server-card__icon server-card__icon--placeholder">{{ guild.name[0] }}</div>
       {% endif %}
-      <div style="min-width:0">
+      <div class="server-card__body">
         <div class="server-card__name">{{ guild.name }}</div>
         <div class="server-card__meta">{{ "{:,}".format(guild.member_count) }} members</div>
       </div>
@@ -111,6 +273,18 @@
     {% else %}
     <p class="empty-inline">fetching servers from bot...</p>
     {% endfor %}
+  </div>
+</div>
+
+<div class="command-palette" id="command-palette" aria-hidden="true" role="dialog" aria-label="Command launcher">
+  <div class="command-palette__panel">
+    <div class="command-palette__head">
+      <p class="command-palette__title">COMMAND LAUNCHER</p>
+      <button type="button" class="btn btn--ghost btn--sm" id="close-command-palette">close</button>
+    </div>
+    <input id="command-palette-input" class="command-palette__input" type="text" placeholder="Type a command or route" autocomplete="off">
+    <div class="command-palette__hint">Tip: use arrow keys and Enter, or hit Ctrl+K to open anytime.</div>
+    <ul id="command-palette-list" class="command-palette__list"></ul>
   </div>
 </div>
 {% endblock %}
@@ -122,6 +296,169 @@ const canvas = document.getElementById('latency-canvas');
 const ctx = canvas.getContext('2d');
 const history = [];
 const MAX_POINTS = 60;
+let unreadCount = Number(`{{ unread_notifs }}`) || 0;
+let latestStats = null;
+let priorityFilter = '';
+let prioritySortMode = 'size';
+let incidentAcknowledged = false;
+let currentIncidentLevel = 'normal';
+let incidentTimeline = [];
+let pollStatsTimer = null;
+let pollGuildsTimer = null;
+let pollUnreadTimer = null;
+let autoRefreshEnabled = true;
+let refreshMs = 10000;
+let commandPaletteIndex = 0;
+let commandPaletteFiltered = [];
+
+const COMMAND_ITEMS = [
+  { label: 'Open moderation queue', href: '{{ url_for("core.moderation") }}' },
+  { label: 'Open ticket queue', href: '{{ url_for("core.tickets") }}' },
+  { label: 'Review connected servers', href: '{{ url_for("core.servers") }}' },
+  { label: 'Check system settings', href: '{{ url_for("core.settings") }}' },
+  { label: 'Acknowledge current incident', action: () => setIncidentAcknowledged(true) },
+  { label: 'Open notifications panel', action: () => toggleNotifPanel() }
+];
+
+function setSignalTone(id, tone) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.classList.remove('signal-row__value--ok', 'signal-row__value--warn', 'signal-row__value--danger');
+  if (tone) el.classList.add(`signal-row__value--${tone}`);
+}
+
+function approxP95(values) {
+  if (!values.length) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const idx = Math.max(0, Math.ceil(sorted.length * 0.95) - 1);
+  return sorted[idx];
+}
+
+function addIncidentEvent(kind, message) {
+  const tone = kind === 'critical' ? 'danger' : kind === 'watch' ? 'warn' : 'ok';
+  incidentTimeline.unshift({ at: new Date(), message, tone });
+  incidentTimeline = incidentTimeline.slice(0, 12);
+  renderIncidentTimeline();
+}
+
+function renderIncidentTimeline() {
+  const list = document.getElementById('incident-timeline');
+  if (!list) return;
+  if (!incidentTimeline.length) {
+    list.innerHTML = '<li class="timeline-item timeline-item--empty">Waiting for operational events...</li>';
+    return;
+  }
+  list.innerHTML = incidentTimeline.map(item => `
+    <li class="timeline-item timeline-item--${item.tone}">
+      <span class="timeline-item__time">${item.at.toLocaleTimeString()}</span>
+      <span class="timeline-item__msg">${escapeHtml(item.message)}</span>
+    </li>`).join('');
+}
+
+function updateSnapshotMetrics() {
+  const avg = document.getElementById('wb-latency-avg');
+  const min = document.getElementById('wb-latency-min');
+  const max = document.getElementById('wb-latency-max');
+  const p95 = document.getElementById('wb-latency-p95');
+  const samples = document.getElementById('wb-latency-samples');
+  const mode = document.getElementById('wb-refresh-mode');
+  if (!avg || !min || !max || !p95 || !samples || !mode) return;
+
+  if (!history.length) {
+    avg.textContent = '—';
+    min.textContent = '—';
+    max.textContent = '—';
+    p95.textContent = '—';
+    samples.textContent = '0';
+  } else {
+    const total = history.reduce((acc, value) => acc + value, 0);
+    const minVal = Math.min(...history);
+    const maxVal = Math.max(...history);
+    avg.textContent = `${Math.round(total / history.length)}ms`;
+    min.textContent = `${minVal}ms`;
+    max.textContent = `${maxVal}ms`;
+    p95.textContent = `${approxP95(history)}ms`;
+    samples.textContent = `${history.length}`;
+  }
+  mode.textContent = autoRefreshEnabled ? `live/${Math.round(refreshMs / 1000)}s` : 'paused';
+}
+
+function buildOpsReport() {
+  const lines = [
+    `Dissident Ops Snapshot @ ${new Date().toISOString()}`,
+    `Incident level: ${currentIncidentLevel}`,
+    `Acknowledged: ${incidentAcknowledged ? 'yes' : 'no'}`,
+    `Unread alerts: ${unreadCount}`,
+    `Latency samples: ${history.length}`,
+    `Latency avg/min/max/p95: ${document.getElementById('wb-latency-avg')?.textContent || '—'} / ${document.getElementById('wb-latency-min')?.textContent || '—'} / ${document.getElementById('wb-latency-max')?.textContent || '—'} / ${document.getElementById('wb-latency-p95')?.textContent || '—'}`,
+    '',
+    'Recent timeline:'
+  ];
+  if (!incidentTimeline.length) {
+    lines.push('- no events recorded yet');
+  } else {
+    incidentTimeline.slice(0, 8).forEach(item => {
+      lines.push(`- ${item.at.toLocaleTimeString()} | ${item.message}`);
+    });
+  }
+  return lines.join('\n');
+}
+
+function updateIncidentLevel() {
+  const incident = document.getElementById('wb-incident');
+  const runbook = document.getElementById('wb-runbook-note');
+  const ackState = document.getElementById('wb-ack-state');
+  const ackButton = document.getElementById('wb-ack-btn');
+  if (!incident || !latestStats) return;
+  let level = 'normal';
+  let tone = 'ok';
+  let runbookText = 'Monitor dashboard trendline and queue depth.';
+  if (!latestStats.online || latestStats.latency_ms >= 600) {
+    level = 'critical';
+    tone = 'danger';
+    runbookText = 'Escalate immediately: verify bot connectivity, review error logs, and notify moderators.';
+  } else if (latestStats.latency_ms >= 350 || unreadCount >= 20) {
+    level = 'watch';
+    tone = 'warn';
+    runbookText = 'Investigate elevated latency and triage newest alerts in notifications.';
+  }
+  if (level !== currentIncidentLevel) {
+    addIncidentEvent(level, `Incident state shifted to ${level}.`);
+    currentIncidentLevel = level;
+  }
+  incident.textContent = level;
+  setSignalTone('wb-incident', tone);
+
+  if (runbook) {
+    runbook.textContent = runbookText;
+    runbook.classList.remove('incident-drilldown__note--ok', 'incident-drilldown__note--warn', 'incident-drilldown__note--danger');
+    runbook.classList.add(`incident-drilldown__note--${tone}`);
+  }
+
+  if (ackState) {
+    ackState.textContent = incidentAcknowledged ? 'acknowledged' : 'unacknowledged';
+  }
+  if (ackButton) {
+    ackButton.textContent = incidentAcknowledged ? 'incident acknowledged' : 'acknowledge incident';
+    ackButton.classList.toggle('btn--danger', !incidentAcknowledged && tone === 'danger');
+  }
+  updateSnapshotMetrics();
+}
+
+function setIncidentAcknowledged(value) {
+  const previous = incidentAcknowledged;
+  incidentAcknowledged = value;
+  if (previous !== value) {
+    addIncidentEvent(currentIncidentLevel, value ? 'Incident acknowledged by operator.' : 'Incident acknowledgement cleared.');
+  }
+  updateIncidentLevel();
+}
+
+function scoreServerRisk(memberCount) {
+  if (memberCount >= 50000) return { score: 3, label: 'critical', tone: 'danger' };
+  if (memberCount >= 15000) return { score: 2, label: 'watch', tone: 'warn' };
+  return { score: 1, label: 'stable', tone: 'ok' };
+}
 
 function drawSparkline() {
   const W = canvas.offsetWidth;
@@ -171,6 +508,7 @@ function drawSparkline() {
 async function pollStats() {
   try {
     const d = await fetch('/api/stats').then(r => r.json());
+    latestStats = d;
     // Update stats
     document.getElementById('s-status').textContent = d.online ? 'ONLINE' : 'OFFLINE';
     document.getElementById('s-status').className = 'stat-card__val ' + (d.online ? 'stat-card__val--online' : 'stat-card__val--offline');
@@ -182,11 +520,62 @@ async function pollStats() {
     document.getElementById('s-chans').textContent = d.channels || 0;
     document.getElementById('s-ver').textContent = d.version || '—';
     document.getElementById('latency-big').innerHTML = d.latency_ms + '<span>ms</span>';
+    document.getElementById('wb-online').textContent = d.online ? 'ONLINE' : 'OFFLINE';
+    document.getElementById('wb-latency').textContent = `${d.latency_ms}ms`;
+    document.getElementById('wb-refresh').textContent = new Date().toLocaleTimeString();
+    setSignalTone('wb-online', d.online ? 'ok' : 'danger');
+    if (d.latency_ms >= 600) setSignalTone('wb-latency', 'danger');
+    else if (d.latency_ms >= 350) setSignalTone('wb-latency', 'warn');
+    else setSignalTone('wb-latency', 'ok');
+    updateIncidentLevel();
     // Latency history
     history.push(d.latency_ms);
     if (history.length > MAX_POINTS) history.shift();
     drawSparkline();
+    updateSnapshotMetrics();
   } catch {}
+}
+
+function escapeHtml(text) {
+  return String(text)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
+}
+
+function renderPriorityServers(guilds) {
+  const target = document.getElementById('priority-server-list');
+  if (!target) return;
+  const filtered = priorityFilter
+    ? guilds.filter(g => String(g.name || '').toLowerCase().includes(priorityFilter))
+    : guilds;
+  const ranked = [...filtered]
+    .sort((a, b) => {
+      const aMembers = a.member_count || 0;
+      const bMembers = b.member_count || 0;
+      if (prioritySortMode === 'risk') {
+        const riskDiff = scoreServerRisk(bMembers).score - scoreServerRisk(aMembers).score;
+        if (riskDiff !== 0) return riskDiff;
+      }
+      return bMembers - aMembers;
+    })
+    .slice(0, 5);
+  if (!ranked.length) {
+    const emptyText = priorityFilter ? 'No servers match this filter.' : 'No servers loaded yet.';
+    target.innerHTML = `<li class="priority-row priority-row--empty">${emptyText}</li>`;
+    return;
+  }
+  target.innerHTML = ranked.map(g => {
+    const risk = scoreServerRisk(g.member_count || 0);
+    return `
+      <li class="priority-row">
+        <span class="priority-row__name">${escapeHtml(g.name || 'Unknown')}</span>
+        <span class="priority-row__meta">${(g.member_count || 0).toLocaleString()} members</span>
+        <span class="risk-chip risk-chip--${risk.tone}">${risk.label}</span>
+      </li>`;
+  }).join('');
 }
 
 async function pollGuilds() {
@@ -198,8 +587,22 @@ async function pollGuilds() {
         ? `<img src="${g.icon.startsWith('http') ? g.icon : 'https://cdn.discordapp.com/icons/'+g.discord_id+'/'+g.icon+'.png?size=64'}" class="server-card__icon" alt="">`
         : `<div class="server-card__icon server-card__icon--placeholder">${g.name[0]}</div>`;
       const href = g.id ? `/servers/${g.id}` : '#';
-      return `<a href="${href}" class="server-card">${icon}<div style="min-width:0"><div class="server-card__name">${g.name}</div><div class="server-card__meta">${(g.member_count||0).toLocaleString()} members</div></div></a>`;
+      return `<a href="${href}" class="server-card">${icon}<div class="server-card__body"><div class="server-card__name">${g.name}</div><div class="server-card__meta">${(g.member_count||0).toLocaleString()} members</div></div></a>`;
     }).join('');
+    renderPriorityServers(guilds);
+  } catch {}
+}
+
+async function syncUnreadBoard() {
+  try {
+    const d = await fetch('/api/notifications').then(r => r.json());
+    const unread = d.unread || 0;
+    unreadCount = unread;
+    document.getElementById('wb-notifs').textContent = unread > 99 ? '99+' : `${unread}`;
+    if (unread >= 30) setSignalTone('wb-notifs', 'danger');
+    else if (unread >= 10) setSignalTone('wb-notifs', 'warn');
+    else setSignalTone('wb-notifs', 'ok');
+    updateIncidentLevel();
   } catch {}
 }
 
@@ -215,32 +618,231 @@ async function loadAIReadiness() {
     document.getElementById('ai-ready-usage').textContent = `${data.usage?.requests_this_hour ?? 0} req / ${data.usage?.tokens_this_hour ?? 0} tok`;
 
     const feedback = document.getElementById('ai-ready-feedback');
+    const boardAI = document.getElementById('wb-ai');
     if (!configured) {
+      if (boardAI) boardAI.textContent = 'not configured';
+      setSignalTone('wb-ai', 'warn');
       feedback.textContent = 'No personal AI provider is configured yet. Add one in Settings before AI commands can run.';
       return;
     }
     if (data.status === 'disabled') {
+      if (boardAI) boardAI.textContent = 'disabled';
+      setSignalTone('wb-ai', 'warn');
       feedback.textContent = 'Your AI provider is saved but currently disabled.';
       return;
     }
     if (data.validation_error) {
+      if (boardAI) boardAI.textContent = 'attention';
+      setSignalTone('wb-ai', 'danger');
       feedback.textContent = data.validation_error;
       return;
     }
+    if (boardAI) boardAI.textContent = 'ready';
+    setSignalTone('wb-ai', 'ok');
     feedback.textContent = data.last_validated_at
       ? `Provider ready. Last validated at ${new Date(data.last_validated_at).toLocaleString()}.`
       : 'Provider configured. Run a connection test from Settings if you want to refresh validation.';
   } catch {
     document.getElementById('ai-ready-status').textContent = 'unavailable';
+    const boardAI = document.getElementById('wb-ai');
+    if (boardAI) boardAI.textContent = 'unavailable';
+    setSignalTone('wb-ai', 'danger');
     document.getElementById('ai-ready-feedback').textContent = 'Could not load AI readiness right now.';
   }
+}
+
+function renderCommandPaletteList(items) {
+  const list = document.getElementById('command-palette-list');
+  if (!list) return;
+  commandPaletteFiltered = items;
+  if (!items.length) {
+    list.innerHTML = '<li class="command-palette__empty">No commands found.</li>';
+    return;
+  }
+  commandPaletteIndex = Math.min(commandPaletteIndex, items.length - 1);
+  list.innerHTML = items.map((item, idx) => `
+    <li>
+      <button type="button" class="command-palette__item ${idx === commandPaletteIndex ? 'is-active' : ''}" data-index="${idx}">${item.label}</button>
+    </li>`).join('');
+}
+
+function openCommandPalette() {
+  const palette = document.getElementById('command-palette');
+  const input = document.getElementById('command-palette-input');
+  if (!palette || !input) return;
+  palette.classList.add('is-open');
+  palette.setAttribute('aria-hidden', 'false');
+  commandPaletteIndex = 0;
+  renderCommandPaletteList(COMMAND_ITEMS);
+  input.value = '';
+  input.focus();
+}
+
+function closeCommandPalette() {
+  const palette = document.getElementById('command-palette');
+  if (!palette) return;
+  palette.classList.remove('is-open');
+  palette.setAttribute('aria-hidden', 'true');
+}
+
+function executeCommandItem(item) {
+  if (!item) return;
+  closeCommandPalette();
+  if (item.action) {
+    item.action();
+    return;
+  }
+  if (item.href) window.location.href = item.href;
+}
+
+function setupDashboardInteractions() {
+  const filterInput = document.getElementById('priority-filter');
+  const sortInput = document.getElementById('priority-sort');
+  const ackButton = document.getElementById('wb-ack-btn');
+  const refreshToggle = document.getElementById('wb-toggle-refresh');
+  const refreshRate = document.getElementById('wb-refresh-rate');
+  const copyReport = document.getElementById('wb-copy-report');
+  const downloadReport = document.getElementById('wb-download-report');
+  if (filterInput) {
+    filterInput.addEventListener('input', (e) => {
+      priorityFilter = String(e.target.value || '').trim().toLowerCase();
+      pollGuilds();
+    });
+  }
+  if (sortInput) {
+    sortInput.addEventListener('change', (e) => {
+      prioritySortMode = e.target.value === 'risk' ? 'risk' : 'size';
+      pollGuilds();
+    });
+  }
+  if (ackButton) {
+    ackButton.addEventListener('click', () => setIncidentAcknowledged(!incidentAcknowledged));
+  }
+  if (refreshToggle) {
+    refreshToggle.addEventListener('click', () => {
+      autoRefreshEnabled = !autoRefreshEnabled;
+      refreshToggle.textContent = autoRefreshEnabled ? 'pause live' : 'resume live';
+      startPolling();
+      updateSnapshotMetrics();
+      addIncidentEvent(currentIncidentLevel, autoRefreshEnabled ? 'Live polling resumed.' : 'Live polling paused.');
+    });
+  }
+  if (refreshRate) {
+    refreshRate.addEventListener('change', (e) => {
+      const value = Number(e.target.value);
+      refreshMs = Number.isFinite(value) && value > 0 ? value : 10000;
+      startPolling();
+      updateSnapshotMetrics();
+      addIncidentEvent(currentIncidentLevel, `Refresh interval set to ${Math.round(refreshMs / 1000)}s.`);
+    });
+  }
+  if (copyReport) {
+    copyReport.addEventListener('click', async () => {
+      const report = buildOpsReport();
+      try {
+        await navigator.clipboard.writeText(report);
+        addIncidentEvent(currentIncidentLevel, 'Ops report copied to clipboard.');
+      } catch {
+        addIncidentEvent('watch', 'Clipboard copy failed for ops report.');
+      }
+    });
+  }
+  if (downloadReport) {
+    downloadReport.addEventListener('click', () => {
+      const report = buildOpsReport();
+      const blob = new Blob([report], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `dissident-ops-${Date.now()}.txt`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      addIncidentEvent(currentIncidentLevel, 'Ops report downloaded.');
+    });
+  }
+
+  const openPaletteButton = document.getElementById('open-command-palette');
+  const closePaletteButton = document.getElementById('close-command-palette');
+  const palette = document.getElementById('command-palette');
+  const paletteInput = document.getElementById('command-palette-input');
+
+  if (openPaletteButton) openPaletteButton.addEventListener('click', openCommandPalette);
+  if (closePaletteButton) closePaletteButton.addEventListener('click', closeCommandPalette);
+  if (palette) {
+    palette.addEventListener('click', (e) => {
+      if (e.target === palette) closeCommandPalette();
+    });
+  }
+
+  if (paletteInput) {
+    paletteInput.addEventListener('input', (e) => {
+      const query = String(e.target.value || '').trim().toLowerCase();
+      commandPaletteIndex = 0;
+      const filtered = query
+        ? COMMAND_ITEMS.filter(item => item.label.toLowerCase().includes(query))
+        : COMMAND_ITEMS;
+      renderCommandPaletteList(filtered);
+    });
+
+    paletteInput.addEventListener('keydown', (e) => {
+      if (!commandPaletteFiltered.length) return;
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        commandPaletteIndex = (commandPaletteIndex + 1) % commandPaletteFiltered.length;
+        renderCommandPaletteList(commandPaletteFiltered);
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        commandPaletteIndex = (commandPaletteIndex - 1 + commandPaletteFiltered.length) % commandPaletteFiltered.length;
+        renderCommandPaletteList(commandPaletteFiltered);
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        executeCommandItem(commandPaletteFiltered[commandPaletteIndex]);
+      }
+    });
+  }
+
+  document.addEventListener('click', (e) => {
+    const itemButton = e.target.closest('.command-palette__item');
+    if (!itemButton) return;
+    const index = Number(itemButton.getAttribute('data-index'));
+    executeCommandItem(commandPaletteFiltered[index]);
+  });
+
+  document.addEventListener('keydown', (e) => {
+    const isOpen = palette && palette.classList.contains('is-open');
+    const isModK = (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k';
+    if (isModK) {
+      e.preventDefault();
+      if (isOpen) closeCommandPalette();
+      else openCommandPalette();
+      return;
+    }
+    if (e.key === 'Escape' && isOpen) {
+      e.preventDefault();
+      closeCommandPalette();
+    }
+  });
+}
+
+function startPolling() {
+  if (pollStatsTimer) clearInterval(pollStatsTimer);
+  if (pollGuildsTimer) clearInterval(pollGuildsTimer);
+  if (pollUnreadTimer) clearInterval(pollUnreadTimer);
+  if (!autoRefreshEnabled) return;
+  pollStatsTimer = setInterval(pollStats, refreshMs);
+  pollGuildsTimer = setInterval(pollGuilds, Math.max(refreshMs * 2, 15000));
+  pollUnreadTimer = setInterval(syncUnreadBoard, Math.max(refreshMs * 2, 15000));
 }
 
 pollStats();
 pollGuilds();
 loadAIReadiness();
-setInterval(pollStats, 10000);
-setInterval(pollGuilds, 30000);
+syncUnreadBoard();
+setupDashboardInteractions();
+startPolling();
+addIncidentEvent('ok', 'Dashboard monitoring initialized.');
 window.addEventListener('resize', drawSparkline);
 
 // ── Quick action: Invite bot ──────────────────────────────────

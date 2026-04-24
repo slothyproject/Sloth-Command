@@ -42,12 +42,22 @@ document.addEventListener('click', e => {
   if (panel && panel.style.display !== 'none' &&
       !panel.contains(e.target) &&
       !e.target.closest('.notif-bell')) {
-    panel.style.display = 'none';
+    setNotifPanelState(false);
   }
 });
 
 // ── Notifications ────────────────────────────────────────────────
 let notifPanelOpen = false;
+
+function setNotifPanelState(open) {
+  const panel = document.getElementById('notif-panel');
+  const bell = document.getElementById('notif-bell');
+  if (!panel) return;
+  notifPanelOpen = open;
+  panel.style.display = open ? 'block' : 'none';
+  panel.setAttribute('aria-hidden', open ? 'false' : 'true');
+  if (bell) bell.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
 
 async function loadNotifications() {
   try {
@@ -84,13 +94,19 @@ async function loadNotifications() {
 function toggleNotifPanel() {
   const panel = document.getElementById('notif-panel');
   if (!panel) return;
-  notifPanelOpen = !notifPanelOpen;
-  panel.style.display = notifPanelOpen ? 'block' : 'none';
-  if (notifPanelOpen) {
+  const nextOpen = !notifPanelOpen;
+  setNotifPanelState(nextOpen);
+  if (nextOpen) {
     // Silently deduplicate then load
     fetch('/api/notifications/clear-duplicates', { method: 'POST' }).finally(() => loadNotifications());
   }
 }
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && notifPanelOpen) {
+    setNotifPanelState(false);
+  }
+});
 
 async function readNotif(id, link) {
   await fetch(`/api/notifications/${id}/read`, { method: 'POST' });
