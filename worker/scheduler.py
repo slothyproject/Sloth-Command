@@ -1,5 +1,5 @@
 """
-Dissident Central Hub — Background Worker
+Sloth Lee Command Hub — Background Worker
 Runs guild sync, bot stats cache, and heartbeat tasks.
 Start: python -m worker.scheduler
 """
@@ -148,7 +148,7 @@ schedule.every(60).seconds.do(heartbeat)
 
 
 def main():
-    log.info("Dissident Central Hub worker starting...")
+    log.info("Sloth Lee Command Hub worker starting...")
 
     # Verify Redis connection
     try:

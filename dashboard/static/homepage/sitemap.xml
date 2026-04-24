@@ -2,7 +2,7 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <!-- Homepage -->
   <url>
-    <loc>https://dissident.mastertibbles.co.uk/</loc>
+    <loc>https://slothlee.xyz/</loc>
     <lastmod>2026-04-16</lastmod>
     <changefreq>weekly</changefreq>
     <priority>1.0</priority>
@@ -10,7 +10,7 @@
   
   <!-- Dashboard (private but listed) -->
   <url>
-    <loc>https://dissident.mastertibbles.co.uk/dashboard</loc>
+    <loc>https://slothlee.xyz/dashboard</loc>
     <lastmod>2026-04-16</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>

@@ -152,7 +152,7 @@ export function Header({ onOpenMobileNav }: { onOpenMobileNav: () => void }) {
               </div>
             ) : null}
           </div>
-          <a href="https://dissident.mastertibbles.co.uk/" className="hidden items-center gap-2 rounded-full border border-line bg-white/5 px-3 py-2 text-xs text-text-1 transition hover:border-cyan/30 hover:text-cyan lg:flex">
+          <a href="https://slothlee.xyz/" className="hidden items-center gap-2 rounded-full border border-line bg-white/5 px-3 py-2 text-xs text-text-1 transition hover:border-cyan/30 hover:text-cyan lg:flex">
             <Sparkles className="h-4 w-4" />
             Public site
           </a>

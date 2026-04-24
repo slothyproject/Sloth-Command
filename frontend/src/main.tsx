@@ -7,13 +7,14 @@ import { Toaster } from "sonner";
 import { App } from "./App";
 import "./styles.css";
 
-const CANONICAL_HOST = "dissident.mastertibbles.co.uk";
-const LEGACY_HOSTS = new Set(["dissidenthub.mastertibbles.co.uk"]);
+const CANONICAL_HOST = "slothlee.xyz";
+const LEGACY_HOSTS = new Set(["dissident.mastertibbles.co.uk", "dissidenthub.mastertibbles.co.uk", "hub.mastertibbles.co.uk"]);
 
 if (typeof window !== "undefined" && LEGACY_HOSTS.has(window.location.hostname)) {
-  const canonicalPath = window.location.pathname.startsWith("/app")
-    ? "/dashboard"
-    : window.location.pathname;
+  const canonicalPath = window.location.pathname.startsWith("/app") 
+    ? "/dashboard" 
+    : window.location.pathname; 
+  
   const canonicalUrl = `${window.location.protocol}//${CANONICAL_HOST}${canonicalPath}${window.location.search}${window.location.hash}`;
   window.location.replace(canonicalUrl);
 }

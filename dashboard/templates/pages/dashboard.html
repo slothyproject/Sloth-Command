@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Dashboard — Dissident Central Hub{% endblock %}
+{% block title %}Dashboard — Sloth Lee Command Hub{% endblock %}
 {% block page_slug %}dashboard{% endblock %}
 
 {% block content %}
@@ -385,7 +385,7 @@ function updateSnapshotMetrics() {
 
 function buildOpsReport() {
   const lines = [
-    `Dissident Ops Snapshot @ ${new Date().toISOString()}`,
+    `Sloth Lee Ops Snapshot @ ${new Date().toISOString()}`,
     `Incident level: ${currentIncidentLevel}`,
     `Acknowledged: ${incidentAcknowledged ? 'yes' : 'no'}`,
     `Unread alerts: ${unreadCount}`,
@@ -754,7 +754,7 @@ function setupDashboardInteractions() {
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `dissident-ops-${Date.now()}.txt`;
+      link.download = `sloth-lee-ops-${Date.now()}.txt`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);

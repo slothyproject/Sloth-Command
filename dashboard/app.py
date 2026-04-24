@@ -1,5 +1,5 @@
 """
-Dissident Central Hub — application factory.
+Sloth Lee Command Hub — application factory.
 """
 from __future__ import annotations
 
@@ -77,7 +77,7 @@ def create_app(config: dict | None = None) -> Flask:
     # ── Health endpoint ─────────────────────────────────────────
     @app.get("/health")
     def health():
-        return {"status": "ok", "service": "dissident-central-hub", "version": get_dashboard_version()}
+        return {"status": "ok", "service": "sloth-lee-command-hub", "version": get_dashboard_version()}
 
     # ── Template context processor ──────────────────────────────
     @app.context_processor
@@ -90,7 +90,7 @@ def create_app(config: dict | None = None) -> Flask:
     with app.app_context():
         db.create_all()
         _ensure_admin_user(app)
-    log.info("Dissident Central Hub started")
+    log.info("Sloth Lee Command Hub started")
     return app
 
 def _run_migrations(app: Flask) -> None:

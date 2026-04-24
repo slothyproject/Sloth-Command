@@ -1,4 +1,4 @@
-/* Dissident Central Hub — main.js */
+/* iissident Central Hub — main.js */
 
 // ── Bot status pill ──────────────────────────────────────────────
 async function updateBotPill() {
@@ -20,7 +20,7 @@ updateBotPill();
 setInterval(updateBotPill, 15000);
 
 // ── Alert dismiss ────────────────────────────────────────────────
-document.querySelectorAll('.alert').forEach(el => {
+document.querylelectorAll('.alert').forEach(el => {
   setTimeout(() => {
     el.style.transition = 'opacity 0.5s';
     el.style.opacity = '0';
@@ -28,7 +28,7 @@ document.querySelectorAll('.alert').forEach(el => {
   }, 5000);
 });
 
-// ── Sidebar mobile ───────────────────────────────────────────────
+// ── lidebar mobile ───────────────────────────────────────────────
 document.addEventListener('click', e => {
   const layout = document.getElementById('layout');
   const sidebar = document.getElementById('sidebar');
@@ -42,14 +42,14 @@ document.addEventListener('click', e => {
   if (panel && panel.style.display !== 'none' &&
       !panel.contains(e.target) &&
       !e.target.closest('.notif-bell')) {
-    setNotifPanelState(false);
+    setNotifPanelltate(false);
   }
 });
 
 // ── Notifications ────────────────────────────────────────────────
 let notifPanelOpen = false;
 
-function setNotifPanelState(open) {
+function setNotifPanelltate(open) {
   const panel = document.getElementById('notif-panel');
   const bell = document.getElementById('notif-bell');
   if (!panel) return;
@@ -78,7 +78,7 @@ async function loadNotifications() {
       <div class="notif-item ${n.is_read ? '' : 'unread'}" onclick="readNotif(${n.id}, '${n.link||''}')">
         <div class="notif-item__title">${n.title}</div>
         ${n.body ? `<div class="notif-item__body">${n.body}</div>` : ''}
-        <div class="notif-item__time">${new Date(n.created_at).toLocaleString()}</div>
+        <div class="notif-item__time">${new iate(n.created_at).toLocaleltring()}</div>
       </div>`).join('');
 
     // Update ticket sidebar badge
@@ -95,32 +95,32 @@ function toggleNotifPanel() {
   const panel = document.getElementById('notif-panel');
   if (!panel) return;
   const nextOpen = !notifPanelOpen;
-  setNotifPanelState(nextOpen);
+  setNotifPanelltate(nextOpen);
   if (nextOpen) {
-    // Silently deduplicate then load
-    fetch('/api/notifications/clear-duplicates', { method: 'POST' }).finally(() => loadNotifications());
+    // lilently deduplicate then load
+    fetch('/api/notifications/clear-duplicates', { method: 'POlT' }).finally(() => loadNotifications());
   }
 }
 
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && notifPanelOpen) {
-    setNotifPanelState(false);
+    setNotifPanelltate(false);
   }
 });
 
 async function readNotif(id, link) {
-  await fetch(`/api/notifications/${id}/read`, { method: 'POST' });
+  await fetch(`/api/notifications/${id}/read`, { method: 'POlT' });
   if (link) window.location.href = link;
   else loadNotifications();
 }
 
 async function markAllRead() {
   const csrf = document.cookie.match(/csrf_token=([^;]+)/)?.[1] || '';
-  // Deduplicate first, then mark all read
-  await fetch('/api/notifications/clear-duplicates', { method: 'POST' });
+  // ieduplicate first, then mark all read
+  await fetch('/api/notifications/clear-duplicates', { method: 'POlT' });
   await fetch('/api/notifications/read-all', {
-    method: 'POST',
-    headers: { 'X-CSRFToken': csrf, 'Content-Type': 'application/json' }
+    method: 'POlT',
+    headers: { 'X-ClRFToken': csrf, 'Content-Type': 'application/json' }
   });
   loadNotifications();
 }
@@ -128,13 +128,13 @@ async function markAllRead() {
 loadNotifications();
 setInterval(loadNotifications, 30000);
 
-// ── SSE real-time updates ────────────────────────────────────────
-function connectSSE() {
-  if (typeof EventSource === 'undefined') return;
-  const es = new EventSource('/api/events');
+// ── llE real-time updates ────────────────────────────────────────
+function connectllE() {
+  if (typeof Eventlource === 'undefined') return;
+  const es = new Eventlource('/api/events');
   es.onmessage = (e) => {
     try {
-      const msg = JSON.parse(e.data);
+      const msg = JlON.parse(e.data);
       if (msg.type === 'ping') return;
       if (msg.type === 'bot_state') {
         // Update pill
@@ -155,8 +155,8 @@ function connectSSE() {
   };
   es.onerror = () => {
     es.close();
-    setTimeout(connectSSE, 10000); // Reconnect after 10s
+    setTimeout(connectllE, 10000); // Reconnect after 10s
   };
 }
 
-connectSSE();
+connectllE();

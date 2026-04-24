@@ -96,7 +96,7 @@ export function Sidebar() {
       <div className="dashboard-chrome mt-6 rounded-[1.9rem] p-4">
         <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-accent">Quick links</p>
         <div className="mt-3 grid gap-2 text-sm text-text-1">
-          <a href="https://dissident.mastertibbles.co.uk/" className="rounded-xl border border-line bg-white/5 px-3 py-2 transition hover:border-accent/30 hover:text-accent">Open Sloth Lee site</a>
+          <a href="https://slothlee.xyz/" className="rounded-xl border border-line bg-white/5 px-3 py-2 transition hover:border-accent/30 hover:text-accent">Open Sloth Lee site</a>
           <a href="https://discord.com/oauth2/authorize?client_id=1493639167526174830&scope=bot+applications.commands&permissions=8" className="rounded-xl border border-line bg-white/5 px-3 py-2 transition hover:border-accent/30 hover:text-accent">Summon bot to Discord</a>
         </div>
       </div>

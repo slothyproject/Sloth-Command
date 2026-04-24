@@ -1,11 +1,11 @@
-# robots.txt for Dissident
-# https://dissident.mastertibbles.co.uk
+# robots.txt for Sloth Lee
+# https://slothlee.xyz
 
 User-agent: *
 Allow: /
 
 # Sitemap location
-Sitemap: https://dissident.mastertibbles.co.uk/sitemap.xml
+Sitemap: https://slothlee.xyz/sitemap.xml
 
 # Disallow dashboard (private)
 Disallow: /dashboard

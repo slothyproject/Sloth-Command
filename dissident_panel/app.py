@@ -76,7 +76,7 @@ app = Flask(__name__,
 HOMEPAGE_EXPORT_DIR = Path(__file__).parent.parent / 'homepage' / 'out'
 HOMEPAGE_STATIC_DIR = Path(app.static_folder) / 'homepage'
 HOMEPAGE_DIR = HOMEPAGE_EXPORT_DIR if HOMEPAGE_EXPORT_DIR.exists() else HOMEPAGE_STATIC_DIR
-CENTRAL_HUB_BASE_URL = (os.environ.get('CENTRAL_HUB_BASE_URL') or 'https://dissidenthub.mastertibbles.co.uk').rstrip('/')
+CENTRAL_HUB_BASE_URL = (os.environ.get('CENTRAL_HUB_BASE_URL') or 'https://slothlee.xyz').rstrip('/')
 
 
 def _central_hub_url(path: str) -> str:
