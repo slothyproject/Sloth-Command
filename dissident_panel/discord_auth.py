@@ -2,7 +2,6 @@
 Discord OAuth2 Authentication System
 Allows users to login with their Discord account
 """
-import hashlib
 import secrets
 import sqlite3
 import json
