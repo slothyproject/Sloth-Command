@@ -9,8 +9,7 @@ import os
 import httpx
 from datetime import datetime
 from pathlib import Path
-from functools import wraps
-from flask import Blueprint, request, redirect, session, jsonify, url_for
+from flask import Blueprint, request, redirect, session, jsonify
 
 # Discord OAuth2 Configuration
 # All secrets MUST come from environment variables (Railway)
@@ -312,7 +311,6 @@ def get_servers():
 
 def exchange_code_for_token(code):
     """Exchange authorization code for access token"""
-    import urllib.parse
     
     data = {
         'client_id': DISCORD_CLIENT_ID,
