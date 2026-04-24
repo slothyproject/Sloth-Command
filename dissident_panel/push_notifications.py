@@ -3,7 +3,6 @@ Push Notifications Service - Browser Push Notifications
 v2.8.0
 """
 import json
-from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
 
