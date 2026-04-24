@@ -3,7 +3,7 @@ Consolidated authentication module for Dissident Web Panel.
 Use this instead of individual login_required decorators in each module.
 """
 from functools import wraps
-from flask import redirect, url_for, session, request, jsonify
+from flask import redirect, url_for, session, jsonify
 
 
 def login_required(f):
