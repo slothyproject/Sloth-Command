@@ -199,7 +199,7 @@ def me():
 
         all_accessible_ids = owned_ids | managed_ids
         accessible_guilds = Guild.query.filter(
-            Guild.id.in_(all_accessible_ids), Guild.is_active == True
+            Guild.id.in_(all_accessible_ids), Guild.is_active.is_(True)
         ).order_by(Guild.name).all()
 
         for guild in accessible_guilds:
