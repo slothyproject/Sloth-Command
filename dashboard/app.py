@@ -22,7 +22,13 @@ from dashboard.versioning import get_dashboard_version
 log = logging.getLogger(__name__)
 
 socketio = SocketIO()
-limiter = Limiter(key_func=get_remote_address, default_limits=["300 per day", "60 per hour"])
+limiter = Limiter(
+    key_func=get_remote_address,
+    default_limits=["300 per day", "60 per hour"],
+    storage_uri=os.environ.get("REDIS_URL") or "memory://",
+    swallow_errors=True,
+    in_memory_fallback_enabled=True,
+)
 login_manager = LoginManager()
 csrf = CSRFProtect()
 
@@ -31,15 +37,19 @@ def create_app(config: dict | None = None) -> Flask:
     app = Flask(__name__, template_folder="templates", static_folder="static")
 
     # ── Config ──────────────────────────────────────────────────
+    # Railway provides postgres:// but SQLAlchemy 2.x requires postgresql://
+    _db_url = os.environ.get("DATABASE_URL", "sqlite:///hub.db")
+    if _db_url.startswith("postgres://"):
+        _db_url = "postgresql://" + _db_url[len("postgres://"):]
+
     app.config.update(
         SECRET_KEY=os.environ.get("SECRET_KEY", "dev-secret-change-me"),
-        SQLALCHEMY_DATABASE_URI=os.environ.get("DATABASE_URL", "sqlite:///hub.db"),
+        SQLALCHEMY_DATABASE_URI=_db_url,
         SQLALCHEMY_TRACK_MODIFICATIONS=False,
         SESSION_COOKIE_SECURE=os.environ.get("FLASK_ENV") == "production",
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE="Lax",
         WTF_CSRF_TIME_LIMIT=3600,
-        RATELIMIT_STORAGE_URI=os.environ.get("REDIS_URL") or "memory://",
     )
     if config:
         app.config.update(config)
