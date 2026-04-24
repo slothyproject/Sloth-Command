@@ -12,7 +12,7 @@ import sqlite3
 import threading
 import traceback
 from collections import deque
-from datetime import datetime, timedelta
+from datetime import datetime
 from functools import wraps
 from pathlib import Path
 
