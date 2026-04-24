@@ -41,7 +41,7 @@ const navigation: NavSection[] = [
     title: 'Operations',
     items: [
       { name: 'Security', href: '/dashboard/security', icon: 'Shield', badge: 'v4.0' },
-      { name: 'Secrets Vault', href: '/dashboard/secrets', icon: 'Lock', badge: 'NEW' },
+      { name: 'Secrets', href: '/dashboard/secrets', icon: 'Lock', badge: 'NEW' },
       { name: 'Credentials', href: '/dashboard/credentials', icon: 'KeyRound', badge: 'NEW' },
       { name: 'Audit Logs', href: '/dashboard/audit-logs', icon: 'ClipboardList' },
       { name: 'Automation', href: '/dashboard/automation', icon: 'Automation', badge: 'NEW' },
@@ -79,7 +79,7 @@ const services = [
   { id: '1', name: 'Website', status: 'healthy' },
   { id: '2', name: 'API Backend', status: 'healthy' },
   { id: '3', name: 'Discord Bot', status: 'degraded' },
-  { id: '4', name: 'Token Vault', status: 'healthy' },
+  { id: '4', name: 'Secrets Service', status: 'healthy' },
 ];
 
 // ============================================================================
