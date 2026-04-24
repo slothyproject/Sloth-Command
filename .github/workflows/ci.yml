@@ -18,8 +18,29 @@ jobs:
           python-version: "3.12"
           cache: pip
       - name: Install dependencies
-        run: pip install -r requirements.txt ruff
+        run: pip install -r requirements.txt ruff --quiet
       - name: Lint
-        run: ruff check . --ignore E501
+        run: ruff check . --config ruff.toml
 
-
+  deploy:
+    name: Deploy to Railway
+    runs-on: ubuntu-latest
+    needs: lint
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: npm install -g @railway/cli --silent
+      - name: Deploy Sloth Command Platform
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          railway up \
+            --project 93e7ba72-7735-4313-a0b4-ffdb8b53830e \
+            --environment 3a1503e1-46a4-4d5d-87d3-61a646d2aa3b \
+            --service dd293ea7-d490-4f6a-b524-61b222649aa9 \
+            --detach
+          echo "Deployed Sloth Command Platform"
