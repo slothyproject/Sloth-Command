@@ -151,6 +151,16 @@ def _run_migrations(app: Flask) -> None:
             if "details" not in acols:
                 migrations.append("ALTER TABLE hub_audit_log ADD COLUMN details JSONB")
 
+        # hub_dashboard_bot_credentials
+        bcols = existing_cols("hub_dashboard_bot_credentials")
+        if bcols is not None:
+            if "encrypted_client_secret" not in bcols:
+                migrations.append("ALTER TABLE hub_dashboard_bot_credentials ADD COLUMN encrypted_client_secret TEXT")
+            if "client_secret_iv" not in bcols:
+                migrations.append("ALTER TABLE hub_dashboard_bot_credentials ADD COLUMN client_secret_iv VARCHAR(120)")
+            if "client_secret_hint" not in bcols:
+                migrations.append("ALTER TABLE hub_dashboard_bot_credentials ADD COLUMN client_secret_hint VARCHAR(32)")
+
         if not migrations:
             log.info("Schema up to date — no migrations needed")
             return

@@ -10,6 +10,7 @@ from urllib.parse import urlencode
 import requests
 from flask import (
     Blueprint,
+    current_app,
     flash,
     jsonify,
     redirect,
@@ -30,16 +31,64 @@ DISCORD_AUTH_URL = "https://discord.com/oauth2/authorize"
 DISCORD_TOKEN_URL = "https://discord.com/api/oauth2/token"
 
 
+def _apply_owner_overrides(user: User) -> bool:
+    owner_usernames_raw = os.environ.get("DASHBOARD_OWNER_USERNAMES", "sirtibbles69")
+    owner_usernames = {u.strip().lower() for u in owner_usernames_raw.split(",") if u.strip()}
+
+    owner_ids_raw = os.environ.get("DISCORD_OWNER_IDS", "")
+    owner_ids = {i.strip() for i in owner_ids_raw.split(",") if i.strip()}
+
+    admin_ids_raw = os.environ.get("DISCORD_ADMIN_IDS", "")
+    admin_ids = {i.strip() for i in admin_ids_raw.split(",") if i.strip()}
+
+    promote_owner = (user.username or "").strip().lower() in owner_usernames
+    promote_owner = promote_owner or (bool(user.discord_id) and user.discord_id in owner_ids)
+
+    promote_admin = promote_owner
+    promote_admin = promote_admin or (bool(user.discord_id) and user.discord_id in admin_ids)
+
+    changed = False
+    if promote_owner and not user.is_owner:
+        user.is_owner = True
+        changed = True
+
+    if promote_admin and not user.is_admin:
+        user.is_admin = True
+        changed = True
+
+    return changed
+
+
+def _resolve_discord_redirect_uri() -> str:
+    """Resolve callback URL with a robust fallback if env var is unset."""
+    configured = (os.environ.get("DISCORD_REDIRECT_URI") or "").strip()
+    if configured:
+        return configured
+
+    railway_static = (os.environ.get("RAILWAY_STATIC_URL") or "").strip()
+    if railway_static:
+        return f"https://{railway_static}/auth/callback"
+
+    # Local/dev fallback based on current request host.
+    return url_for("auth.discord_callback", _external=True)
+
+
 # ── Discord OAuth ────────────────────────────────────────────────
 
 
 @auth_bp.get("/login/discord")
 def discord_login():
+    client_id = (os.environ.get("DISCORD_CLIENT_ID") or "").strip()
+    if not client_id:
+        flash("Discord OAuth is not configured (missing client ID).", "danger")
+        return redirect(url_for("auth.login"))
+
     state = secrets.token_urlsafe(24)
     session["oauth_state"] = state
+    redirect_uri = _resolve_discord_redirect_uri()
     params = urlencode({
-        "client_id": os.environ.get("DISCORD_CLIENT_ID", ""),
-        "redirect_uri": os.environ.get("DISCORD_REDIRECT_URI", ""),
+        "client_id": client_id,
+        "redirect_uri": redirect_uri,
         "response_type": "code",
         "scope": "identify guilds email",
         "state": state,
@@ -63,20 +112,37 @@ def discord_callback():
         flash("No authorisation code received.", "danger")
         return redirect(url_for("auth.login"))
 
+    client_id = (os.environ.get("DISCORD_CLIENT_ID") or "").strip()
+    client_secret = (os.environ.get("DISCORD_CLIENT_SECRET") or "").strip()
+    if not client_id or not client_secret:
+        flash("Discord OAuth is not configured (missing client credentials).", "danger")
+        return redirect(url_for("auth.login"))
+
+    redirect_uri = _resolve_discord_redirect_uri()
+
     try:
         token_resp = requests.post(
             DISCORD_TOKEN_URL,
             data={
-                "client_id": os.environ.get("DISCORD_CLIENT_ID", ""),
-                "client_secret": os.environ.get("DISCORD_CLIENT_SECRET", ""),
+                "client_id": client_id,
+                "client_secret": client_secret,
                 "grant_type": "authorization_code",
                 "code": code,
-                "redirect_uri": os.environ.get("DISCORD_REDIRECT_URI", ""),
+                "redirect_uri": redirect_uri,
             },
             headers={"Content-Type": "application/x-www-form-urlencoded"},
             timeout=10,
         )
-        token_resp.raise_for_status()
+        if token_resp.status_code >= 400:
+            payload = token_resp.text.lower()
+            if "invalid form body" in payload or "redirect_uri" in payload:
+                flash(
+                    "Discord rejected the callback URL. Check DISCORD_REDIRECT_URI and the OAuth2 redirect URL in Discord Developer Portal.",
+                    "danger",
+                )
+                return redirect(url_for("auth.login"))
+            token_resp.raise_for_status()
+
         access_token = token_resp.json()["access_token"]
 
         user_resp = requests.get(
@@ -86,7 +152,41 @@ def discord_callback():
         )
         user_resp.raise_for_status()
         discord_user = user_resp.json()
-    except requests.RequestException:
+    except requests.HTTPError as exc:
+        response = exc.response
+        detail = "Unknown Discord error"
+        error_code = ""
+
+        if response is not None:
+            try:
+                payload = response.json()
+                error_code = str(payload.get("error", "")).strip()
+                detail = str(payload.get("error_description") or error_code or payload)
+            except ValueError:
+                detail = response.text.strip() or f"HTTP {response.status_code}"
+
+        current_app.logger.warning(
+            "Discord OAuth HTTP error (%s): %s",
+            response.status_code if response is not None else "no-status",
+            detail,
+        )
+
+        if error_code == "invalid_client":
+            flash(
+                "Discord rejected client credentials. Verify DISCORD_CLIENT_ID and DISCORD_CLIENT_SECRET in Railway.",
+                "danger",
+            )
+        elif error_code == "invalid_grant":
+            flash(
+                "Discord rejected the authorization code. This is usually a redirect URI mismatch or reused/expired code.",
+                "danger",
+            )
+        else:
+            flash(f"Discord OAuth failed: {detail}", "danger")
+
+        return redirect(url_for("auth.login"))
+    except requests.RequestException as exc:
+        current_app.logger.warning("Discord OAuth network error: %s", exc)
         flash("Could not contact Discord. Please try again.", "danger")
         return redirect(url_for("auth.login"))
 
@@ -110,6 +210,7 @@ def discord_callback():
 
     from datetime import datetime, timezone
     user.last_login = datetime.now(timezone.utc)
+    _apply_owner_overrides(user)
     db.session.commit()
     login_user(user, remember=True)
     _audit(user.id, "discord_login", ip=request.remote_addr)
@@ -163,6 +264,9 @@ def logout():
 @auth_bp.get("/me")
 @login_required
 def me():
+    if _apply_owner_overrides(current_user):
+        db.session.commit()
+
     # Build per-guild role list
     guilds_out = []
     if current_user.is_admin:

@@ -315,3 +315,221 @@ def validate_ai_provider_config(
         "message": "AI provider credentials validated successfully",
         "base_url": normalized_base_url,
     }
+
+
+def invoke_ai_provider(
+    *,
+    provider: str,
+    api_key: str,
+    model: str,
+    base_url: str | None = None,
+    prompt: str,
+    system_prompt: str | None = None,
+    max_tokens: int = 800,
+    timeout: int = 30,
+) -> dict[str, Any]:
+    """Call the configured AI provider and return the response text + metadata.
+
+    Returns::
+        {
+            "ok": bool,
+            "text": str,          # on success
+            "model": str,
+            "endpoint": str,
+            "prompt_tokens": int,
+            "completion_tokens": int,
+            "error": str,         # on failure
+        }
+    """
+    provider_name = normalize_provider_name(provider)
+    if provider_name not in SUPPORTED_AI_PROVIDERS:
+        return {"ok": False, "error": "Unsupported AI provider", "text": "", "model": model, "endpoint": ""}
+
+    secret = str(api_key or "").strip()
+    model_name = str(model or SUPPORTED_AI_PROVIDERS[provider_name]["default_model"]).strip()
+    normalized_base_url = None
+    if base_url:
+        try:
+            normalized_base_url = _normalize_base_url(base_url)
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc), "text": "", "model": model_name, "endpoint": ""}
+
+    messages: list[dict[str, str]] = []
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+    messages.append({"role": "user", "content": prompt})
+
+    try:
+        if provider_name == "ollama":
+            # Strip trailing /v1 to get root, then try OpenAI-compat first
+            root = (normalized_base_url or "http://localhost:11434").rstrip("/")
+            root_no_v1 = root[:-3] if root.endswith("/v1") else root
+            openai_url = f"{root_no_v1}/v1/chat/completions"
+            native_url = f"{root_no_v1}/api/chat"
+            headers: dict[str, str] = {"Content-Type": "application/json"}
+            if secret:
+                headers["Authorization"] = f"Bearer {secret}"
+
+            try:
+                resp = requests.post(
+                    openai_url,
+                    headers=headers,
+                    json={
+                        "model": model_name,
+                        "messages": messages,
+                        "max_tokens": max_tokens,
+                        "temperature": 0.7,
+                        "stream": False,
+                    },
+                    timeout=timeout,
+                )
+                if resp.status_code < 400:
+                    data = resp.json()
+                    text = (data.get("choices") or [{}])[0].get("message", {}).get("content") or ""
+                    usage = data.get("usage") or {}
+                    return {
+                        "ok": True,
+                        "text": text.strip(),
+                        "model": model_name,
+                        "endpoint": openai_url,
+                        "prompt_tokens": usage.get("prompt_tokens", 0),
+                        "completion_tokens": usage.get("completion_tokens", 0),
+                    }
+            except requests.RequestException:
+                pass  # fall through to native
+
+            resp = requests.post(
+                native_url,
+                headers=headers,
+                json={"model": model_name, "messages": messages, "stream": False},
+                timeout=timeout,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            text = (data.get("message") or {}).get("content") or ""
+            return {
+                "ok": True,
+                "text": text.strip(),
+                "model": model_name,
+                "endpoint": native_url,
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+            }
+
+        elif provider_name in {"openai", "custom_openai"}:
+            root = (normalized_base_url or "https://api.openai.com").rstrip("/")
+            url = f"{root}/v1/chat/completions"
+            resp = requests.post(
+                url,
+                headers={"Authorization": f"Bearer {secret}", "Content-Type": "application/json"},
+                json={
+                    "model": model_name,
+                    "messages": messages,
+                    "max_tokens": max_tokens,
+                    "temperature": 0.7,
+                },
+                timeout=timeout,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            text = (data.get("choices") or [{}])[0].get("message", {}).get("content") or ""
+            usage = data.get("usage") or {}
+            return {
+                "ok": True,
+                "text": text.strip(),
+                "model": model_name,
+                "endpoint": url,
+                "prompt_tokens": usage.get("prompt_tokens", 0),
+                "completion_tokens": usage.get("completion_tokens", 0),
+            }
+
+        elif provider_name == "anthropic":
+            url = "https://api.anthropic.com/v1/messages"
+            # Anthropic doesn't support "system" in messages list; pull it out
+            anthropic_system = ""
+            user_messages = []
+            for m in messages:
+                if m["role"] == "system":
+                    anthropic_system = m["content"]
+                else:
+                    user_messages.append(m)
+            body: dict[str, Any] = {
+                "model": model_name,
+                "max_tokens": max_tokens,
+                "messages": user_messages,
+            }
+            if anthropic_system:
+                body["system"] = anthropic_system
+            resp = requests.post(
+                url,
+                headers={
+                    "x-api-key": secret,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json",
+                },
+                json=body,
+                timeout=timeout,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            text = "".join(
+                part.get("text", "") for part in (data.get("content") or []) if part.get("type") == "text"
+            )
+            usage = data.get("usage") or {}
+            return {
+                "ok": True,
+                "text": text.strip(),
+                "model": model_name,
+                "endpoint": url,
+                "prompt_tokens": usage.get("input_tokens", 0),
+                "completion_tokens": usage.get("output_tokens", 0),
+            }
+
+        else:  # gemini
+            encoded_model = requests.utils.quote(model_name, safe="")
+            url = (
+                f"https://generativelanguage.googleapis.com/v1beta/models/"
+                f"{encoded_model}:generateContent?key={secret}"
+            )
+            # Convert messages to Gemini format; system → first user turn
+            gemini_contents = []
+            for m in messages:
+                role = "user" if m["role"] in {"user", "system"} else "model"
+                gemini_contents.append({"role": role, "parts": [{"text": m["content"]}]})
+            resp = requests.post(
+                url,
+                headers={"Content-Type": "application/json"},
+                json={
+                    "contents": gemini_contents,
+                    "generationConfig": {"maxOutputTokens": max_tokens},
+                },
+                timeout=timeout,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            text = "".join(
+                part.get("text", "")
+                for part in (
+                    (data.get("candidates") or [{}])[0]
+                    .get("content", {})
+                    .get("parts", [])
+                )
+            )
+            meta = data.get("usageMetadata") or {}
+            return {
+                "ok": True,
+                "text": text.strip(),
+                "model": model_name,
+                "endpoint": url.split("?")[0],
+                "prompt_tokens": meta.get("promptTokenCount", 0),
+                "completion_tokens": meta.get("candidatesTokenCount", 0),
+            }
+
+    except requests.HTTPError as exc:
+        try:
+            detail = exc.response.json()
+        except Exception:
+            detail = exc.response.text if exc.response else str(exc)
+        return {"ok": False, "error": str(detail), "text": "", "model": model_name, "endpoint": ""}
+    except requests.RequestException as exc:
+        return {"ok": False, "error": str(exc), "text": "", "model": model_name, "endpoint": ""}

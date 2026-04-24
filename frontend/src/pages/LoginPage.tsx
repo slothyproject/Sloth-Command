@@ -1,4 +1,6 @@
 export function LoginPage() {
+  const loginHref = 'https://slothlee.xyz/auth/login/discord?next=/app/dashboard';
+
   return (
     <div className="dashboard-shell grid min-h-screen place-items-center overflow-hidden bg-void px-4">
       <div className="dashboard-orb dashboard-orb-a" aria-hidden="true" />
@@ -17,7 +19,7 @@ export function LoginPage() {
 
         <div className="grid gap-4 rounded-[1.5rem] border border-line bg-white/5 p-5">
           <a
-            href="/auth/login/discord?next=/app/dashboard"
+            href={loginHref}
             className="inline-flex items-center justify-center gap-3 rounded-2xl bg-[#5865F2] px-5 py-4 text-sm font-semibold text-white transition hover:bg-[#4752c4]"
           >
             <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-white/10 font-mono text-xs">D</span>

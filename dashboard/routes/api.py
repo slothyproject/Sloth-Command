@@ -17,12 +17,13 @@ from dashboard.extensions import db, redis_client
 from dashboard.models import (
     AuditLog, BotEvent, Guild, GuildCommand, GuildMember,
     GuildSettings, ModerationCase, Notification, Ticket, TicketMessage,
-    User, UserAIProviderCredential, UserAIProviderUsageStat,
+    User, UserAIProviderCredential, UserAIProviderUsageStat, DashboardBotCredential,
 )
 from dashboard.services.bot_state import get_bot_state, push_bot_command
 from dashboard.services.dissident_api import call_dissident_api
 from dashboard.services.ai_provider import (
     SUPPORTED_AI_PROVIDERS,
+    invoke_ai_provider,
     mask_api_key,
     normalize_ai_provider_payload,
     serialize_ai_provider_credential,
@@ -41,6 +42,15 @@ def admin_required(f):
     def decorated(*args, **kwargs):
         if not current_user.is_authenticated or not (current_user.is_admin or getattr(current_user, "is_owner", False)):
             return jsonify({"error": "Forbidden"}), 403
+        return f(*args, **kwargs)
+    return decorated
+
+
+def owner_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not current_user.is_authenticated or not getattr(current_user, "is_owner", False):
+            return jsonify({"error": "Owner access required"}), 403
         return f(*args, **kwargs)
     return decorated
 
@@ -291,11 +301,270 @@ def send_bot_command():
 @api_bp.get("/bot/invite")
 @login_required
 def bot_invite():
-    client_id = os.environ.get("DISCORD_CLIENT_ID", "")
+    cfg = DashboardBotCredential.query.order_by(DashboardBotCredential.updated_at.desc()).first()
+    client_id = (cfg.client_id if cfg and cfg.client_id else os.environ.get("DISCORD_CLIENT_ID", "")).strip()
     perms = 8  # Administrator — or use fine-grained: 1374389534902
     url = f"https://discord.com/oauth2/authorize?client_id={client_id}&permissions={perms}&scope=bot%20applications.commands"
     return jsonify({"url": url, "client_id": client_id})
 
+
+@api_bp.get("/bot/config")
+@login_required
+@admin_required
+def bot_config_get():
+    cfg = DashboardBotCredential.query.order_by(DashboardBotCredential.updated_at.desc()).first()
+    if not cfg:
+        return jsonify({
+            "configured": False,
+            "bot_name": None,
+            "client_id": None,
+            "application_id": None,
+            "public_key": None,
+            "guild_id": None,
+            "token_hint": None,
+            "client_secret_hint": None,
+            "status": "not_configured",
+            "updated_at": None,
+        })
+    return jsonify(cfg.to_dict())
+
+
+@api_bp.post("/bot/config")
+@login_required
+@owner_required
+def bot_config_save():
+    payload = request.get_json() or {}
+
+    cfg = DashboardBotCredential.query.order_by(DashboardBotCredential.updated_at.desc()).first()
+    if not cfg:
+        cfg = DashboardBotCredential()
+        db.session.add(cfg)
+
+    cfg.bot_name = str(payload.get("bot_name", cfg.bot_name or "") or "").strip() or None
+    cfg.client_id = str(payload.get("client_id", cfg.client_id or "") or "").strip() or None
+    cfg.application_id = str(payload.get("application_id", cfg.application_id or "") or "").strip() or None
+    cfg.public_key = str(payload.get("public_key", cfg.public_key or "") or "").strip() or None
+    cfg.guild_id = str(payload.get("guild_id", cfg.guild_id or "") or "").strip() or None
+
+    token = str(payload.get("token", "") or "").strip()
+    if token:
+        try:
+            encrypted_token, token_iv = encrypt_secret(token)
+        except (RuntimeError, ValueError) as exc:
+            return jsonify({"error": str(exc)}), 503
+        cfg.encrypted_token = encrypted_token
+        cfg.token_iv = token_iv
+        cfg.token_hint = mask_api_key(token)
+
+    client_secret = str(payload.get("client_secret", "") or "").strip()
+    if client_secret:
+        try:
+            encrypted_client_secret, client_secret_iv = encrypt_secret(client_secret)
+        except (RuntimeError, ValueError) as exc:
+            return jsonify({"error": str(exc)}), 503
+        cfg.encrypted_client_secret = encrypted_client_secret
+        cfg.client_secret_iv = client_secret_iv
+        cfg.client_secret_hint = mask_api_key(client_secret)
+
+    cfg.status = "configured"
+    cfg.updated_by_user_id = current_user.id
+
+    db.session.commit()
+    _audit(
+        "bot_config_saved",
+        target_type="bot_config",
+        target_id=str(cfg.id),
+        details={
+            "has_token": bool(cfg.encrypted_token),
+            "has_client_secret": bool(cfg.encrypted_client_secret),
+            "client_id": cfg.client_id,
+            "application_id": cfg.application_id,
+        },
+    )
+    return jsonify(cfg.to_dict())
+
+
+@api_bp.delete("/bot/config/token")
+@login_required
+@owner_required
+def bot_config_clear_token():
+    cfg = DashboardBotCredential.query.order_by(DashboardBotCredential.updated_at.desc()).first()
+    if not cfg:
+        return jsonify({"error": "Bot config not found"}), 404
+
+    cfg.encrypted_token = None
+    cfg.token_iv = None
+    cfg.token_hint = None
+    cfg.status = "configured"
+    cfg.updated_by_user_id = current_user.id
+
+    db.session.commit()
+    _audit(
+        "bot_config_token_cleared",
+        target_type="bot_config",
+        target_id=str(cfg.id),
+        details={"client_id": cfg.client_id},
+    )
+    return jsonify(cfg.to_dict())
+
+
+@api_bp.delete("/bot/config/secrets")
+@login_required
+@owner_required
+def bot_config_clear_secrets():
+    cfg = DashboardBotCredential.query.order_by(DashboardBotCredential.updated_at.desc()).first()
+    if not cfg:
+        return jsonify({"error": "Bot config not found"}), 404
+
+    cfg.encrypted_token = None
+    cfg.token_iv = None
+    cfg.token_hint = None
+    cfg.encrypted_client_secret = None
+    cfg.client_secret_iv = None
+    cfg.client_secret_hint = None
+    cfg.status = "configured"
+    cfg.updated_by_user_id = current_user.id
+
+    db.session.commit()
+    _audit(
+        "bot_config_secrets_cleared",
+        target_type="bot_config",
+        target_id=str(cfg.id),
+        details={"client_id": cfg.client_id},
+    )
+    return jsonify(cfg.to_dict())
+
+
+# ── AI Advisor ──────────────────────────────────────────────────
+
+_ADVISOR_SYSTEM_PROMPT = (
+    "You are an expert Discord server architect and community manager. "
+    "You help server owners design roles, channels, moderation strategies, "
+    "onboarding flows, support ticket systems, and community engagement plans. "
+    "Be concise, practical, and specific. Format responses with clear sections "
+    "when explaining multi-step plans. Avoid unnecessary filler text."
+)
+
+
+@api_bp.post("/ai/advisor")
+@login_required
+def ai_advisor_chat():
+    credential = UserAIProviderCredential.query.filter_by(user_id=current_user.id).first()
+    if not credential or credential.status != "active":
+        return jsonify({
+            "ok": False,
+            "error": "AI provider not configured. Go to Settings → AI Provider to set one up.",
+        }), 400
+
+    data = request.get_json() or {}
+    message = str(data.get("message") or "").strip()
+    if not message:
+        return jsonify({"ok": False, "error": "message is required"}), 400
+
+    mode = str(data.get("mode") or "ask").strip()
+    guild_id = data.get("guild_id")
+
+    # Rate-limit check
+    usage = current_user.ai_provider_usage
+    if usage:
+        now = datetime.now(timezone.utc)
+        window_start = usage.current_hour_started_at
+        if window_start and window_start.tzinfo is None:
+            window_start = window_start.replace(tzinfo=timezone.utc)
+        if window_start and window_start + timedelta(hours=1) > now:
+            limit = credential.usage_limit_requests_per_hour or 100
+            if usage.requests_this_hour >= limit:
+                return jsonify({
+                    "ok": False,
+                    "error": f"Hourly limit of {limit} requests reached. Try again later.",
+                }), 429
+
+    # Decrypt API key
+    try:
+        plain_api_key = decrypt_secret(credential.encrypted_api_key, credential.api_key_iv)
+    except Exception:
+        return jsonify({"ok": False, "error": "Could not decrypt API key. Re-save your provider settings."}), 503
+
+    # Build optional guild context prefix
+    context_prefix = ""
+    if guild_id:
+        guild = Guild.query.get(int(guild_id))
+        if guild:
+            context_prefix = f"Context: I am working on a Discord server called '{guild.name}'. "
+
+    full_prompt = context_prefix + message
+    if mode == "interview":
+        full_prompt = (
+            "Please ask me a series of clarifying questions (one at a time) to "
+            "help me design my Discord server. Start with the first question now. " + full_prompt
+        )
+
+    result = invoke_ai_provider(
+        provider=credential.provider,
+        api_key=plain_api_key,
+        model=credential.model,
+        base_url=credential.base_url,
+        prompt=full_prompt,
+        system_prompt=_ADVISOR_SYSTEM_PROMPT,
+        max_tokens=800,
+        timeout=30,
+    )
+
+    # Record usage regardless of success
+    _record_ai_usage(
+        user=current_user,
+        command="ai_advisor",
+        success=result.get("ok", False),
+        token_count=result.get("prompt_tokens", 0) + result.get("completion_tokens", 0),
+        error=result.get("error") if not result.get("ok") else None,
+    )
+
+    if not result.get("ok"):
+        return jsonify({"ok": False, "error": result.get("error", "AI provider error")}), 502
+
+    return jsonify({
+        "ok": True,
+        "response": result["text"],
+        "model": result["model"],
+        "endpoint": result["endpoint"],
+        "mode": mode,
+    })
+
+
+def _record_ai_usage(
+    *,
+    user: User,
+    command: str,
+    success: bool,
+    token_count: int = 0,
+    error: str | None = None,
+) -> None:
+    """Update the user's AI usage counters in-place and commit."""
+    now = datetime.now(timezone.utc)
+    usage = UserAIProviderUsageStat.query.filter_by(user_id=user.id).first()
+    if not usage:
+        usage = UserAIProviderUsageStat(user_id=user.id)
+        db.session.add(usage)
+
+    window_start = usage.current_hour_started_at
+    if window_start and window_start.tzinfo is None:
+        window_start = window_start.replace(tzinfo=timezone.utc)
+    if not window_start or window_start + timedelta(hours=1) <= now:
+        usage.current_hour_started_at = now.replace(minute=0, second=0, microsecond=0)
+        usage.requests_this_hour = 0
+        usage.tokens_this_hour = 0
+
+    usage.requests_this_hour = (usage.requests_this_hour or 0) + 1
+    usage.tokens_this_hour = (usage.tokens_this_hour or 0) + token_count
+    usage.lifetime_requests = (usage.lifetime_requests or 0) + 1
+    usage.lifetime_tokens = (usage.lifetime_tokens or 0) + token_count
+    usage.last_used_at = now
+    usage.last_command = command
+    usage.last_error = error
+    db.session.commit()
+
+
+# ── User AI provider ─────────────────────────────────────────────
 
 @api_bp.get("/user/ai-provider")
 @login_required

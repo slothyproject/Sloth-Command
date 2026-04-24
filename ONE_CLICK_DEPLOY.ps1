@@ -13,11 +13,11 @@ Write-Host ""
 # Credentials
 $envVars = @{
     "DISCORD_CLIENT_ID" = "1493639167526174830"
-    "DISCORD_CLIENT_SECRET" = "9NzuUZN8sDXsZ3xrG5tWcl_ufVTY-6F8"
+    "DISCORD_CLIENT_SECRET" = "REPLACE_WITH_DISCORD_CLIENT_SECRET"
     "DISCORD_REDIRECT_URI" = "https://dissident-api-backend-production.up.railway.app/api/auth/discord/callback"
-    "JWT_SECRET" = "7imR5TEIcxaD6eUnkvr34XhwNMOH1JLVtZQPAyKoFpslfzbd2j08CSuYgB9WqG"
+    "JWT_SECRET" = "REPLACE_WITH_JWT_SECRET"
     "FRONTEND_URL" = "https://dissident.mastertibbles.co.uk"
-    "DISCORD_BOT_TOKEN" = "MTQ5MzYzOTE2NzUyNjE3NDgzMA.G01Mjj.R7mgmGzGSEUEpN90oAaq5bA16-CwHYVuXIRjHw"
+    "DISCORD_BOT_TOKEN" = "REPLACE_WITH_DISCORD_BOT_TOKEN"
     "NODE_ENV" = "production"
     "PORT" = "3000"
 }
@@ -29,7 +29,7 @@ Write-Host ""
 cd "E:\Projects God Tier\Dissident-api-backend"
 
 # Set token
-$env:RAILWAY_TOKEN = "28e52518-445f-499f-a406-daeeb7149f2b"
+$env:RAILWAY_TOKEN = "REPLACE_WITH_RAILWAY_TOKEN"
 
 # Link to service
 Write-Host "Linking to service..." -ForegroundColor Gray
@@ -57,3 +57,5 @@ Write-Host ""
 Write-Host "========================================" -ForegroundColor Green
 Write-Host "  DEPLOYMENT COMPLETE!" -ForegroundColor Green
 Write-Host "========================================" -ForegroundColor Green
+
+

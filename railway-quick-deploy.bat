@@ -74,8 +74,8 @@ echo Set environment variable
 echo.
 echo From your tokens.env:
 echo - DISCORD_CLIENT_ID: 1493639167526174830
-echo - DISCORD_CLIENT_SECRET: 9NzuUZN8sDXsZ3xrG5tWcl_ufVTY-6F8
-echo - JWT_SECRET: MgpyVa9e01DlHZzKYFrJWsEjMJPlKbJvzDREw3LTRzEwVboZBBiPyHqCWw8GyuKX
+echo - DISCORD_CLIENT_SECRET: REPLACE_WITH_DISCORD_CLIENT_SECRET
+echo - JWT_SECRET: REPLACE_WITH_JWT_SECRET
 echo - DISCORD_BOT_TOKEN: (from line 2 of tokens.env)
 echo.
 set /p varname="Enter variable name: "
@@ -138,3 +138,5 @@ goto end
 echo.
 echo Done!
 pause
+
+

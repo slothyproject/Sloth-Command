@@ -275,6 +275,43 @@ class UserAIProviderUsageStat(db.Model):
         }
 
 
+class DashboardBotCredential(db.Model):
+    __tablename__ = "hub_dashboard_bot_credentials"
+
+    id = db.Column(db.Integer, primary_key=True)
+    bot_name = db.Column(db.String(120), nullable=True)
+    client_id = db.Column(db.String(64), nullable=True)
+    application_id = db.Column(db.String(64), nullable=True)
+    public_key = db.Column(db.String(255), nullable=True)
+    guild_id = db.Column(db.String(64), nullable=True)
+    encrypted_token = db.Column(db.Text, nullable=True)
+    token_iv = db.Column(db.String(120), nullable=True)
+    token_hint = db.Column(db.String(32), nullable=True)
+    encrypted_client_secret = db.Column(db.Text, nullable=True)
+    client_secret_iv = db.Column(db.String(120), nullable=True)
+    client_secret_hint = db.Column(db.String(32), nullable=True)
+    status = db.Column(db.String(32), nullable=False, default="configured")
+    updated_by_user_id = db.Column(db.Integer, db.ForeignKey("hub_users.id", ondelete="SET NULL"), nullable=True)
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow)
+    updated_at = db.Column(db.DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+    updated_by = db.relationship("User", foreign_keys=[updated_by_user_id])
+
+    def to_dict(self) -> dict:
+        return {
+            "configured": bool(self.client_id or self.application_id or self.encrypted_token),
+            "bot_name": self.bot_name,
+            "client_id": self.client_id,
+            "application_id": self.application_id,
+            "public_key": self.public_key,
+            "guild_id": self.guild_id,
+            "token_hint": self.token_hint,
+            "client_secret_hint": self.client_secret_hint,
+            "status": self.status,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
 # ── Commands ─────────────────────────────────────────────────────
 
 class GuildCommand(db.Model):
