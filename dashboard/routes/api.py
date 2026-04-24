@@ -29,6 +29,7 @@ from dashboard.services.ai_provider import (
     validate_ai_provider_config,
 )
 from dashboard.services.encryption import decrypt_secret, encrypt_secret
+from dashboard.versioning import get_dashboard_version
 
 api_bp = Blueprint("api", __name__)
 
@@ -194,6 +195,16 @@ def _serialize_user_ai_provider_status(user: User) -> dict:
 @api_bp.get("/ping")
 def ping():
     return jsonify({"ok": True, "ts": datetime.now(timezone.utc).isoformat()})
+
+
+@api_bp.get("/health")
+def health():
+    return jsonify({"status": "ok", "service": "sloth-lee-command-hub", "version": get_dashboard_version()})
+
+
+@api_bp.get("/version")
+def version():
+    return jsonify({"version": get_dashboard_version(), "service": "sloth-lee-command-hub"})
 
 
 @api_bp.get("/public/stats")
