@@ -4,7 +4,7 @@ v2.8.0
 """
 import json
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, Optional
 
 # ============================================================================
 # PUSH NOTIFICATION CONFIG
