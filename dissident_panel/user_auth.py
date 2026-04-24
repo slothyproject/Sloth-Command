@@ -8,7 +8,6 @@ import secrets
 import sqlite3
 from datetime import datetime, timedelta
 from pathlib import Path
-from functools import wraps
 
 # Database
 DATA_DIR = Path(__file__).parent.parent / 'data'
