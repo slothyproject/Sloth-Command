@@ -496,8 +496,7 @@ def api_chart_commands():
 # UPTIME MONITORING
 # ============================================================================
 
-import httpx
-from datetime import datetime, timedelta
+from datetime import datetime
 
 SERVICES = {
     'dashboard': os.environ.get('RAILWAY_DASHBOARD_URL', 'http://localhost:8080'),
@@ -706,7 +705,6 @@ def api_errors():
     if sentry_dsn:
         try:
             import sentry_sdk
-            from sentry_sdk import capture_exception
             
             client = sentry_sdk.get_client()
             events = client.events
