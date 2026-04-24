@@ -42,12 +42,16 @@ jobs:
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
         run: |
-          echo "🚀 Deploying central-hub-v3 Flask service to Railway..."
-          railway up --service central-hub-v3 --detach
+          echo "🚀 Deploying Sloth Command Dashboard service to Railway..."
+          railway up \
+            --project 93e7ba72-7735-4313-a0b4-ffdb8b53830e \
+            --environment 3a1503e1-46a4-4d5d-87d3-61a646d2aa3b \
+            --service dd293ea7-d490-4f6a-b524-61b222649aa9 \
+            --detach
           echo "✅ Deployment initiated!"
 
       - name: Notify on Failure
         if: failure()
         run: |
           echo "❌ Deployment failed!"
-          echo "Check Railway dashboard: https://railway.com/project/4e4e0f03-0c70-443a-ab59-757c492a8142"
+          echo "Check Railway dashboard: https://railway.com/project/93e7ba72-7735-4313-a0b4-ffdb8b53830e"
