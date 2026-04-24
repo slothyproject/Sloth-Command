@@ -18,7 +18,7 @@ from pathlib import Path
 
 from flask import (
     Flask, render_template, request, jsonify, abort,
-    redirect, url_for, session, send_file, send_from_directory
+    redirect, url_for, session, send_from_directory
 )
 from werkzeug.security import check_password_hash, generate_password_hash
 
