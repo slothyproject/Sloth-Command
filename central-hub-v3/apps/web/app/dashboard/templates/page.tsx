@@ -368,7 +368,7 @@ function DeployModal({
                   </label>
                   {existingSecret && (
                     <span className="text-xs px-2 py-0.5 rounded bg-green-500/20 text-green-400">
-                      Saved in vault
+                      Saved secret
                     </span>
                   )}
                 </div>

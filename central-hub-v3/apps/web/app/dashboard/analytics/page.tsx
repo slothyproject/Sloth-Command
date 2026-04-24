@@ -46,7 +46,7 @@ export default function AnalyticsPage() {
     { service: 'Website', cost: 85, color: '#06b6d4' },
     { service: 'API Backend', cost: 120, color: '#8b5cf6' },
     { service: 'Discord Bot', cost: 45, color: '#f59e0b' },
-    { service: 'Token Vault', cost: 25, color: '#22c55e' },
+    { service: 'Secrets Service', cost: 25, color: '#22c55e' },
   ];
 
   const performanceData = [
