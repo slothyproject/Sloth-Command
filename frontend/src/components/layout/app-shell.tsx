@@ -1,14 +1,15 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom'
-import { Menu, X, LayoutDashboard, Server, Ticket, ShieldAlert, BarChart3, Bot, ScrollText, Users, Settings, LogOut, User, ChevronRight, Bell } from 'lucide-react'
+import { Menu, X, LayoutDashboard, Server, Ticket, ShieldAlert, BarChart3, Bot, ScrollText, Users, Settings, LogOut, User, ChevronRight, Bell, Command } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { cn } from '@/lib/cn'
 import { Button } from '../ui/button'
 import { useAuthStore } from '@/store/authStore'
 import { useAccessibleGuilds } from '@/lib/permissions'
 import { getJson, postJson } from '@/lib/api'
+import { CommandPalette } from '@/components/CommandPalette'
 
 interface AppShellProps {
   className?: string
@@ -16,7 +17,19 @@ interface AppShellProps {
 
 const AppShell: React.FC<AppShellProps> = ({ className }) => {
   const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [paletteOpen, setPaletteOpen] = useState(false)
   const location = useLocation()
+
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault()
+        setPaletteOpen((v) => !v)
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [])
 
   return (
     <div className={cn('flex h-screen bg-void', className)}>
@@ -45,6 +58,15 @@ const AppShell: React.FC<AppShellProps> = ({ className }) => {
           </Button>
           <BotStatusBadge />
           <div className="ml-auto text-sm text-text-2 flex items-center gap-3">
+            <button
+              onClick={() => setPaletteOpen(true)}
+              title="Command palette (Ctrl+K)"
+              className="hidden sm:flex items-center gap-1.5 rounded-full border border-line bg-white/5 px-3 py-1.5 text-xs text-text-2 transition hover:border-cyan/30 hover:text-cyan"
+            >
+              <Command className="w-3.5 h-3.5" />
+              <span>Search</span>
+              <kbd className="ml-1 rounded border border-white/10 bg-white/5 px-1 py-0.5 font-mono text-[10px] opacity-60">Ctrl K</kbd>
+            </button>
             <span className="hidden sm:block text-text-3">Sloth Lee</span>
             <span className="text-cyan font-semibold font-display tracking-wider">COMMAND CENTER</span>
           </div>
@@ -65,6 +87,7 @@ const AppShell: React.FC<AppShellProps> = ({ className }) => {
           onClick={() => setSidebarOpen(false)}
         />
       )}
+      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
     </div>
   )
 }

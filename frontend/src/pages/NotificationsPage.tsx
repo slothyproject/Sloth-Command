@@ -4,7 +4,7 @@ import { Bell, BellOff, Check, CheckCheck, ExternalLink, Trash2 } from 'lucide-r
 import { Link } from 'react-router-dom'
 
 import { formatRelativeDate } from '../lib/format'
-import { getJson, postJson } from '../lib/api'
+import { deleteJson, getJson, postJson } from '../lib/api'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -65,6 +65,14 @@ export function NotificationsPage() {
 
   const markOneMutation = useMutation({
     mutationFn: (id: number) => postJson(`/api/notifications/${id}/read`, {}),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['notifications'] })
+      queryClient.invalidateQueries({ queryKey: ['notif-unread-count'] })
+    },
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => deleteJson(`/api/notifications/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['notifications'] })
       queryClient.invalidateQueries({ queryKey: ['notif-unread-count'] })
@@ -197,6 +205,16 @@ export function NotificationsPage() {
                           <Check className="w-3.5 h-3.5" />
                         </Button>
                       )}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        title="Delete notification"
+                        onClick={() => deleteMutation.mutate(notif.id)}
+                        disabled={deleteMutation.isPending}
+                        className="text-text-3 hover:text-danger"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </Button>
                     </div>
                   </div>
                 )

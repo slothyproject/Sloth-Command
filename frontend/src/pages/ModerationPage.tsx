@@ -4,7 +4,7 @@ import { toast } from 'sonner'
 import { Search, AlertTriangle, Shield, Clock, Download } from 'lucide-react'
 
 import { formatDate } from '../lib/format'
-import { getJson, postJson } from '../lib/api'
+import { getJson, postJson, patchJson } from '../lib/api'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -74,6 +74,8 @@ export function ModerationPage() {
   const [bulkReason, setBulkReason] = useState("");
   const [activeCaseIndex, setActiveCaseIndex] = useState(0);
   const [confirmBulkOpen, setConfirmBulkOpen] = useState(false);
+  const [editReason, setEditReason] = useState("");
+  const [savingReason, setSavingReason] = useState(false);
 
   const guildsQuery = useQuery({
     queryKey: ["guilds"],
@@ -131,6 +133,24 @@ export function ModerationPage() {
   useEffect(() => {
     setSelectedTargets([]);
   }, [selectedGuild]);
+
+  useEffect(() => {
+    setEditReason(activeCase?.reason ?? "");
+  }, [activeCase?.id]);
+
+  async function saveReason() {
+    if (!selectedGuild || !activeCase) return;
+    setSavingReason(true);
+    try {
+      await patchJson(`/api/guilds/${selectedGuild}/moderation/${activeCase.id}`, { reason: editReason });
+      toast.success("Case reason updated.");
+      await moderationQuery.refetch();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not update reason.");
+    } finally {
+      setSavingReason(false);
+    }
+  }
 
   function actionClass(actionType: string) {
     switch (actionType.toLowerCase()) {
@@ -480,6 +500,29 @@ export function ModerationPage() {
                     {!appealsQuery.isLoading && (appealsQuery.data?.tickets.length ?? 0) === 0 ? <p className="text-sm text-text-2">No appeal tickets for this member.</p> : null}
                   </div>
                 </div>
+              </div>
+
+              {/* Case reason editor */}
+              <div className="mt-3 rounded-xl border border-white/10 bg-white/5 p-3">
+                <p className="mb-2 font-mono text-[11px] uppercase tracking-[0.14em] text-text-2">
+                  Case #{activeCase.case_number} — reason
+                </p>
+                <textarea
+                  value={editReason}
+                  onChange={(e) => setEditReason(e.target.value)}
+                  rows={2}
+                  placeholder="Enter case reason…"
+                  className="w-full resize-none rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-text-0 outline-none placeholder:text-text-3 focus:border-cyan/40"
+                />
+                {editReason !== (activeCase.reason ?? "") && (
+                  <button
+                    onClick={() => void saveReason()}
+                    disabled={savingReason}
+                    className="mt-2 rounded-lg border border-cyan/30 bg-cyan/20 px-3 py-1 text-xs text-cyan disabled:opacity-40 transition hover:bg-cyan/30"
+                  >
+                    {savingReason ? "Saving…" : "Save reason"}
+                  </button>
+                )}
               </div>
             </div>
           ) : null}

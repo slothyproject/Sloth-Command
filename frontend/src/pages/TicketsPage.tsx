@@ -62,6 +62,8 @@ export function TicketsPage() {
   const [assignedFilter, setAssignedFilter] = useState("");
   const [sortPreset, setSortPreset] = useState<"urgent" | "oldest" | "unassigned" | "newest">("urgent");
   const [activeTicketIndex, setActiveTicketIndex] = useState(0);
+  const [selectedTicketIds, setSelectedTicketIds] = useState<Set<number>>(new Set());
+  const [bulkAssignTo, setBulkAssignTo] = useState("");
 
   const guildsQuery = useQuery({
     queryKey: ["guilds"],
@@ -200,6 +202,60 @@ export function TicketsPage() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [activeTicketIndex, navigate, selectedGuild, sortedTickets]);
+
+  function toggleSelectTicket(ticketId: number) {
+    setSelectedTicketIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(ticketId)) {
+        next.delete(ticketId);
+      } else {
+        next.add(ticketId);
+      }
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    if (selectedTicketIds.size === sortedTickets.length && sortedTickets.length > 0) {
+      setSelectedTicketIds(new Set());
+    } else {
+      setSelectedTicketIds(new Set(sortedTickets.map((t) => t.id)));
+    }
+  }
+
+  async function runBulkClose() {
+    if (!selectedGuild || selectedTicketIds.size === 0) return;
+    const confirmed = window.confirm(`Close ${selectedTicketIds.size} selected ticket(s)?`);
+    if (!confirmed) return;
+    try {
+      const result = await postJson<{ updated: number }>(`/api/guilds/${selectedGuild}/tickets/bulk`, {
+        action: "close",
+        ticket_ids: Array.from(selectedTicketIds),
+      });
+      toast.success(`Closed ${result.updated} ticket(s).`);
+      setSelectedTicketIds(new Set());
+      await ticketsQuery.refetch();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Bulk close failed.");
+    }
+  }
+
+  async function runBulkAssign() {
+    if (!selectedGuild || selectedTicketIds.size === 0) return;
+    try {
+      const result = await postJson<{ updated: number }>(`/api/guilds/${selectedGuild}/tickets/bulk`, {
+        action: "assign",
+        ticket_ids: Array.from(selectedTicketIds),
+        assigned_to: bulkAssignTo.trim() || null,
+      });
+      toast.success(`Assigned ${result.updated} ticket(s).`);
+      setSelectedTicketIds(new Set());
+      setBulkAssignTo("");
+      await ticketsQuery.refetch();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Bulk assign failed.");
+    }
+  }
 
   async function closeTicket(ticketId: number) {
     const confirmed = window.confirm("Close this ticket? This will move it out of the active support queue.");
@@ -452,6 +508,32 @@ export function TicketsPage() {
             </p>
           ) : (
             <div className="space-y-3">
+              {/* Bulk action bar */}
+              {selectedTicketIds.size > 0 && (
+                <div className="flex flex-wrap items-center gap-2 rounded-xl border border-cyan/30 bg-cyan/10 px-3 py-2 text-sm">
+                  <span className="text-cyan font-semibold">{selectedTicketIds.size} selected</span>
+                  <button onClick={toggleSelectAll} className="rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-xs text-text-1 hover:text-cyan transition">
+                    {selectedTicketIds.size === sortedTickets.length ? "Deselect all" : "Select all"}
+                  </button>
+                  <Button variant="danger" size="sm" onClick={() => void runBulkClose()}>
+                    Bulk close
+                  </Button>
+                  <div className="flex items-center gap-1">
+                    <input
+                      value={bulkAssignTo}
+                      onChange={(e) => setBulkAssignTo(e.target.value)}
+                      placeholder="Assign to…"
+                      className="w-36 rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-xs text-text-0 outline-none placeholder:text-text-3"
+                    />
+                    <Button variant="secondary" size="sm" onClick={() => void runBulkAssign()}>
+                      Assign
+                    </Button>
+                  </div>
+                  <button onClick={() => setSelectedTicketIds(new Set())} className="ml-auto rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-xs text-text-1 hover:text-danger transition">
+                    Clear
+                  </button>
+                </div>
+              )}
               {sortedTickets.map((ticket, index) => (
                 <div
                   key={ticket.id}
@@ -463,20 +545,29 @@ export function TicketsPage() {
                   }`}
                 >
                   <div className="flex items-start justify-between gap-4">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-2">
-                        <span className="font-mono text-sm text-cyan font-semibold">
-                          #{ticket.ticket_number}
-                        </span>
-                        <h4 className="font-semibold text-text-0 truncate">
-                          {ticket.subject}
-                        </h4>
+                    <div className="flex items-center gap-3 flex-1 min-w-0">
+                      <input
+                        type="checkbox"
+                        checked={selectedTicketIds.has(ticket.id)}
+                        onChange={() => toggleSelectTicket(ticket.id)}
+                        onClick={(e) => e.stopPropagation()}
+                        className="w-4 h-4 rounded border border-white/20 accent-cyan flex-shrink-0 cursor-pointer"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="font-mono text-sm text-cyan font-semibold">
+                            #{ticket.ticket_number}
+                          </span>
+                          <h4 className="font-semibold text-text-0 truncate">
+                            {ticket.subject}
+                          </h4>
+                        </div>
+                        <p className="text-xs text-text-2">
+                          Created {formatDate(ticket.created_at)} • Updated{" "}
+                          {formatDate(ticket.updated_at)}
+                          {ticket.assigned_to && ` • Assigned to ${ticket.assigned_to}`}
+                        </p>
                       </div>
-                      <p className="text-xs text-text-2">
-                        Created {formatDate(ticket.created_at)} • Updated{" "}
-                        {formatDate(ticket.updated_at)}
-                        {ticket.assigned_to && ` • Assigned to ${ticket.assigned_to}`}
-                      </p>
                     </div>
                     <div className="flex items-center gap-2">
                       <Badge variant={getStatusBadgeVariant(ticket.status)} size="sm">

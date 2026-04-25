@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Users, UserCheck, Clock, Trash2 } from 'lucide-react'
+import { toast } from 'sonner'
 
 import { formatDate } from '../lib/format'
 import { getJson, patchJson, deleteJson } from '../lib/api'
@@ -43,8 +44,9 @@ export function UsersPage() {
     try {
       await patchJson(`/api/users/${user.id}`, { is_admin: !user.is_admin })
       await usersQuery.refetch()
+      toast.success(user.is_admin ? `Removed admin from ${user.username}` : `Granted admin to ${user.username}`)
     } catch (error) {
-      console.error('Failed to toggle admin:', error)
+      toast.error(error instanceof Error ? error.message : 'Failed to toggle admin')
     }
   }
 
@@ -52,8 +54,9 @@ export function UsersPage() {
     try {
       await patchJson(`/api/users/${user.id}`, { is_active: !user.is_active })
       await usersQuery.refetch()
+      toast.success(user.is_active ? `Disabled ${user.username}` : `Enabled ${user.username}`)
     } catch (error) {
-      console.error('Failed to toggle active:', error)
+      toast.error(error instanceof Error ? error.message : 'Failed to toggle active status')
     }
   }
 
@@ -62,8 +65,9 @@ export function UsersPage() {
     try {
       await deleteJson(`/api/users/${user.id}`)
       await usersQuery.refetch()
+      toast.success(`Deleted user ${user.username}`)
     } catch (error) {
-      console.error('Failed to delete user:', error)
+      toast.error(error instanceof Error ? error.message : 'Failed to delete user')
     }
   }
 

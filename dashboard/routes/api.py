@@ -2380,3 +2380,116 @@ def admin_sync_guilds():
     db.session.commit()
     _audit("admin_sync_guilds", details={"via": "redis_state", "synced": synced, "total": len(raw_guilds)})
     return jsonify({"ok": True, "synced": synced, "total": len(raw_guilds)})
+
+
+# ── Phase 16: Ticket priority ─────────────────────────────────────────────────
+
+@api_bp.route("/tickets/<int:ticket_id>/priority", methods=["PATCH"])
+@login_required
+def ticket_set_priority(ticket_id: int):
+    """Update the priority of a ticket (low / normal / high / urgent)."""
+    ticket = db.get_or_404(Ticket, ticket_id)
+    guild = db.session.get(Guild, ticket.guild_id)
+    if guild and not current_user.can_manage(guild):
+        return jsonify({"error": "Forbidden"}), 403
+    data = request.get_json(silent=True) or {}
+    priority = str(data.get("priority", "")).strip().lower()
+    if priority not in {"low", "normal", "high", "urgent"}:
+        return jsonify({"error": "Invalid priority. Use: low, normal, high, urgent"}), 400
+    ticket.priority = priority
+    ticket.updated_at = datetime.now(timezone.utc)
+    db.session.commit()
+    _audit(
+        "ticket_priority_update",
+        guild_id=ticket.guild_id,
+        target_type="ticket",
+        target_id=str(ticket_id),
+        details={"priority": priority},
+    )
+    return jsonify({"ok": True, "priority": ticket.priority})
+
+
+# ── Phase 17: Notification delete ─────────────────────────────────────────────
+
+@api_bp.route("/notifications/<int:notif_id>", methods=["DELETE"])
+@login_required
+def notification_delete(notif_id: int):
+    """Delete a single notification belonging to the current user."""
+    notif = db.get_or_404(Notification, notif_id)
+    if notif.user_id != current_user.id:
+        return jsonify({"error": "Forbidden"}), 403
+    db.session.delete(notif)
+    db.session.commit()
+    return jsonify({"ok": True})
+
+
+# ── Phase 18: Tickets bulk close / assign ────────────────────────────────────
+
+@api_bp.post("/guilds/<int:guild_id>/tickets/bulk")
+@login_required
+@guild_access_required
+def guild_tickets_bulk(guild_id: int):
+    """Bulk-close or bulk-assign tickets within a guild."""
+    data = request.get_json(silent=True) or {}
+    action = str(data.get("action", "")).strip().lower()
+    raw_ids = data.get("ticket_ids") or []
+    try:
+        ticket_ids = [int(i) for i in raw_ids]
+    except (ValueError, TypeError):
+        return jsonify({"error": "ticket_ids must be a list of integers"}), 400
+
+    if action not in {"close", "assign"}:
+        return jsonify({"error": "action must be 'close' or 'assign'"}), 400
+    if not ticket_ids:
+        return jsonify({"error": "ticket_ids is required"}), 400
+    if len(ticket_ids) > 100:
+        return jsonify({"error": "Cannot bulk-update more than 100 tickets at once"}), 400
+
+    tickets = Ticket.query.filter(
+        Ticket.id.in_(ticket_ids),
+        Ticket.guild_id == guild_id,
+    ).all()
+
+    now = datetime.now(timezone.utc)
+    assigned_to = str(data.get("assigned_to") or "").strip() or None
+    updated = 0
+    for ticket in tickets:
+        if action == "close":
+            ticket.status = "closed"
+            ticket.closed_by = current_user.username
+            ticket.closed_at = now
+            ticket.updated_at = now
+        else:  # assign
+            ticket.assigned_to = assigned_to
+            ticket.updated_at = now
+        updated += 1
+
+    db.session.commit()
+    _audit(
+        f"ticket_bulk_{action}",
+        guild_id=guild_id,
+        details={"count": updated, "ticket_ids": ticket_ids},
+    )
+    return jsonify({"ok": True, "updated": updated})
+
+
+# ── Phase 19: Moderation case reason / notes update ──────────────────────────
+
+@api_bp.route("/guilds/<int:guild_id>/moderation/<int:case_id>", methods=["PATCH"])
+@login_required
+@guild_access_required
+def guild_moderation_case_update(guild_id: int, case_id: int):
+    """Update the reason or notes on a moderation case."""
+    case = ModerationCase.query.filter_by(id=case_id, guild_id=guild_id).first_or_404()
+    data = request.get_json(silent=True) or {}
+    if "reason" in data:
+        case.reason = str(data["reason"]).strip() or None
+    db.session.commit()
+    _audit(
+        "mod_case_update",
+        guild_id=guild_id,
+        target_type="mod_case",
+        target_id=str(case_id),
+        details={"reason": case.reason},
+    )
+    return jsonify({"ok": True, "id": case.id, "reason": case.reason})

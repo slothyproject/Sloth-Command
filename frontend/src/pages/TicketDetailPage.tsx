@@ -6,7 +6,7 @@ import { Link, useParams } from "react-router-dom";
 import { toast } from "sonner";
 
 import { formatDate } from "../lib/format";
-import { getJson, postJson } from "../lib/api";
+import { getJson, patchJson, postJson } from "../lib/api";
 
 interface TicketDetail {
   id: number;
@@ -49,6 +49,8 @@ export function TicketDetailPage() {
   const [assignedTo, setAssignedTo] = useState("");
   const [replyText, setReplyText] = useState("");
   const [sendingReply, setSendingReply] = useState(false);
+  const [priority, setPriority] = useState<string>("normal");
+  const [savingPriority, setSavingPriority] = useState(false);
 
   const ticketQuery = useQuery({
     queryKey: ["ticket-detail", ticketId],
@@ -73,7 +75,8 @@ export function TicketDetailPage() {
 
   useEffect(() => {
     setAssignedTo(ticketQuery.data?.assigned_to ?? "");
-  }, [ticketQuery.data?.assigned_to]);
+    setPriority(ticketQuery.data?.priority ?? "normal");
+  }, [ticketQuery.data?.assigned_to, ticketQuery.data?.priority]);
 
   async function setStatus(status: "open" | "resolved" | "closed") {
     if (status === "closed") {
@@ -92,8 +95,21 @@ export function TicketDetailPage() {
     }
   }
 
-  async function saveAssignment() {
+  async function savePriority(newPriority: string) {
+    setSavingPriority(true);
     try {
+      await patchJson(`/api/tickets/${ticketId}/priority`, { priority: newPriority });
+      setPriority(newPriority);
+      toast.success(`Priority set to ${newPriority}.`);
+      await ticketQuery.refetch();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not update priority.");
+    } finally {
+      setSavingPriority(false);
+    }
+  }
+
+  async function saveAssignment() {    try {
       await postJson(`/api/tickets/${ticketId}/assign`, {
         assigned_to: assignedTo.trim() || null,
       });
@@ -181,6 +197,23 @@ export function TicketDetailPage() {
               <button onClick={() => void setStatus("open")} className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-text-1 transition hover:border-cyan/30 hover:text-cyan">Open</button>
               <button onClick={() => void setStatus("resolved")} className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-text-1 transition hover:border-cyan/30 hover:text-cyan">Resolve</button>
               <button onClick={() => void setStatus("closed")} className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-text-1 transition hover:border-cyan/30 hover:text-cyan">Close</button>
+            </div>
+          </div>
+
+          <div>
+            <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-cyan">Priority</p>
+            <div className="mt-3 flex gap-2">
+              <select
+                value={priority}
+                onChange={(e) => void savePriority(e.target.value)}
+                disabled={savingPriority}
+                className="flex-1 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-text-0 outline-none disabled:opacity-60"
+              >
+                <option value="low">Low</option>
+                <option value="normal">Normal</option>
+                <option value="high">High</option>
+                <option value="urgent">Urgent</option>
+              </select>
             </div>
           </div>
 
