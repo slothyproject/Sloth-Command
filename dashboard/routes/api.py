@@ -240,6 +240,115 @@ def bot_state_route():
     return jsonify(get_bot_state())
 
 
+@api_bp.get("/overview")
+@login_required
+def overview():
+    """Dashboard overview — real DB counts + 7-day trends + recent events."""
+    now = datetime.now(timezone.utc)
+    seven_days_ago = now - timedelta(days=7)
+
+    # Guild visibility filter for non-admins
+    if current_user.is_admin:
+        guild_ids = None
+    else:
+        managed_ids = [m.guild_id for m in GuildMember.query.filter_by(user_id=current_user.id).all()]
+        owned_ids = [
+            g.id for g in Guild.query.filter_by(
+                owner_discord_id=current_user.discord_id, is_active=True
+            ).all()
+        ]
+        guild_ids = list(set(managed_ids + owned_ids))
+
+    # Core counts
+    server_q = Guild.query.filter_by(is_active=True)
+    if guild_ids is not None:
+        server_q = server_q.filter(Guild.id.in_(guild_ids))
+    servers = server_q.count()
+
+    # Total members — sum of all active guild member_counts
+    members_total = server_q.with_entities(sa_func.coalesce(sa_func.sum(Guild.member_count), 0)).scalar() or 0
+
+    # Open tickets
+    ticket_q = Ticket.query.filter_by(status="open")
+    if guild_ids is not None:
+        ticket_q = ticket_q.filter(Ticket.guild_id.in_(guild_ids))
+    tickets_open = ticket_q.count()
+
+    # Mod cases this week
+    case_q = ModerationCase.query.filter(ModerationCase.created_at >= seven_days_ago)
+    if guild_ids is not None:
+        case_q = case_q.filter(ModerationCase.guild_id.in_(guild_ids))
+    cases_week = case_q.count()
+
+    # 7-day daily trend: tickets created + mod cases per day
+    trend = []
+    for i in range(6, -1, -1):
+        day_start = now - timedelta(days=i + 1)
+        day_end = now - timedelta(days=i)
+        label = day_start.strftime("%a")
+
+        t_q = Ticket.query.filter(Ticket.created_at >= day_start, Ticket.created_at < day_end)
+        if guild_ids is not None:
+            t_q = t_q.filter(Ticket.guild_id.in_(guild_ids))
+
+        c_q = ModerationCase.query.filter(
+            ModerationCase.created_at >= day_start, ModerationCase.created_at < day_end
+        )
+        if guild_ids is not None:
+            c_q = c_q.filter(ModerationCase.guild_id.in_(guild_ids))
+
+        trend.append({"date": label, "tickets": t_q.count(), "cases": c_q.count()})
+
+    # Recent events from BotEvent table (skip heartbeats)
+    event_q = BotEvent.query.filter(BotEvent.event_type != "heartbeat")
+    if guild_ids is not None:
+        event_q = event_q.filter(
+            db.or_(BotEvent.guild_id.in_(guild_ids), BotEvent.guild_id.is_(None))
+        )
+    recent = event_q.order_by(BotEvent.created_at.desc()).limit(8).all()
+
+    _sev_map = {
+        "guild_join": "info", "guild_leave": "warning",
+        "mod_action": "warning", "ticket_open": "info",
+        "ticket_close": "info", "ticket_message": "info",
+    }
+
+    def _event_label(e: BotEvent) -> str:
+        p = e.payload or {}
+        gn = (e.guild.name if e.guild else None) or p.get("guild_name", "Unknown server")
+        if e.event_type == "guild_join":
+            return f"Bot joined {gn}"
+        if e.event_type == "guild_leave":
+            return f"Bot left {gn}"
+        if e.event_type == "mod_action":
+            return f"{(p.get('action') or 'action').capitalize()} – {p.get('target_name') or '?'} in {gn}"
+        if e.event_type == "ticket_open":
+            return f"Ticket opened by {p.get('opener_name') or '?'} in {gn}"
+        if e.event_type == "ticket_close":
+            return f"Ticket closed in {gn}"
+        return e.event_type.replace("_", " ").title()
+
+    recent_events = [
+        {
+            "id": str(e.id),
+            "type": e.event_type,
+            "message": _event_label(e),
+            "severity": _sev_map.get(e.event_type, "info"),
+            "timestamp": e.created_at.isoformat(),
+        }
+        for e in recent
+    ]
+
+    return jsonify({
+        "servers": servers,
+        "members": int(members_total),
+        "tickets": tickets_open,
+        "cases": cases_week,
+        "trend": trend,
+        "recent_events": recent_events,
+    })
+
+
 @api_bp.get("/stats")
 @login_required
 def stats():

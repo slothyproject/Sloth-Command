@@ -1,100 +1,57 @@
-import React, { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { BarChart, Bar, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line } from 'recharts'
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line } from 'recharts'
+import { useQuery } from '@tanstack/react-query'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { StatCard } from '@/components/ui/stat-card'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
-import { Activity, Users, AlertCircle, TrendingUp, Server, Zap, Crown, Shield, ChevronRight } from 'lucide-react'
+import { Activity, Users, AlertCircle, TrendingUp, Server, Zap, ChevronRight } from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
 import { useAccessibleGuilds, getRoleLabel, getRoleBadgeClass } from '@/lib/permissions'
+import { getJson } from '@/lib/api'
 import { cn } from '@/lib/cn'
 
-interface DashboardStats {
-  totalServers: number
-  activeMembers: number
-  ticketsOpen: number
-  moderationCases: number
+interface OverviewResponse {
+  servers: number
+  members: number
+  tickets: number
+  cases: number
+  trend: { date: string; tickets: number; cases: number }[]
+  recent_events: {
+    id: string
+    type: string
+    message: string
+    severity: 'info' | 'warning' | 'danger'
+    timestamp: string
+  }[]
 }
 
-interface DashboardEvent {
-  id: string
-  timestamp: string
-  type: string
-  message: string
-  severity: 'info' | 'warning' | 'danger'
+const TOOLTIP_STYLE = {
+  backgroundColor: 'rgba(21, 34, 56, 0.95)',
+  border: '1px solid rgba(136, 192, 208, 0.3)',
+  borderRadius: '8px',
+  color: '#e5e7eb',
 }
 
 export default function DashboardPage() {
   const user = useAuthStore((s) => s.user)
   const guilds = useAccessibleGuilds()
-  // Show top 6 guilds; owners/managers first
-  const quickGuilds = [...guilds].sort((a, b) => {
-    const order = { owner: 0, manager: 1, admin_override: 2 }
-    return order[a.role] - order[b.role]
-  }).slice(0, 6)
 
-  const [stats, setStats] = useState<DashboardStats | null>(null)
-  const [events, setEvents] = useState<DashboardEvent[]>([])
-  const [isLoading, setIsLoading] = useState(true)
-  const [chartData, setChartData] = useState<any[]>([])
+  const quickGuilds = [...guilds]
+    .sort((a, b) => {
+      const order: Record<string, number> = { owner: 0, manager: 1, admin_override: 2 }
+      return (order[a.role] ?? 9) - (order[b.role] ?? 9)
+    })
+    .slice(0, 6)
 
-  useEffect(() => {
-    // Fetch dashboard stats
-    const fetchStats = async () => {
-      try {
-        const response = await fetch('/api/overview')
-        const data = await response.json()
-        setStats({
-          totalServers: data.servers || 0,
-          activeMembers: data.members || 0,
-          ticketsOpen: data.tickets || 0,
-          moderationCases: data.cases || 0,
-        })
-      } catch (error) {
-        console.error('Failed to fetch stats:', error)
-        setStats({
-          totalServers: 42,
-          activeMembers: 1250,
-          ticketsOpen: 8,
-          moderationCases: 3,
-        })
-      }
-    }
-
-    // Fetch events
-    const fetchEvents = async () => {
-      try {
-        const response = await fetch('/api/events')
-        const data = await response.json()
-        setEvents(Array.isArray(data) ? data.slice(0, 5) : [])
-      } catch (error) {
-        console.error('Failed to fetch events:', error)
-        setEvents([])
-      }
-    }
-
-    // Generate chart data
-    const generateChartData = () => {
-      return Array.from({ length: 7 }).map((_, i) => ({
-        date: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][i],
-        tickets: Math.floor(Math.random() * 20) + 5,
-        members: Math.floor(Math.random() * 300) + 900,
-        cases: Math.floor(Math.random() * 8) + 2,
-      }))
-    }
-
-    Promise.all([
-      fetchStats(),
-      fetchEvents(),
-      Promise.resolve(generateChartData()),
-    ]).then(() => setIsLoading(false))
-
-    setChartData(generateChartData())
-    fetchStats()
-    fetchEvents()
-  }, [])
+  const { data, isLoading, isError } = useQuery<OverviewResponse>({
+    queryKey: ['overview'],
+    queryFn: () => getJson<OverviewResponse>('/api/overview'),
+    staleTime: 60_000,
+    refetchInterval: 60_000,
+    retry: 1,
+  })
 
   return (
     <div className="space-y-8">
@@ -153,92 +110,91 @@ export default function DashboardPage() {
         <StatCard
           icon={<Server className="w-5 h-5 text-cyan" />}
           label="Total Servers"
-          value={isLoading ? '-' : stats?.totalServers || 0}
-          subtext="Connected guilds"
-          trend={{ value: 12, isPositive: true }}
+          value={isLoading ? '-' : (data?.servers ?? 0)}
+          subtext="Active guilds"
           isLoading={isLoading}
         />
         <StatCard
           icon={<Users className="w-5 h-5 text-cyan" />}
-          label="Active Members"
-          value={isLoading ? '-' : stats?.activeMembers || 0}
-          subtext="24h activity"
-          trend={{ value: 8, isPositive: true }}
+          label="Total Members"
+          value={isLoading ? '-' : (data?.members ?? 0).toLocaleString()}
+          subtext="Across all servers"
           isLoading={isLoading}
         />
         <StatCard
           icon={<AlertCircle className="w-5 h-5 text-cyan" />}
           label="Open Tickets"
-          value={isLoading ? '-' : stats?.ticketsOpen || 0}
-          subtext="Waiting response"
-          trend={{ value: -15, isPositive: false }}
+          value={isLoading ? '-' : (data?.tickets ?? 0)}
+          subtext="Awaiting response"
           isLoading={isLoading}
         />
         <StatCard
           icon={<Zap className="w-5 h-5 text-cyan" />}
           label="Mod Cases"
-          value={isLoading ? '-' : stats?.moderationCases || 0}
-          subtext="This week"
-          trend={{ value: 5, isPositive: false }}
+          value={isLoading ? '-' : (data?.cases ?? 0)}
+          subtext="Last 7 days"
           isLoading={isLoading}
         />
       </div>
 
       {/* Charts Section */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Tickets Trend */}
+        {/* Ticket Trend */}
         <Card variant="elevated">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <TrendingUp className="w-5 h-5 text-lime" />
+              <TrendingUp className="w-5 h-5 text-cyan" />
               Ticket Trend
             </CardTitle>
-            <CardDescription>Last 7 days</CardDescription>
+            <CardDescription>New tickets per day — last 7 days</CardDescription>
           </CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={200}>
-              <LineChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(0, 212, 255, 0.1)" />
-                <XAxis dataKey="date" stroke="rgba(255, 255, 255, 0.5)" />
-                <YAxis stroke="rgba(255, 255, 255, 0.5)" />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: 'rgba(21, 34, 56, 0.9)',
-                    border: '1px solid rgba(0, 212, 255, 0.3)',
-                    borderRadius: '8px',
-                  }}
-                />
-                <Line type="monotone" dataKey="tickets" stroke="#00d4ff" strokeWidth={2} dot={{ fill: '#00ff88' }} />
-              </LineChart>
-            </ResponsiveContainer>
+            {isLoading ? (
+              <Skeleton count={1} className="h-[200px]" />
+            ) : (
+              <ResponsiveContainer width="100%" height={200}>
+                <LineChart data={data?.trend ?? []}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(136, 192, 208, 0.1)" />
+                  <XAxis dataKey="date" stroke="rgba(255,255,255,0.4)" tick={{ fontSize: 11 }} />
+                  <YAxis stroke="rgba(255,255,255,0.4)" tick={{ fontSize: 11 }} allowDecimals={false} />
+                  <Tooltip contentStyle={TOOLTIP_STYLE} />
+                  <Line
+                    type="monotone"
+                    dataKey="tickets"
+                    stroke="#88c0d0"
+                    strokeWidth={2}
+                    dot={{ fill: '#a3be8c', r: 3 }}
+                    activeDot={{ r: 5 }}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            )}
           </CardContent>
         </Card>
 
-        {/* Members Activity */}
+        {/* Mod Cases Trend */}
         <Card variant="elevated">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Activity className="w-5 h-5 text-lime" />
-              Member Activity
+              <Activity className="w-5 h-5 text-cyan" />
+              Moderation Activity
             </CardTitle>
-            <CardDescription>Last 7 days</CardDescription>
+            <CardDescription>Mod cases per day — last 7 days</CardDescription>
           </CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={200}>
-              <AreaChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(0, 212, 255, 0.1)" />
-                <XAxis dataKey="date" stroke="rgba(255, 255, 255, 0.5)" />
-                <YAxis stroke="rgba(255, 255, 255, 0.5)" />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: 'rgba(21, 34, 56, 0.9)',
-                    border: '1px solid rgba(0, 212, 255, 0.3)',
-                    borderRadius: '8px',
-                  }}
-                />
-                <Area type="monotone" dataKey="members" stroke="#00ff88" fill="rgba(0, 255, 136, 0.1)" />
-              </AreaChart>
-            </ResponsiveContainer>
+            {isLoading ? (
+              <Skeleton count={1} className="h-[200px]" />
+            ) : (
+              <ResponsiveContainer width="100%" height={200}>
+                <BarChart data={data?.trend ?? []}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(136, 192, 208, 0.1)" />
+                  <XAxis dataKey="date" stroke="rgba(255,255,255,0.4)" tick={{ fontSize: 11 }} />
+                  <YAxis stroke="rgba(255,255,255,0.4)" tick={{ fontSize: 11 }} allowDecimals={false} />
+                  <Tooltip contentStyle={TOOLTIP_STYLE} />
+                  <Bar dataKey="cases" fill="#b48ead" radius={[3, 3, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -247,29 +203,33 @@ export default function DashboardPage() {
       <Card variant="elevated">
         <CardHeader>
           <CardTitle>Recent Events</CardTitle>
-          <CardDescription>Latest activity in your servers</CardDescription>
+          <CardDescription>Latest bot activity across your servers</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="space-y-4">
+          <div className="space-y-3">
             {isLoading ? (
               <Skeleton count={5} />
-            ) : events.length === 0 ? (
+            ) : isError ? (
+              <div className="text-center py-8 text-text-3 text-sm">
+                Could not load events.
+              </div>
+            ) : (data?.recent_events ?? []).length === 0 ? (
               <div className="text-center py-8 text-text-3">
                 <AlertCircle className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                <p>No events yet</p>
+                <p className="text-sm">No events recorded yet</p>
               </div>
             ) : (
-              events.map((event) => (
+              (data?.recent_events ?? []).map((event) => (
                 <div
                   key={event.id}
-                  className="flex items-start gap-4 p-4 rounded-lg bg-cyan/5 border border-cyan/20 hover:border-cyan/40 transition-colors"
+                  className="flex items-start gap-3 p-3 rounded-lg bg-surface/40 border border-white/5 hover:border-cyan/20 transition-colors"
                 >
-                  <Badge variant={event.severity as any} size="sm">
-                    {event.type}
+                  <Badge variant={event.severity as 'info' | 'warning' | 'danger'} size="sm" className="flex-shrink-0 mt-0.5">
+                    {event.type.replace(/_/g, ' ')}
                   </Badge>
-                  <div className="flex-1">
-                    <p className="text-sm font-medium text-text-0">{event.message}</p>
-                    <p className="text-xs text-text-3 mt-1">{new Date(event.timestamp).toLocaleString()}</p>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-text-0 truncate">{event.message}</p>
+                    <p className="text-xs text-text-3 mt-0.5">{new Date(event.timestamp).toLocaleString()}</p>
                   </div>
                 </div>
               ))
