@@ -1436,14 +1436,23 @@ def ticket_transcript(ticket_id: int):
 @api_bp.get("/analytics/summary")
 @login_required
 def analytics_summary():
-    """Return moderation action counts, timeline, and ticket stats for the requested range."""
+    """Return analytics for the requested range with zero-filled daily timelines."""
     range_param = request.args.get("range", "7d")
     days_map = {"7d": 7, "30d": 30, "90d": 90}
     days = days_map.get(range_param, 7)
-    since = datetime.now(timezone.utc) - timedelta(days=days)
+    now = datetime.now(timezone.utc)
+    since = now - timedelta(days=days)
 
-    # ── Moderation action counts ─────────────────────────────────
-    # Restrict to guilds the user can see
+    # Build day labels for the full range (oldest → newest)
+    from datetime import date as _date
+    day_labels: list[_date] = [
+        (_date.today() - timedelta(days=days - 1 - i)) for i in range(days)
+    ]
+
+    def _fmt(d: _date) -> str:
+        return d.strftime("%b %d")
+
+    # ── Guild visibility filter ──────────────────────────────────
     if current_user.is_admin:
         guild_filter = None
     else:
@@ -1457,73 +1466,165 @@ def analytics_summary():
         ]
         guild_filter = list(set(managed_ids + owned_ids))
 
-    def _base_mod_query():
+    def _mod_q():
         q = ModerationCase.query.filter(ModerationCase.created_at >= since)
         if guild_filter is not None:
             q = q.filter(ModerationCase.guild_id.in_(guild_filter))
         return q
 
-    def _base_ticket_query():
+    def _ticket_q():
         q = Ticket.query.filter(Ticket.created_at >= since)
         if guild_filter is not None:
             q = q.filter(Ticket.guild_id.in_(guild_filter))
         return q
 
-    # Action counts grouped by action type
+    def _event_q(event_type: str):
+        q = BotEvent.query.filter(
+            BotEvent.event_type == event_type,
+            BotEvent.created_at >= since,
+        )
+        if guild_filter is not None:
+            q = q.filter(
+                db.or_(BotEvent.guild_id.in_(guild_filter), BotEvent.guild_id.is_(None))
+            )
+        return q
+
+    # ── Moderation actions by type ───────────────────────────────
     action_rows = (
-        _base_mod_query()
-        .with_entities(ModerationCase.action, sa_func.count(ModerationCase.id).label("count"))
+        _mod_q()
+        .with_entities(ModerationCase.action, sa_func.count(ModerationCase.id).label("n"))
         .group_by(ModerationCase.action)
+        .order_by(sa_func.count(ModerationCase.id).desc())
         .all()
     )
-    action_counts = [{"action": row.action or "unknown", "count": row.count} for row in action_rows]
+    action_counts = [{"action": (row.action or "unknown").title(), "count": row.n} for row in action_rows]
 
-    # Daily timeline — count actions per calendar day
-    date_trunc = sa_func.date_trunc("day", ModerationCase.created_at)
-    timeline_rows = (
-        _base_mod_query()
-        .with_entities(date_trunc.label("day"), sa_func.count(ModerationCase.id).label("count"))
+    # ── Moderation timeline (zero-filled) ────────────────────────
+    trunc_day = sa_func.date_trunc("day", ModerationCase.created_at)
+    mod_day_rows = (
+        _mod_q()
+        .with_entities(trunc_day.label("day"), sa_func.count(ModerationCase.id).label("n"))
         .group_by("day")
         .order_by("day")
         .all()
     )
-    action_timeline = [
-        {"date": row.day.strftime("%b %d") if row.day else "?", "count": row.count}
-        for row in timeline_rows
+    mod_day_map: dict[_date, int] = {}
+    for row in mod_day_rows:
+        if row.day:
+            d = row.day.date() if hasattr(row.day, "date") else row.day
+            mod_day_map[d] = row.n
+    action_timeline = [{"date": _fmt(d), "count": mod_day_map.get(d, 0)} for d in day_labels]
+
+    # ── Ticket timeline (zero-filled) ────────────────────────────
+    trunc_day_t = sa_func.date_trunc("day", Ticket.created_at)
+    ticket_day_rows = (
+        _ticket_q()
+        .with_entities(trunc_day_t.label("day"), sa_func.count(Ticket.id).label("n"))
+        .group_by("day")
+        .order_by("day")
+        .all()
+    )
+    ticket_day_map: dict[_date, int] = {}
+    for row in ticket_day_rows:
+        if row.day:
+            d = row.day.date() if hasattr(row.day, "date") else row.day
+            ticket_day_map[d] = row.n
+    ticket_timeline = [{"date": _fmt(d), "count": ticket_day_map.get(d, 0)} for d in day_labels]
+
+    # ── Guild join/leave timeline (zero-filled) ──────────────────
+    def _event_day_map(event_type: str) -> dict[_date, int]:
+        trunc_d = sa_func.date_trunc("day", BotEvent.created_at)
+        rows = (
+            _event_q(event_type)
+            .with_entities(trunc_d.label("day"), sa_func.count(BotEvent.id).label("n"))
+            .group_by("day")
+            .order_by("day")
+            .all()
+        )
+        result: dict[_date, int] = {}
+        for row in rows:
+            if row.day:
+                d = row.day.date() if hasattr(row.day, "date") else row.day
+                result[d] = row.n
+        return result
+
+    join_map = _event_day_map("guild_join")
+    leave_map = _event_day_map("guild_leave")
+    server_timeline = [
+        {
+            "date": _fmt(d),
+            "joins": join_map.get(d, 0),
+            "leaves": leave_map.get(d, 0),
+        }
+        for d in day_labels
     ]
 
-    # Ticket status counts
-    ticket_status_rows = (
-        _base_ticket_query()
-        .with_entities(Ticket.status, sa_func.count(Ticket.id).label("count"))
+    # ── Ticket status and priority counts ────────────────────────
+    status_rows = (
+        _ticket_q()
+        .with_entities(Ticket.status, sa_func.count(Ticket.id).label("n"))
         .group_by(Ticket.status)
         .all()
     )
-    ticket_status_counts = [
-        {"status": (row.status or "unknown").capitalize(), "count": row.count}
-        for row in ticket_status_rows
-    ]
+    ticket_status_counts = [{"status": (row.status or "unknown").capitalize(), "count": row.n} for row in status_rows]
 
-    # Ticket priority counts
-    ticket_priority_rows = (
-        _base_ticket_query()
-        .with_entities(Ticket.priority, sa_func.count(Ticket.id).label("count"))
+    priority_rows = (
+        _ticket_q()
+        .with_entities(Ticket.priority, sa_func.count(Ticket.id).label("n"))
         .group_by(Ticket.priority)
         .all()
     )
-    ticket_priority_counts = [
-        {"priority": (row.priority or "normal").capitalize(), "count": row.count}
-        for row in ticket_priority_rows
-    ]
+    ticket_priority_counts = [{"priority": (row.priority or "normal").capitalize(), "count": row.n} for row in priority_rows]
+
+    # ── Top guilds by mod case activity in range ─────────────────
+    top_guild_rows = (
+        _mod_q()
+        .with_entities(ModerationCase.guild_id, sa_func.count(ModerationCase.id).label("n"))
+        .group_by(ModerationCase.guild_id)
+        .order_by(sa_func.count(ModerationCase.id).desc())
+        .limit(5)
+        .all()
+    )
+    top_guilds = []
+    for row in top_guild_rows:
+        g = db.session.get(Guild, row.guild_id) if row.guild_id else None
+        top_guilds.append({
+            "id": row.guild_id,
+            "name": g.name if g else "Unknown",
+            "count": row.n,
+        })
+
+    # ── Totals (all-time, scoped to visible guilds) ───────────────
+    total_mod_q = ModerationCase.query
+    total_ticket_q = Ticket.query
+    if guild_filter is not None:
+        total_mod_q = total_mod_q.filter(ModerationCase.guild_id.in_(guild_filter))
+        total_ticket_q = total_ticket_q.filter(Ticket.guild_id.in_(guild_filter))
+
+    server_q = Guild.query.filter_by(is_active=True)
+    if guild_filter is not None:
+        server_q = server_q.filter(Guild.id.in_(guild_filter))
+
+    totals = {
+        "servers": server_q.count(),
+        "members": int(server_q.with_entities(sa_func.coalesce(sa_func.sum(Guild.member_count), 0)).scalar() or 0),
+        "mod_cases_all_time": total_mod_q.count(),
+        "tickets_all_time": total_ticket_q.count(),
+        "tickets_open": total_ticket_q.filter(Ticket.status == "open").count(),
+    }
 
     return jsonify({
         "range": range_param,
         "days": days,
         "since": since.isoformat(),
+        "totals": totals,
         "action_counts": action_counts,
         "action_timeline": action_timeline,
+        "ticket_timeline": ticket_timeline,
+        "server_timeline": server_timeline,
         "ticket_status_counts": ticket_status_counts,
         "ticket_priority_counts": ticket_priority_counts,
+        "top_guilds": top_guilds,
     })
 
 
