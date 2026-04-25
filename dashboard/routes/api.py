@@ -1304,6 +1304,8 @@ def guild_commands(guild_id: int):
         "cog": c.cog,
         "is_enabled": c.is_enabled,
         "cooldown_seconds": c.cooldown_seconds,
+        "allowed_roles": c.allowed_roles or [],
+        "disabled_channels": c.disabled_channels or [],
     } for c in cmds])
 
 
@@ -1322,6 +1324,12 @@ def guild_command_update(guild_id: int, cmd_name: str):
         cmd.is_enabled = bool(data["is_enabled"])
     if "cooldown_seconds" in data:
         cmd.cooldown_seconds = int(data["cooldown_seconds"])
+    if "allowed_roles" in data:
+        roles = data["allowed_roles"]
+        cmd.allowed_roles = [str(r).strip() for r in roles if str(r).strip()] if isinstance(roles, list) else []
+    if "disabled_channels" in data:
+        chans = data["disabled_channels"]
+        cmd.disabled_channels = [str(c).strip() for c in chans if str(c).strip()] if isinstance(chans, list) else []
 
     db.session.commit()
     _audit(f"command_{'enable' if cmd.is_enabled else 'disable'}:{cmd_name}", guild_id=guild_id)
@@ -1330,6 +1338,8 @@ def guild_command_update(guild_id: int, cmd_name: str):
         "command": cmd_name,
         "enabled": cmd.is_enabled,
         "cooldown": cmd.cooldown_seconds,
+        "allowed_roles": cmd.allowed_roles,
+        "disabled_channels": cmd.disabled_channels,
     })
     return jsonify({"ok": True, "command": cmd_name, "enabled": cmd.is_enabled})
 

@@ -88,6 +88,8 @@ export interface GuildCommand {
   cog: string | null;
   is_enabled: boolean;
   cooldown_seconds: number;
+  allowed_roles: string[];
+  disabled_channels: string[];
 }
 
 // ─── Moderation ──────────────────────────────────────────────────────────────
