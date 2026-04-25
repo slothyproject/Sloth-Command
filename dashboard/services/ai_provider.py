@@ -8,8 +8,14 @@ import requests
 from dashboard.models import UserAIProviderCredential
 
 SUPPORTED_AI_PROVIDERS = {
+    "ollama_cloud": {
+        "label": "Ollama Cloud",
+        "default_model": "kimi-k2.6:cloud",
+        "requires_base_url": False,
+        "base_url": "https://api.ollama.com",
+    },
     "ollama": {
-        "label": "Ollama",
+        "label": "Ollama (Self-hosted)",
         "default_model": "llama3.1:8b",
         "requires_base_url": True,
     },
@@ -34,6 +40,17 @@ SUPPORTED_AI_PROVIDERS = {
         "requires_base_url": True,
     },
 }
+
+# Ollama Cloud canonical base URL
+_OLLAMA_CLOUD_BASE = "https://api.ollama.com"
+
+
+def _is_ollama_cloud_url(base_url: str | None) -> bool:
+    """Return True if the base_url points at Ollama Cloud (api.ollama.com)."""
+    if not base_url:
+        return False
+    host = urlparse(base_url.lower().strip()).hostname or ""
+    return host == "api.ollama.com" or host.endswith(".ollama.com")
 
 
 def normalize_provider_name(value: str | None) -> str:
@@ -72,9 +89,13 @@ def normalize_ai_provider_payload(data: dict[str, Any], *, require_api_key: bool
     if not model:
         raise ValueError("Model is required")
 
-    base_url = _normalize_base_url(data.get("base_url"))
-    if SUPPORTED_AI_PROVIDERS[provider]["requires_base_url"] and not base_url:
-        raise ValueError("Base URL is required for custom OpenAI-compatible endpoints")
+    # ollama_cloud never needs a base_url from the user
+    if provider == "ollama_cloud":
+        base_url = _OLLAMA_CLOUD_BASE
+    else:
+        base_url = _normalize_base_url(data.get("base_url"))
+        if SUPPORTED_AI_PROVIDERS[provider]["requires_base_url"] and not base_url:
+            raise ValueError("Base URL is required for this provider")
 
     usage_limit = data.get("usage_limit_requests_per_hour", 100)
     try:
@@ -119,7 +140,7 @@ def validate_ai_provider_config(
     api_key: str,
     model: str,
     base_url: str | None = None,
-    timeout: int = 10,
+    timeout: int = 15,
 ) -> dict[str, Any]:
     provider_name = normalize_provider_name(provider)
     if provider_name not in SUPPORTED_AI_PROVIDERS:
@@ -133,36 +154,95 @@ def validate_ai_provider_config(
     if not model_name:
         raise ValueError("Model is required")
 
-    normalized_base_url = _normalize_base_url(base_url)
-    request_args: dict[str, Any]
-    url: str
-
-    def _parse_response_details(response: requests.Response) -> Any:
+    # ------------------------------------------------------------------
+    # Ollama Cloud — use OpenAI-compatible /v1/chat/completions directly
+    # ------------------------------------------------------------------
+    if provider_name == "ollama_cloud" or _is_ollama_cloud_url(base_url):
+        root = _OLLAMA_CLOUD_BASE
+        url = f"{root}/v1/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {secret}",
+            "Content-Type": "application/json",
+        }
         try:
-            return response.json()
-        except ValueError:
-            return response.text
+            resp = requests.post(
+                url,
+                headers=headers,
+                json={
+                    "model": model_name,
+                    "messages": [{"role": "user", "content": "ping"}],
+                    "max_tokens": 1,
+                    "stream": False,
+                },
+                timeout=timeout,
+            )
+            if resp.status_code < 400:
+                return {
+                    "ok": True,
+                    "provider": provider_name,
+                    "model": model_name,
+                    "message": "Ollama Cloud credentials validated successfully",
+                    "base_url": root,
+                    "mode": "ollama_cloud_openai_compat",
+                }
+            try:
+                detail = resp.json()
+            except Exception:
+                detail = resp.text
+            return {
+                "ok": False,
+                "provider": provider_name,
+                "model": model_name,
+                "message": "Ollama Cloud rejected the credentials or model",
+                "details": {
+                    "hint": (
+                        "Check your Ollama API key at ollama.com/settings/api-keys "
+                        "and ensure the model name is correct (e.g. kimi-k2.6:cloud)."
+                    ),
+                    "status_code": resp.status_code,
+                    "response": detail,
+                },
+                "status_code": resp.status_code,
+            }
+        except requests.RequestException as exc:
+            return {
+                "ok": False,
+                "provider": provider_name,
+                "model": model_name,
+                "message": "Could not reach Ollama Cloud",
+                "details": {"hint": "Check your internet connection and try again.", "error": str(exc)},
+            }
 
+    # ------------------------------------------------------------------
+    # Self-hosted Ollama
+    # ------------------------------------------------------------------
     if provider_name == "ollama":
+        normalized_base_url = _normalize_base_url(base_url)
         if not normalized_base_url:
-            raise ValueError("Base URL is required for Ollama")
+            raise ValueError("Base URL is required for self-hosted Ollama")
 
         native_url = f"{normalized_base_url}/api/generate"
         openai_root = normalized_base_url.rstrip("/")
-        if openai_root.endswith("/v1"):
-            openai_models_url = f"{openai_root}/models"
-        else:
-            openai_models_url = f"{openai_root}/v1/models"
+        openai_models_url = (
+            f"{openai_root}/models"
+            if openai_root.endswith("/v1")
+            else f"{openai_root}/v1/models"
+        )
 
         attempts: list[dict[str, Any]] = []
 
+        def _parse_response_details(response: requests.Response) -> Any:
+            try:
+                return response.json()
+            except ValueError:
+                return response.text
+
         try:
-            native_response = requests.request(
-                method="POST",
-                url=native_url,
+            native_response = requests.post(
+                native_url,
                 headers={
                     "Authorization": f"Bearer {secret}",
-                    "content-type": "application/json",
+                    "Content-Type": "application/json",
                 },
                 json={
                     "model": model_name,
@@ -181,25 +261,17 @@ def validate_ai_provider_config(
                     "base_url": normalized_base_url,
                     "mode": "ollama_native_generate",
                 }
-            attempts.append(
-                {
-                    "mode": "ollama_native_generate",
-                    "status_code": native_response.status_code,
-                    "details": _parse_response_details(native_response),
-                }
-            )
+            attempts.append({
+                "mode": "ollama_native_generate",
+                "status_code": native_response.status_code,
+                "details": _parse_response_details(native_response),
+            })
         except requests.RequestException as exc:
-            attempts.append(
-                {
-                    "mode": "ollama_native_generate",
-                    "error": str(exc),
-                }
-            )
+            attempts.append({"mode": "ollama_native_generate", "error": str(exc)})
 
         try:
-            openai_response = requests.request(
-                method="GET",
-                url=openai_models_url,
+            openai_response = requests.get(
+                openai_models_url,
                 headers={"Authorization": f"Bearer {secret}"},
                 timeout=timeout,
             )
@@ -212,44 +284,31 @@ def validate_ai_provider_config(
                     "base_url": normalized_base_url,
                     "mode": "ollama_openai_compatible",
                 }
-            attempts.append(
-                {
-                    "mode": "ollama_openai_compatible",
-                    "status_code": openai_response.status_code,
-                    "details": _parse_response_details(openai_response),
-                }
-            )
-            return {
-                "ok": False,
-                "provider": provider_name,
-                "model": model_name,
-                "message": "AI provider rejected the supplied credentials",
-                "details": {
-                    "hint": "For Ollama Cloud, set Base URL to your HTTPS endpoint (often ending with /v1).",
-                    "attempts": attempts,
-                },
+            attempts.append({
+                "mode": "ollama_openai_compatible",
                 "status_code": openai_response.status_code,
-            }
+                "details": _parse_response_details(openai_response),
+            })
         except requests.RequestException as exc:
-            attempts.append(
-                {
-                    "mode": "ollama_openai_compatible",
-                    "error": str(exc),
-                }
-            )
-            return {
-                "ok": False,
-                "provider": provider_name,
-                "model": model_name,
-                "message": "Could not reach AI provider",
-                "details": {
-                    "hint": "For Ollama Cloud, verify the Base URL is reachable from the server and uses HTTPS.",
-                    "attempts": attempts,
-                },
-            }
+            attempts.append({"mode": "ollama_openai_compatible", "error": str(exc)})
+
+        return {
+            "ok": False,
+            "provider": provider_name,
+            "model": model_name,
+            "message": "Could not reach self-hosted Ollama",
+            "details": {"hint": "Verify the Base URL is reachable and Ollama is running.", "attempts": attempts},
+        }
+
+    # ------------------------------------------------------------------
+    # OpenAI / Custom OpenAI-compatible
+    # ------------------------------------------------------------------
+    request_args: dict[str, Any]
+    url: str
 
     if provider_name in {"openai", "custom_openai"}:
-        root = normalized_base_url or "https://api.openai.com"
+        normalized_base_url = _normalize_base_url(base_url)
+        root = (normalized_base_url or "https://api.openai.com").rstrip("/")
         url = f"{root}/v1/models"
         request_args = {
             "method": "GET",
@@ -274,7 +333,7 @@ def validate_ai_provider_config(
             },
             "timeout": timeout,
         }
-    else:
+    else:  # gemini
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={secret}"
         request_args = {
             "method": "POST",
@@ -298,7 +357,10 @@ def validate_ai_provider_config(
         }
 
     if response.status_code >= 400:
-        details = _parse_response_details(response)
+        try:
+            details = response.json()
+        except Exception:
+            details = response.text
         return {
             "ok": False,
             "provider": provider_name,
@@ -313,7 +375,7 @@ def validate_ai_provider_config(
         "provider": provider_name,
         "model": model_name,
         "message": "AI provider credentials validated successfully",
-        "base_url": normalized_base_url,
+        "base_url": _normalize_base_url(base_url),
     }
 
 
@@ -326,28 +388,17 @@ def invoke_ai_provider(
     prompt: str,
     system_prompt: str | None = None,
     max_tokens: int = 800,
-    timeout: int = 30,
+    timeout: int = 60,
 ) -> dict[str, Any]:
-    """Call the configured AI provider and return the response text + metadata.
-
-    Returns::
-        {
-            "ok": bool,
-            "text": str,          # on success
-            "model": str,
-            "endpoint": str,
-            "prompt_tokens": int,
-            "completion_tokens": int,
-            "error": str,         # on failure
-        }
-    """
+    """Call the configured AI provider and return the response text + metadata."""
     provider_name = normalize_provider_name(provider)
     if provider_name not in SUPPORTED_AI_PROVIDERS:
         return {"ok": False, "error": "Unsupported AI provider", "text": "", "model": model, "endpoint": ""}
 
     secret = str(api_key or "").strip()
     model_name = str(model or SUPPORTED_AI_PROVIDERS[provider_name]["default_model"]).strip()
-    normalized_base_url = None
+
+    normalized_base_url: str | None = None
     if base_url:
         try:
             normalized_base_url = _normalize_base_url(base_url)
@@ -360,13 +411,50 @@ def invoke_ai_provider(
     messages.append({"role": "user", "content": prompt})
 
     try:
+        # ------------------------------------------------------------------
+        # Ollama Cloud — OpenAI-compat /v1/chat/completions
+        # ------------------------------------------------------------------
+        if provider_name == "ollama_cloud" or _is_ollama_cloud_url(normalized_base_url):
+            root = _OLLAMA_CLOUD_BASE
+            url = f"{root}/v1/chat/completions"
+            headers = {
+                "Authorization": f"Bearer {secret}",
+                "Content-Type": "application/json",
+            }
+            resp = requests.post(
+                url,
+                headers=headers,
+                json={
+                    "model": model_name,
+                    "messages": messages,
+                    "max_tokens": max_tokens,
+                    "temperature": 0.7,
+                    "stream": False,
+                },
+                timeout=timeout,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            text = (data.get("choices") or [{}])[0].get("message", {}).get("content") or ""
+            usage = data.get("usage") or {}
+            return {
+                "ok": True,
+                "text": text.strip(),
+                "model": model_name,
+                "endpoint": url,
+                "prompt_tokens": usage.get("prompt_tokens", 0),
+                "completion_tokens": usage.get("completion_tokens", 0),
+            }
+
+        # ------------------------------------------------------------------
+        # Self-hosted Ollama — try OpenAI-compat first, fall back to native
+        # ------------------------------------------------------------------
         if provider_name == "ollama":
-            # Strip trailing /v1 to get root, then try OpenAI-compat first
             root = (normalized_base_url or "http://localhost:11434").rstrip("/")
             root_no_v1 = root[:-3] if root.endswith("/v1") else root
             openai_url = f"{root_no_v1}/v1/chat/completions"
             native_url = f"{root_no_v1}/api/chat"
-            headers: dict[str, str] = {"Content-Type": "application/json"}
+            headers = {"Content-Type": "application/json"}
             if secret:
                 headers["Authorization"] = f"Bearer {secret}"
 
@@ -416,6 +504,9 @@ def invoke_ai_provider(
                 "completion_tokens": 0,
             }
 
+        # ------------------------------------------------------------------
+        # OpenAI / Custom OpenAI-compatible
+        # ------------------------------------------------------------------
         elif provider_name in {"openai", "custom_openai"}:
             root = (normalized_base_url or "https://api.openai.com").rstrip("/")
             url = f"{root}/v1/chat/completions"
@@ -443,9 +534,11 @@ def invoke_ai_provider(
                 "completion_tokens": usage.get("completion_tokens", 0),
             }
 
+        # ------------------------------------------------------------------
+        # Anthropic
+        # ------------------------------------------------------------------
         elif provider_name == "anthropic":
             url = "https://api.anthropic.com/v1/messages"
-            # Anthropic doesn't support "system" in messages list; pull it out
             anthropic_system = ""
             user_messages = []
             for m in messages:
@@ -473,7 +566,9 @@ def invoke_ai_provider(
             resp.raise_for_status()
             data = resp.json()
             text = "".join(
-                part.get("text", "") for part in (data.get("content") or []) if part.get("type") == "text"
+                part.get("text", "")
+                for part in (data.get("content") or [])
+                if part.get("type") == "text"
             )
             usage = data.get("usage") or {}
             return {
@@ -485,13 +580,15 @@ def invoke_ai_provider(
                 "completion_tokens": usage.get("output_tokens", 0),
             }
 
-        else:  # gemini
+        # ------------------------------------------------------------------
+        # Gemini
+        # ------------------------------------------------------------------
+        else:
             encoded_model = requests.utils.quote(model_name, safe="")
             url = (
                 f"https://generativelanguage.googleapis.com/v1beta/models/"
                 f"{encoded_model}:generateContent?key={secret}"
             )
-            # Convert messages to Gemini format; system → first user turn
             gemini_contents = []
             for m in messages:
                 role = "user" if m["role"] in {"user", "system"} else "model"
