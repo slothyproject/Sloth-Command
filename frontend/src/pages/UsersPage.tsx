@@ -26,29 +26,7 @@ export function UsersPage() {
 
   const usersQuery = useQuery({
     queryKey: ['users-admin'],
-    queryFn: () =>
-      getJson<UserRecord[]>('/api/users').catch(() => [
-        {
-          id: 1,
-          username: 'admin_user',
-          discord_id: '123456789',
-          is_owner: true,
-          is_admin: true,
-          is_active: true,
-          created_at: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
-          last_login: new Date(Date.now() - 1 * 60 * 60 * 1000).toISOString(),
-        },
-        {
-          id: 2,
-          username: 'moderator_1',
-          discord_id: '987654321',
-          is_owner: false,
-          is_admin: false,
-          is_active: true,
-          created_at: new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString(),
-          last_login: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
-        },
-      ]),
+    queryFn: () => getJson<UserRecord[]>('/api/users'),
     retry: false,
   })
 
@@ -143,14 +121,25 @@ export function UsersPage() {
               {filteredUsers.map((user) => (
                 <div
                   key={user.id}
-                  className="p-4 rounded-lg border border-surface-strong hover:border-cyan/20 transition flex items-center justify-between"
+                  className="p-4 rounded-lg border border-line hover:border-cyan/20 transition flex items-center justify-between"
                 >
-                  <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-text-0">{user.username}</p>
-                    <p className="text-xs text-text-2 mt-1">
-                      Created {formatDate(user.created_at)} •{' '}
-                      {user.last_login ? `Last seen ${formatDate(user.last_login)}` : 'Never logged in'}
-                    </p>
+                  <div className="flex items-center gap-3 flex-1 min-w-0">
+                    <img
+                      src={
+                        user.discord_id
+                          ? `https://cdn.discordapp.com/embed/avatars/${Number(user.discord_id) % 5}.png`
+                          : '/sloth-lee-logo.png'
+                      }
+                      alt={user.username}
+                      className="h-9 w-9 rounded-full border border-line bg-white/10 object-cover flex-shrink-0"
+                    />
+                    <div className="min-w-0">
+                      <p className="font-semibold text-text-0 truncate">{user.username}</p>
+                      <p className="text-xs text-text-2 mt-0.5">
+                        {user.discord_id ? `Discord #${user.discord_id} · ` : ''}Created {formatDate(user.created_at)}{' '}
+                        {user.last_login ? `· Last seen ${formatDate(user.last_login)}` : ''}
+                      </p>
+                    </div>
                   </div>
                   <div className="flex items-center gap-2">
                     <Badge variant={user.is_owner ? 'warning' : user.is_admin ? 'default' : 'info'} size="sm">

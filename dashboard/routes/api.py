@@ -1365,6 +1365,28 @@ def guild_tickets(guild_id: int):
     })
 
 
+@api_bp.get("/guilds/<int:guild_id>/members")
+@login_required
+@guild_access_required
+def guild_members_list(guild_id: int):
+    """Return hub users who have access to manage this guild."""
+    db.get_or_404(Guild, guild_id)
+    members = GuildMember.query.filter_by(guild_id=guild_id).all()
+    result = []
+    for m in members:
+        u = m.user
+        result.append({
+            "id": m.id,
+            "user_id": m.user_id,
+            "username": u.username if u else "—",
+            "discord_id": u.discord_id if u else None,
+            "is_admin": u.is_admin if u else False,
+            "can_manage": m.can_manage,
+            "added_at": m.added_at.isoformat() if m.added_at else None,
+        })
+    return jsonify({"total": len(result), "members": result})
+
+
 @api_bp.get("/tickets/recent")
 @login_required
 def tickets_recent():
@@ -1713,6 +1735,45 @@ def analytics_summary():
             cmd_day_map[d] = row.n
     commands_timeline = [{"date": _fmt(d), "count": cmd_day_map.get(d, 0)} for d in day_labels]
 
+    # ── Top commands by usage count ──────────────────────────────
+    cmd_events = (
+        _event_q("command_use")
+        .with_entities(BotEvent.payload, sa_func.count(BotEvent.id).label("n"))
+        .all()
+    )
+    cmd_name_counts: dict[str, int] = {}
+    for row in cmd_events:
+        raw_payload = row.payload
+        if isinstance(raw_payload, str):
+            try:
+                raw_payload = json.loads(raw_payload)
+            except Exception:
+                raw_payload = {}
+        name = (raw_payload or {}).get("command_name") or (raw_payload or {}).get("command") or "unknown"
+        cmd_name_counts[name] = cmd_name_counts.get(name, 0) + row.n
+    top_commands = sorted(
+        [{"command": k, "count": v} for k, v in cmd_name_counts.items()],
+        key=lambda x: x["count"],
+        reverse=True,
+    )[:10]
+
+    # ── Top moderators by case count ─────────────────────────────
+    top_mod_rows = (
+        _mod_q()
+        .with_entities(
+            ModerationCase.moderator_discord_id,
+            sa_func.count(ModerationCase.id).label("n"),
+        )
+        .group_by(ModerationCase.moderator_discord_id)
+        .order_by(sa_func.count(ModerationCase.id).desc())
+        .limit(10)
+        .all()
+    )
+    top_moderators = [
+        {"moderator": row.moderator_discord_id or "system", "count": row.n}
+        for row in top_mod_rows
+    ]
+
     # ── Totals (all-time, scoped to visible guilds) ───────────────
     total_mod_q = ModerationCase.query
     total_ticket_q = Ticket.query
@@ -1799,6 +1860,8 @@ def analytics_summary():
         "ticket_priority_counts": ticket_priority_counts,
         "top_guilds": top_guilds,
         "commands_timeline": commands_timeline,
+        "top_commands": top_commands,
+        "top_moderators": top_moderators,
     })
 
 

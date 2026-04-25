@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { Link, useNavigate } from "react-router-dom"
 import { toast } from "sonner"
-import { Search, Ticket, CheckCircle, AlertCircle, Clock } from "lucide-react"
+import { Download, Search, Ticket, CheckCircle, AlertCircle, Clock } from "lucide-react"
 
 import { formatDate } from "../lib/format"
 import { getJson, postJson } from "../lib/api"
@@ -218,6 +218,30 @@ export function TicketsPage() {
 
   const activeTicket = sortedTickets[activeTicketIndex] ?? null
 
+  function exportTicketsCsv() {
+    const headers = ['Ticket #', 'Subject', 'Status', 'Priority', 'Assigned To', 'Created']
+    const lines = [
+      headers.join(','),
+      ...sortedTickets.map((t) =>
+        [
+          t.ticket_number,
+          `"${t.subject.replace(/"/g, '""')}"`,
+          t.status,
+          t.priority,
+          `"${t.assigned_to ?? ''}"`,
+          `"${t.created_at}"`,
+        ].join(',')
+      ),
+    ]
+    const blob = new Blob([lines.join('\n')], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `tickets-${new Date().toISOString().slice(0, 10)}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   // Calculate stats
   const totalTickets = ticketsQuery.data?.total ?? 0
   const openTickets = sortedTickets.filter((t) => t.status !== "closed").length
@@ -241,9 +265,20 @@ export function TicketsPage() {
   return (
     <div className="space-y-8">
       {/* Header */}
-      <div>
-        <h1 className="text-4xl font-bold text-cyan font-display mb-2">Support Tickets</h1>
-        <p className="text-text-2">Manage and track all support requests</p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-4xl font-bold text-cyan font-display mb-2">Support Tickets</h1>
+          <p className="text-text-2">Manage and track all support requests</p>
+        </div>
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={exportTicketsCsv}
+          disabled={sortedTickets.length === 0}
+        >
+          <Download className="w-4 h-4 mr-2" />
+          Export CSV
+        </Button>
       </div>
 
       {/* Stats Cards */}

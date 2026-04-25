@@ -5,7 +5,7 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, Legend,
   ResponsiveContainer,
 } from 'recharts'
-import { TrendingUp, AlertCircle, Shield, Server, Users, Zap, Clock, Cpu, Activity, MemoryStick } from 'lucide-react'
+import { Download, TrendingUp, AlertCircle, Shield, Server, Users, Zap, Clock, Cpu, Activity, MemoryStick } from 'lucide-react'
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -13,6 +13,8 @@ import { StatCard } from '@/components/ui/stat-card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { getJson } from '@/lib/api'
 import { cn } from '@/lib/cn'
+
+interface GuildItem { id: number; name: string }
 
 interface AnalyticsSummary {
   range: string
@@ -47,6 +49,8 @@ interface AnalyticsSummary {
   ticket_priority_counts: Array<{ priority: string; count: number }>
   top_guilds: Array<{ id: number; name: string; count: number }>
   commands_timeline: Array<{ date: string; count: number }>
+  top_commands?: Array<{ command: string; count: number }>
+  top_moderators?: Array<{ moderator: string; count: number }>
 }
 
 const TOOLTIP_STYLE = {
@@ -90,15 +94,63 @@ function HealthBar({ label, value, max = 100, color = 'bg-cyan/60' }: {
 
 export function AnalyticsPage() {
   const [dateRange, setDateRange] = useState<'7d' | '30d' | '90d'>('7d')
+  const [guildFilter, setGuildFilter] = useState('')
+
+  const guildsQuery = useQuery({
+    queryKey: ['guilds-list-analytics'],
+    queryFn: () => getJson<{ guilds: GuildItem[] }>('/api/guilds'),
+    staleTime: 60_000,
+    retry: 1,
+  })
 
   const { data, isLoading, isError } = useQuery({
-    queryKey: ['analytics-summary', dateRange],
-    queryFn: () => getJson<AnalyticsSummary>(`/api/analytics/summary?range=${dateRange}`),
+    queryKey: ['analytics-summary', dateRange, guildFilter],
+    queryFn: () => {
+      const params = new URLSearchParams({ range: dateRange })
+      if (guildFilter) params.set('guild_id', guildFilter)
+      return getJson<AnalyticsSummary>(`/api/analytics/summary?${params}`)
+    },
     retry: 1,
     staleTime: 30_000,
     refetchInterval: 30_000,
     refetchOnMount: true,
   })
+
+  function exportAnalyticsCsv() {
+    if (!data) return
+    const sections: string[] = []
+
+    sections.push('Moderation Actions by Type')
+    sections.push('Action,Count')
+    data.action_counts.forEach((r) => sections.push(`"${r.action}",${r.count}`))
+
+    sections.push('')
+    sections.push('Top Guilds (Mod Activity)')
+    sections.push('Guild,Cases')
+    data.top_guilds.forEach((r) => sections.push(`"${r.name}",${r.count}`))
+
+    if (data.top_commands?.length) {
+      sections.push('')
+      sections.push('Top Commands')
+      sections.push('Command,Uses')
+      data.top_commands.forEach((r) => sections.push(`"${r.command}",${r.count}`))
+    }
+
+    if (data.top_moderators?.length) {
+      sections.push('')
+      sections.push('Top Moderators')
+      sections.push('Moderator,Cases')
+      data.top_moderators.forEach((r) => sections.push(`"${r.moderator}",${r.count}`))
+    }
+
+    const blob = new Blob([sections.join('\n')], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `analytics-${dateRange}-${new Date().toISOString().slice(0, 10)}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
 
   const bot = data?.bot_health
   const totals = data?.totals
@@ -121,12 +173,26 @@ export function AnalyticsPage() {
           <h1 className="text-4xl font-bold text-cyan font-display mb-2">Analytics</h1>
           <p className="text-text-2">Live stats from your bot and servers</p>
         </div>
-        <div className="flex gap-2 flex-wrap">
+        <div className="flex gap-2 flex-wrap items-center">
+          <select
+            value={guildFilter}
+            onChange={(e) => setGuildFilter(e.target.value)}
+            className="rounded-xl border border-line bg-surface-strong px-3 py-2 text-sm text-text-1 focus:outline-none focus:ring-1 focus:ring-cyan/40"
+          >
+            <option value="">All servers</option>
+            {(guildsQuery.data?.guilds ?? []).map((g) => (
+              <option key={g.id} value={String(g.id)}>{g.name}</option>
+            ))}
+          </select>
           {(['7d', '30d', '90d'] as const).map((range) => (
             <Button key={range} variant={dateRange === range ? 'default' : 'ghost'} size="sm" onClick={() => setDateRange(range)}>
               {range === '7d' ? 'Last 7 Days' : range === '30d' ? 'Last 30 Days' : 'Last 90 Days'}
             </Button>
           ))}
+          <Button variant="secondary" size="sm" onClick={exportAnalyticsCsv} disabled={!data}>
+            <Download className="w-4 h-4 mr-2" />
+            Export CSV
+          </Button>
         </div>
       </div>
 
@@ -482,6 +548,87 @@ export function AnalyticsPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* ── Top Commands + Top Moderators Leaderboards ─────────── */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <Card variant="elevated">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Zap className="w-4 h-4 text-cyan" />
+              Top Commands
+            </CardTitle>
+            <CardDescription>Most-used bot commands — {dateRange}</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {isLoading ? <Skeleton count={5} /> : !(data?.top_commands ?? []).length ? (
+              <div className="flex flex-col items-center justify-center h-24 text-text-3 gap-2">
+                <Zap className="w-7 h-7 opacity-25" />
+                <p className="text-xs">No command data yet</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {(data?.top_commands ?? []).map((cmd, i) => {
+                  const max = data!.top_commands![0].count || 1
+                  const pct = Math.round((cmd.count / max) * 100)
+                  return (
+                    <div key={cmd.command} className="flex items-center gap-3">
+                      <span className="w-5 text-xs text-text-3 font-mono text-right shrink-0">{i + 1}</span>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex justify-between items-baseline mb-1">
+                          <span className="text-sm font-medium text-text-1 font-mono truncate">/{cmd.command}</span>
+                          <span className="text-xs text-text-3 shrink-0 ml-2">{cmd.count}</span>
+                        </div>
+                        <div className="h-1.5 rounded-full bg-white/5">
+                          <div className="h-full rounded-full bg-sloth-gold/60 transition-all" style={{ width: `${pct}%` }} />
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card variant="elevated">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Shield className="w-4 h-4 text-cyan" />
+              Top Moderators
+            </CardTitle>
+            <CardDescription>Most active moderators by case count — {dateRange}</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {isLoading ? <Skeleton count={5} /> : !(data?.top_moderators ?? []).length ? (
+              <div className="flex flex-col items-center justify-center h-24 text-text-3 gap-2">
+                <Shield className="w-7 h-7 opacity-25" />
+                <p className="text-xs">No moderation data yet</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {(data?.top_moderators ?? []).map((mod, i) => {
+                  const max = data!.top_moderators![0].count || 1
+                  const pct = Math.round((mod.count / max) * 100)
+                  return (
+                    <div key={mod.moderator} className="flex items-center gap-3">
+                      <span className="w-5 text-xs text-text-3 font-mono text-right shrink-0">{i + 1}</span>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex justify-between items-baseline mb-1">
+                          <span className="text-sm font-medium text-text-1 truncate">{mod.moderator}</span>
+                          <span className="text-xs text-text-3 shrink-0 ml-2">{mod.count} case{mod.count !== 1 ? 's' : ''}</span>
+                        </div>
+                        <div className="h-1.5 rounded-full bg-white/5">
+                          <div className="h-full rounded-full bg-cyan/40 transition-all" style={{ width: `${pct}%` }} />
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
     </div>
   )
 }

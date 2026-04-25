@@ -98,13 +98,14 @@ function normalizeTicketItem(item: TicketItem): TicketItem {
 
 // ── Tab definitions ─────────────────────────────────────────────
 
-type Tab = 'overview' | 'moderation' | 'tickets' | 'commands' | 'settings'
+type Tab = 'overview' | 'moderation' | 'tickets' | 'commands' | 'settings' | 'members'
 
 const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
   { id: 'overview', label: 'Overview', icon: <BarChart3 className="w-4 h-4" /> },
   { id: 'moderation', label: 'Moderation', icon: <ShieldAlert className="w-4 h-4" /> },
   { id: 'tickets', label: 'Tickets', icon: <Ticket className="w-4 h-4" /> },
   { id: 'commands', label: 'Commands', icon: <Hash className="w-4 h-4" /> },
+  { id: 'members', label: 'Members', icon: <Users className="w-4 h-4" /> },
   { id: 'settings', label: 'Settings', icon: <Settings className="w-4 h-4" /> },
 ]
 
@@ -589,6 +590,96 @@ function SettingsTab({ guildId, initialSettings, canEdit }: { guildId: number; i
   )
 }
 
+// ── Members Tab ────────────────────────────────────────────────
+
+interface HubMember {
+  id: number
+  user_id: number
+  username: string
+  discord_id: string | null
+  is_admin: boolean
+  can_manage: boolean
+  added_at: string | null
+}
+
+function MembersTab({ guildId }: { guildId: number }) {
+  const [membersData, setMembersData] = React.useState<{ total: number; members: HubMember[] } | null>(null)
+  const [loading, setLoading] = React.useState(true)
+  const [error, setError] = React.useState(false)
+
+  React.useEffect(() => {
+    setLoading(true)
+    setError(false)
+    getJson<{ total: number; members: HubMember[] }>(`/api/guilds/${guildId}/members`)
+      .then((d) => { setMembersData(d); setLoading(false) })
+      .catch(() => { setError(true); setLoading(false) })
+  }, [guildId])
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-lg font-semibold text-text-0">Hub Members</h3>
+          <p className="text-sm text-text-2 mt-0.5">
+            {membersData ? `${membersData.total} dashboard user${membersData.total !== 1 ? 's' : ''} with access to this server` : 'Loading…'}
+          </p>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="space-y-2">
+          {[...Array(3)].map((_, i) => (
+            <div key={i} className="h-14 rounded-lg border border-line bg-white/5 animate-pulse" />
+          ))}
+        </div>
+      ) : error ? (
+        <div className="rounded-lg border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-400">
+          Failed to load members. You may need admin access.
+        </div>
+      ) : (membersData?.members ?? []).length === 0 ? (
+        <div className="py-10 text-center text-sm text-text-2">
+          No dashboard users have been granted access to this server yet.
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {(membersData?.members ?? []).map((member) => (
+            <div key={member.id} className="flex items-center justify-between rounded-lg border border-line bg-surface-strong/40 px-4 py-3 hover:border-cyan/20 transition">
+              <div className="flex items-center gap-3">
+                <img
+                  src={
+                    member.discord_id
+                      ? `https://cdn.discordapp.com/embed/avatars/${Number(member.discord_id) % 5}.png`
+                      : '/sloth-lee-logo.png'
+                  }
+                  alt={member.username}
+                  className="h-8 w-8 rounded-full border border-line bg-white/10 object-cover"
+                />
+                <div>
+                  <p className="text-sm font-medium text-text-0">{member.username}</p>
+                  {member.discord_id && (
+                    <p className="text-xs text-text-3 font-mono">#{member.discord_id}</p>
+                  )}
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                {member.is_admin && (
+                  <span className="rounded-full border border-cyan/25 bg-cyan/10 px-2 py-0.5 text-[11px] font-mono text-cyan">Admin</span>
+                )}
+                {member.can_manage && (
+                  <span className="rounded-full border border-lime/25 bg-lime/10 px-2 py-0.5 text-[11px] font-mono text-lime">Can Manage</span>
+                )}
+                {member.added_at && (
+                  <span className="text-xs text-text-3">Added {new Date(member.added_at).toLocaleDateString()}</span>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Main Page ──────────────────────────────────────────────────
 
 export function ServerDetailPage() {
@@ -704,6 +795,7 @@ export function ServerDetailPage() {
         {activeTab === 'moderation' && <ModerationTab guildId={guild.id} />}
         {activeTab === 'tickets' && <TicketsTab guildId={guild.id} />}
         {activeTab === 'commands' && <CommandsTab guildId={guild.id} />}
+        {activeTab === 'members' && <MembersTab guildId={guild.id} />}
         {activeTab === 'settings' && (
           <SettingsTab
             guildId={guild.id}

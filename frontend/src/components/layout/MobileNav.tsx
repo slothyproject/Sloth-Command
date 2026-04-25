@@ -1,4 +1,4 @@
-import { BarChart3, LayoutDashboard, ScrollText, Server, Settings, ShieldAlert, Ticket, Users, WandSparkles, X } from "lucide-react";
+import { BarChart3, Bell, LayoutDashboard, ScrollText, Server, Settings, ShieldAlert, Ticket, Users, WandSparkles, X } from "lucide-react";
 import { NavLink } from "react-router-dom";
 
 import { cn } from "../../lib/cn";
@@ -9,6 +9,7 @@ const baseLinks = [
   { to: "/servers", label: "Servers", icon: Server },
   { to: "/moderation", label: "Moderation", icon: ShieldAlert },
   { to: "/tickets", label: "Tickets", icon: Ticket },
+  { to: "/notifications", label: "Notifications", icon: Bell },
   { to: "/analytics", label: "Analytics", icon: BarChart3 },
   { to: "/ai-advisor", label: "AI Advisor", icon: WandSparkles },
   { to: "/settings", label: "Settings", icon: Settings },
