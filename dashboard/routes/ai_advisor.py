@@ -293,7 +293,8 @@ def ai_advisor_chat():
     # Detect if the response contains a blueprint JSON
     blueprint = None
     if '{"blueprint"' in text or '"blueprint":' in text:
-        import re, json as _json
+        import re
+        import json as _json
         m = re.search(r'\{[\s\S]*"blueprint"[\s\S]*\}', text)
         if m:
             try:
@@ -354,7 +355,8 @@ def ai_advisor_blueprint():
     if not result.get("ok"):
         return jsonify({"ok": False, "error": result.get("error", "AI provider error")}), 502
 
-    import re, json as _json
+    import re
+    import json as _json
     text = result["text"].strip()
     # Strip markdown code fences if present
     text = re.sub(r'^```(?:json)?\s*', '', text, flags=re.MULTILINE)
