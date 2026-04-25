@@ -176,6 +176,14 @@ def _run_migrations(app: Flask) -> None:
             if "client_secret_hint" not in bcols:
                 migrations.append("ALTER TABLE hub_dashboard_bot_credentials ADD COLUMN client_secret_hint VARCHAR(32)")
 
+        # hub_guild_commands (Phase 30)
+        ccols = existing_cols("hub_guild_commands")
+        if ccols is not None:
+            if "allowed_roles" not in ccols:
+                migrations.append("ALTER TABLE hub_guild_commands ADD COLUMN allowed_roles JSONB DEFAULT '[]'::jsonb")
+            if "disabled_channels" not in ccols:
+                migrations.append("ALTER TABLE hub_guild_commands ADD COLUMN disabled_channels JSONB DEFAULT '[]'::jsonb")
+
         if not migrations:
             log.info("Schema up to date — no migrations needed")
             return

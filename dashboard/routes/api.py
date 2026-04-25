@@ -2092,9 +2092,10 @@ def analytics_summary():
     commands_timeline = [{"date": _fmt(d), "count": cmd_day_map.get(d, 0)} for d in day_labels]
 
     # ── Top commands by usage count ──────────────────────────────
+    # Fetch raw payloads; count by command name in Python to avoid GROUP BY issues
     cmd_events = (
         _event_q("command_use")
-        .with_entities(BotEvent.payload, sa_func.count(BotEvent.id).label("n"))
+        .with_entities(BotEvent.payload)
         .all()
     )
     cmd_name_counts: dict[str, int] = {}
@@ -2106,7 +2107,7 @@ def analytics_summary():
             except Exception:
                 raw_payload = {}
         name = (raw_payload or {}).get("command_name") or (raw_payload or {}).get("command") or "unknown"
-        cmd_name_counts[name] = cmd_name_counts.get(name, 0) + row.n
+        cmd_name_counts[name] = cmd_name_counts.get(name, 0) + 1
     top_commands = sorted(
         [{"command": k, "count": v} for k, v in cmd_name_counts.items()],
         key=lambda x: x["count"],
