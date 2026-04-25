@@ -46,6 +46,7 @@ interface AnalyticsSummary {
   ticket_status_counts: Array<{ status: string; count: number }>
   ticket_priority_counts: Array<{ priority: string; count: number }>
   top_guilds: Array<{ id: number; name: string; count: number }>
+  commands_timeline: Array<{ date: string; count: number }>
 }
 
 const TOOLTIP_STYLE = {
@@ -110,6 +111,7 @@ export function AnalyticsPage() {
   const hasServerEventData = (data?.server_timeline ?? []).some((d) => d.joins > 0 || d.leaves > 0)
   // Guild breakdown: show if we have any guilds (Redis always has these when bot is online)
   const hasGuildBreakdown = (data?.guilds_by_members ?? []).length > 0
+  const hasCommandData = (data?.commands_timeline ?? []).some((d) => d.count > 0)
 
   return (
     <div className="space-y-8">
@@ -240,6 +242,40 @@ export function AnalyticsPage() {
                   <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v: number) => [v.toLocaleString(), 'Members']} />
                   <Bar dataKey="members" fill="#88c0d0" radius={[0, 3, 3, 0]} />
                 </BarChart>
+              </ResponsiveContainer>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ── Commands Timeline ───────────────────────────────────── */}
+      {(isLoading || hasCommandData) && (
+        <Card variant="elevated">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Zap className="w-4 h-4 text-cyan" />
+              Commands Used
+            </CardTitle>
+            <CardDescription>Bot commands per day — {dateRange}</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {isLoading ? <ChartSkeleton /> : !hasCommandData ? (
+              <EmptyChart icon={<Zap className="w-8 h-8" />} label="No command usage events in this period" />
+            ) : (
+              <ResponsiveContainer width="100%" height={220}>
+                <AreaChart data={data?.commands_timeline ?? []}>
+                  <defs>
+                    <linearGradient id="cmdGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#ebcb8b" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="#ebcb8b" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(235,203,139,0.08)" />
+                  <XAxis dataKey="date" {...AXIS_STYLE} />
+                  <YAxis {...AXIS_STYLE} allowDecimals={false} />
+                  <Tooltip contentStyle={TOOLTIP_STYLE} />
+                  <Area type="monotone" dataKey="count" name="Commands" stroke="#ebcb8b" fill="url(#cmdGrad)" strokeWidth={2} dot={{ r: 3, fill: '#ebcb8b' }} activeDot={{ r: 5 }} />
+                </AreaChart>
               </ResponsiveContainer>
             )}
           </CardContent>

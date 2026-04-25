@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { Search, AlertTriangle, Shield, Clock } from 'lucide-react'
+import { Search, AlertTriangle, Shield, Clock, Download } from 'lucide-react'
 
 import { formatDate } from '../lib/format'
 import { getJson, postJson } from '../lib/api'
@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { StatCard } from '@/components/ui/stat-card'
 import { Select } from '@/components/ui/select'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 
 interface GuildSummary {
   id: number;
@@ -72,6 +73,7 @@ export function ModerationPage() {
   const [bulkAction, setBulkAction] = useState("mute");
   const [bulkReason, setBulkReason] = useState("");
   const [activeCaseIndex, setActiveCaseIndex] = useState(0);
+  const [confirmBulkOpen, setConfirmBulkOpen] = useState(false);
 
   const guildsQuery = useQuery({
     queryKey: ["guilds"],
@@ -160,10 +162,12 @@ export function ModerationPage() {
       return;
     }
 
-    const confirmed = window.confirm(`Run ${bulkAction.toUpperCase()} for ${selectedTargets.length} selected target(s)?`);
-    if (!confirmed) {
-      return;
-    }
+    setConfirmBulkOpen(true);
+  }
+
+  async function executeBulkAction() {
+    setConfirmBulkOpen(false);
+    if (selectedGuild == null) return;
 
     try {
       await postJson(`/api/guilds/${selectedGuild}/moderation/bulk`, {
@@ -180,8 +184,35 @@ export function ModerationPage() {
     }
   }
 
-  async function copyCaseNumber(caseNumber: number) {
-    try {
+  function exportCasesToCsv() {
+    if (filteredCases.length === 0) {
+      toast.error("No cases to export.");
+      return;
+    }
+    const headers = ["Case", "Action", "Target Name", "Target ID", "Moderator", "Reason / Duration", "Created"];
+    const rows = filteredCases.map((c) => [
+      `#${c.case_number}`,
+      c.action,
+      c.target_name ?? c.target_id,
+      c.target_id,
+      c.moderator_name ?? "",
+      c.reason ?? c.duration ?? "",
+      c.created_at,
+    ]);
+    const csv = [headers, ...rows]
+      .map((row) => row.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(","))
+      .join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `moderation-cases-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success(`Exported ${filteredCases.length} case(s) to CSV.`);
+  }
+
+  async function copyCaseNumber(caseNumber: number) {    try {
       await navigator.clipboard.writeText(`case_#${caseNumber}`);
       toast.success(`Copied case #${caseNumber}.`);
     } catch {
@@ -298,6 +329,15 @@ export function ModerationPage() {
 
   return (
     <div className="space-y-6">
+      <ConfirmDialog
+        open={confirmBulkOpen}
+        title={`Bulk ${bulkAction.toUpperCase()} — ${selectedTargets.length} target(s)`}
+        message={`This will queue a ${bulkAction} action for ${selectedTargets.length} selected target(s)${bulkReason ? ` with reason: "${bulkReason}"` : ""}. This cannot be undone.`}
+        confirmLabel={`Run ${bulkAction}`}
+        variant="destructive"
+        onConfirm={() => void executeBulkAction()}
+        onCancel={() => setConfirmBulkOpen(false)}
+      />
       <section className="rounded-[28px] border border-cyan/20 bg-surface/80 p-6 shadow-panel">
         <p className="font-mono text-[11px] uppercase tracking-[0.24em] text-cyan">Moderation</p>
         <h2 className="mt-3 text-3xl font-semibold text-text-0">React moderation workspace</h2>
@@ -346,12 +386,22 @@ export function ModerationPage() {
         </aside>
 
         <div className="rounded-2xl border border-white/10 bg-panel/80 p-5 shadow-panel">
-          <div className="mb-4 flex items-center justify-between gap-3">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
             <div>
               <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-cyan">Live moderation log</p>
               <h3 className="mt-2 text-xl font-semibold text-text-0">Cases</h3>
             </div>
-            {moderationQuery.data ? <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-text-1">{moderationQuery.data.total} total</div> : null}
+            <div className="flex items-center gap-2 flex-wrap">
+              {moderationQuery.data ? <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-text-1">{moderationQuery.data.total} total</div> : null}
+              <button
+                disabled={filteredCases.length === 0}
+                onClick={exportCasesToCsv}
+                className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-3 py-1 text-xs text-text-1 transition hover:border-cyan/30 hover:text-cyan disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <Download className="w-3 h-3" />
+                Export CSV
+              </button>
+            </div>
           </div>
 
           {selectedGuild != null ? (

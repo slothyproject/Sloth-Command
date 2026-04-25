@@ -1695,6 +1695,24 @@ def analytics_summary():
             "count": row.n,
         })
 
+    # ── Commands timeline from BotEvent (event_type="command_use") ──
+    cmd_day_rows = (
+        _event_q("command_use")
+        .with_entities(
+            sa_func.date_trunc("day", BotEvent.created_at).label("day"),
+            sa_func.count(BotEvent.id).label("n"),
+        )
+        .group_by("day")
+        .order_by("day")
+        .all()
+    )
+    cmd_day_map: dict[_date, int] = {}
+    for row in cmd_day_rows:
+        if row.day:
+            d = row.day.date() if hasattr(row.day, "date") else row.day
+            cmd_day_map[d] = row.n
+    commands_timeline = [{"date": _fmt(d), "count": cmd_day_map.get(d, 0)} for d in day_labels]
+
     # ── Totals (all-time, scoped to visible guilds) ───────────────
     total_mod_q = ModerationCase.query
     total_ticket_q = Ticket.query
@@ -1780,6 +1798,7 @@ def analytics_summary():
         "ticket_status_counts": ticket_status_counts,
         "ticket_priority_counts": ticket_priority_counts,
         "top_guilds": top_guilds,
+        "commands_timeline": commands_timeline,
     })
 
 
