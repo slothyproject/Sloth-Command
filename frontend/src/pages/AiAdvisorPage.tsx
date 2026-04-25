@@ -270,9 +270,9 @@ export function AiAdvisorPage() {
 
   // Build conversation history for context
   const history = messages
-    .filter(m => m.role === 'user' || m.role === 'advisor')
+    .filter((m: ChatMessage) => m.role === 'user' || m.role === 'advisor')
     .slice(-20)
-    .map(m => ({ role: m.role === 'advisor' ? 'assistant' : 'user', content: m.body }))
+    .map((m: ChatMessage) => ({ role: m.role === 'advisor' ? 'assistant' : 'user', content: m.body }))
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -322,7 +322,7 @@ export function AiAdvisorPage() {
       // Replace the generating message
       setMessages(prev => {
         const copy = [...prev]
-        const sysIdx = copy.findLastIndex(m => m.role === 'system')
+        const sysIdx = copy.map((m: ChatMessage) => m.role).lastIndexOf('system')
         if (sysIdx >= 0) {
           copy[sysIdx] = {
             ...copy[sysIdx],
@@ -335,7 +335,7 @@ export function AiAdvisorPage() {
     } catch (e: any) {
       setMessages(prev => {
         const copy = [...prev]
-        const sysIdx = copy.findLastIndex(m => m.role === 'system')
+        const sysIdx = copy.map((m: ChatMessage) => m.role).lastIndexOf('system')
         if (sysIdx >= 0) {
           copy[sysIdx] = { ...copy[sysIdx], role: 'error', body: e.message || 'Blueprint generation failed' }
         }
@@ -486,7 +486,7 @@ export function AiAdvisorPage() {
                           : 'bg-surface border border-white/5 text-text-0 rounded-tl-sm'
                   }`}>
                     {/* Render markdown-ish bold */}
-                    {msg.body.split(/(\*\*[^*]+\*\*)/).map((part, i) =>
+                    {msg.body.split(/(\*\*[^*]+\*\*)/).map((part: string, i: number) =>
                       part.startsWith('**') && part.endsWith('**')
                         ? <strong key={i} className="font-semibold text-text-0">{part.slice(2, -2)}</strong>
                         : part
@@ -494,7 +494,7 @@ export function AiAdvisorPage() {
                   </div>
 
                   {/* Blueprint card attached to advisor message */}
-                  {msg.role === 'advisor' && currentBlueprint && msg.id === messages.filter(m => m.role === 'advisor').at(-1)?.id && (
+                  {msg.role === 'advisor' && currentBlueprint && msg.id === messages.filter((m: ChatMessage) => m.role === 'advisor').slice(-1)[0]?.id && (
                     <BlueprintCard
                       blueprint={currentBlueprint}
                       guilds={guildsQuery.data || []}
