@@ -466,6 +466,44 @@ class Notification(db.Model):
         }
 
 
+# ── Phase 31: Notification preferences ───────────────────────────
+
+class UserNotificationPrefs(db.Model):
+    """Per-user notification preference flags."""
+    __tablename__ = "hub_user_notification_prefs"
+
+    id      = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(
+        db.Integer,
+        db.ForeignKey("hub_users.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    # Notification type toggles
+    notify_ticket_open    = db.Column(db.Boolean, default=True)
+    notify_ticket_close   = db.Column(db.Boolean, default=True)
+    notify_mod_action     = db.Column(db.Boolean, default=True)
+    notify_guild_join     = db.Column(db.Boolean, default=True)
+    notify_guild_leave    = db.Column(db.Boolean, default=False)
+    notify_bot_offline    = db.Column(db.Boolean, default=True)
+    mute_all              = db.Column(db.Boolean, default=False)
+    updated_at = db.Column(db.DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+    user = db.relationship("User", backref=db.backref("notification_prefs", uselist=False, cascade="all, delete-orphan"))
+
+    def to_dict(self) -> dict:
+        return {
+            "notify_ticket_open": self.notify_ticket_open,
+            "notify_ticket_close": self.notify_ticket_close,
+            "notify_mod_action": self.notify_mod_action,
+            "notify_guild_join": self.notify_guild_join,
+            "notify_guild_leave": self.notify_guild_leave,
+            "notify_bot_offline": self.notify_bot_offline,
+            "mute_all": self.mute_all,
+        }
+
+
 # ── Bot events (webhook ingest) ──────────────────────────────────
 
 class BotEvent(db.Model):

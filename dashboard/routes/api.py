@@ -18,6 +18,7 @@ from dashboard.models import (
     AuditLog, BotEvent, Guild, GuildCommand, GuildMember,
     GuildSettings, ModerationCase, Notification, Ticket, TicketMessage,
     User, UserAIProviderCredential, UserAIProviderUsageStat, DashboardBotCredential,
+    UserNotificationPrefs,
 )
 from dashboard.services.bot_state import get_bot_state, push_bot_command
 from dashboard.services.dissident_api import call_dissident_api
@@ -2626,6 +2627,46 @@ def notifications():
         "unread": unread,
         "notifications": [n.to_dict() for n in notifs],
     })
+
+
+# ── Phase 31: Notification preferences ───────────────────────────
+
+@api_bp.get("/notifications/preferences")
+@login_required
+def notification_prefs_get():
+    """Return the current user's notification preferences, creating defaults if needed."""
+    prefs = UserNotificationPrefs.query.filter_by(user_id=current_user.id).first()
+    if not prefs:
+        prefs = UserNotificationPrefs(user_id=current_user.id)
+        db.session.add(prefs)
+        db.session.commit()
+    return jsonify(prefs.to_dict())
+
+
+@api_bp.patch("/notifications/preferences")
+@login_required
+def notification_prefs_patch():
+    """Update notification preference flags for the current user."""
+    data = request.get_json(silent=True) or {}
+    prefs = UserNotificationPrefs.query.filter_by(user_id=current_user.id).first()
+    if not prefs:
+        prefs = UserNotificationPrefs(user_id=current_user.id)
+        db.session.add(prefs)
+
+    bool_fields = {
+        "notify_ticket_open", "notify_ticket_close", "notify_mod_action",
+        "notify_guild_join", "notify_guild_leave", "notify_bot_offline", "mute_all",
+    }
+    changed = {}
+    for field in bool_fields:
+        if field in data:
+            val = bool(data[field])
+            setattr(prefs, field, val)
+            changed[field] = val
+
+    db.session.commit()
+    _audit("notification_prefs_update", details=changed)
+    return jsonify({"ok": True, "prefs": prefs.to_dict()})
 
 
 @api_bp.get("/notifications/unread-count")
