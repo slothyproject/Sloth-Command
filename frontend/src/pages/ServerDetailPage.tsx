@@ -606,14 +606,29 @@ function MembersTab({ guildId }: { guildId: number }) {
   const [membersData, setMembersData] = React.useState<{ total: number; members: HubMember[] } | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState(false)
+  const [togglingId, setTogglingId] = React.useState<number | null>(null)
 
-  React.useEffect(() => {
+  function reload() {
     setLoading(true)
     setError(false)
     getJson<{ total: number; members: HubMember[] }>(`/api/guilds/${guildId}/members`)
       .then((d) => { setMembersData(d); setLoading(false) })
       .catch(() => { setError(true); setLoading(false) })
-  }, [guildId])
+  }
+
+  React.useEffect(() => { reload() }, [guildId])
+
+  async function toggleCanManage(member: HubMember) {
+    setTogglingId(member.id)
+    try {
+      await patchJson(`/api/guilds/${guildId}/members/${member.id}`, { can_manage: !member.can_manage })
+      reload()
+    } catch {
+      // silently reset
+    } finally {
+      setTogglingId(null)
+    }
+  }
 
   return (
     <div className="space-y-4">
@@ -665,9 +680,17 @@ function MembersTab({ guildId }: { guildId: number }) {
                 {member.is_admin && (
                   <span className="rounded-full border border-cyan/25 bg-cyan/10 px-2 py-0.5 text-[11px] font-mono text-cyan">Admin</span>
                 )}
-                {member.can_manage && (
-                  <span className="rounded-full border border-lime/25 bg-lime/10 px-2 py-0.5 text-[11px] font-mono text-lime">Can Manage</span>
-                )}
+                <button
+                  onClick={() => void toggleCanManage(member)}
+                  disabled={togglingId === member.id}
+                  className={`rounded-full border px-2.5 py-0.5 text-[11px] font-mono transition disabled:opacity-50 ${
+                    member.can_manage
+                      ? 'border-lime/30 bg-lime/10 text-lime hover:bg-lime/20'
+                      : 'border-white/15 bg-white/5 text-text-2 hover:border-lime/30 hover:text-lime'
+                  }`}
+                >
+                  {togglingId === member.id ? '…' : member.can_manage ? 'Can Manage' : 'Grant Access'}
+                </button>
                 {member.added_at && (
                   <span className="text-xs text-text-3">Added {new Date(member.added_at).toLocaleDateString()}</span>
                 )}

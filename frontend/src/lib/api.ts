@@ -62,6 +62,22 @@ export async function postJson<T>(url: string, body?: unknown): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+export async function deleteJson<T>(url: string): Promise<T> {
+  const response = await fetch(url, {
+    method: "DELETE",
+    credentials: "include",
+    headers: {
+      Accept: "application/json",
+    },
+  });
+
+  if (!response.ok) {
+    await parseError(response);
+  }
+
+  return response.json() as Promise<T>;
+}
+
 export async function patchJson<T>(url: string, body?: unknown): Promise<T> {
   const response = await fetch(url, {
     method: "PATCH",

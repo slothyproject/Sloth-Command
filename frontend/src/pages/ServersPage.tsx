@@ -57,7 +57,7 @@ function GuildCard({ guild }: { guild: UserGuild }) {
               {guild.member_count?.toLocaleString() ?? '—'} members
             </span>
             <span className={cn('flex items-center gap-1 font-medium', guild.is_active ? 'text-lime' : 'text-text-3')}>
-              <span className={cn('w-1.5 h-1.5 rounded-full', guild.is_active ? 'bg-lime' : 'bg-text-3')} />
+              <span className={cn('w-1.5 h-1.5 rounded-full', guild.is_active ? 'bg-lime animate-pulse' : 'bg-text-3')} />
               {guild.is_active ? 'Bot Active' : 'Bot Offline'}
             </span>
           </div>

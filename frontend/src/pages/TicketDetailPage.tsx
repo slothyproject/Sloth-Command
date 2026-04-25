@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { useQuery } from "@tanstack/react-query";
-import { Download } from "lucide-react";
+import { Download, Send } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
 import { toast } from "sonner";
 
@@ -47,6 +47,8 @@ interface TicketMessage {
 export function TicketDetailPage() {
   const { ticketId } = useParams();
   const [assignedTo, setAssignedTo] = useState("");
+  const [replyText, setReplyText] = useState("");
+  const [sendingReply, setSendingReply] = useState(false);
 
   const ticketQuery = useQuery({
     queryKey: ["ticket-detail", ticketId],
@@ -99,6 +101,23 @@ export function TicketDetailPage() {
       await ticketQuery.refetch();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not update assignment.");
+    }
+  }
+
+  async function sendReply() {
+    const content = replyText.trim();
+    if (!content) return;
+    setSendingReply(true);
+    try {
+      await postJson(`/api/tickets/${ticketId}/reply`, { content });
+      setReplyText("");
+      toast.success("Reply posted.");
+      await messagesQuery.refetch();
+      await ticketQuery.refetch();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not post reply.");
+    } finally {
+      setSendingReply(false);
     }
   }
 
@@ -216,6 +235,33 @@ export function TicketDetailPage() {
             <p className="mt-2 rounded-xl border border-white/10 bg-white/5 px-3 py-4 text-center text-sm text-text-2">No ticket messages recorded yet.</p>
           ) : null}
           {messagesQuery.isError ? <p className="mt-2 rounded-xl border border-rose-400/20 bg-rose-400/10 px-3 py-4 text-center text-sm text-rose-200">Could not load ticket transcript.</p> : null}
+
+          {ticket && ticket.status !== "closed" ? (
+            <div className="mt-4 border-t border-white/10 pt-4">
+              <p className="mb-2 font-mono text-[11px] uppercase tracking-[0.18em] text-cyan">Staff reply</p>
+              <div className="flex gap-2">
+                <textarea
+                  value={replyText}
+                  onChange={(e) => setReplyText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                      void sendReply();
+                    }
+                  }}
+                  placeholder="Type a staff reply… (Ctrl+Enter to send)"
+                  rows={3}
+                  className="flex-1 resize-none rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-text-0 outline-none placeholder:text-text-3 focus:border-cyan/40"
+                />
+                <button
+                  onClick={() => void sendReply()}
+                  disabled={sendingReply || !replyText.trim()}
+                  className="self-end rounded-xl border border-cyan/30 bg-cyan/10 px-3 py-2 text-sm text-cyan transition hover:bg-cyan/20 disabled:opacity-40"
+                >
+                  <Send className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          ) : null}
         </div>
       </section>
     </div>

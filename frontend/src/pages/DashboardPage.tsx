@@ -115,7 +115,7 @@ export function DashboardPage() {
     [guilds]
   );
 
-  const { data } = useQuery({
+  const { data, isLoading } = useQuery({
     queryKey: ["overview", eventTick],
     queryFn: () => getJson<OverviewResponse>("/api/overview"),
     retry: false,
@@ -250,14 +250,16 @@ export function DashboardPage() {
         </div>
       </section>
 
-      {/* Trend charts */}
-      {(data?.trend ?? []).length > 0 && (
-        <section className="grid gap-4 lg:grid-cols-2">
-          <div className="dashboard-chrome rounded-[1.6rem] p-5">
-            <div className="mb-4 flex items-center gap-2 text-cyan">
-              <TrendingUp className="h-4 w-4" />
-              <span className="font-mono text-[11px] uppercase tracking-[0.18em]">Ticket trend · 7d</span>
-            </div>
+      {/* Trend charts — always visible; skeleton when data is loading, empty-state when no events yet */}
+      <section className="grid gap-4 lg:grid-cols-2">
+        <div className="dashboard-chrome rounded-[1.6rem] p-5">
+          <div className="mb-4 flex items-center gap-2 text-cyan">
+            <TrendingUp className="h-4 w-4" />
+            <span className="font-mono text-[11px] uppercase tracking-[0.18em]">Ticket trend · 7d</span>
+          </div>
+          {isLoading ? (
+            <div className="dashboard-skeleton h-[180px] rounded-xl" />
+          ) : (data?.trend ?? []).length > 0 ? (
             <ResponsiveContainer width="100%" height={180}>
               <LineChart data={data?.trend ?? []}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(136,192,208,0.1)" />
@@ -267,13 +269,21 @@ export function DashboardPage() {
                 <Line type="monotone" dataKey="tickets" stroke="#88c0d0" strokeWidth={2} dot={{ fill: "#a3be8c", r: 3 }} activeDot={{ r: 5 }} />
               </LineChart>
             </ResponsiveContainer>
-          </div>
-
-          <div className="dashboard-chrome rounded-[1.6rem] p-5">
-            <div className="mb-4 flex items-center gap-2 text-cyan">
-              <Activity className="h-4 w-4" />
-              <span className="font-mono text-[11px] uppercase tracking-[0.18em]">Mod activity · 7d</span>
+          ) : (
+            <div className="flex h-[180px] items-center justify-center rounded-xl border border-white/5 bg-white/5">
+              <p className="text-sm text-text-3">No ticket activity in the last 7 days</p>
             </div>
+          )}
+        </div>
+
+        <div className="dashboard-chrome rounded-[1.6rem] p-5">
+          <div className="mb-4 flex items-center gap-2 text-cyan">
+            <Activity className="h-4 w-4" />
+            <span className="font-mono text-[11px] uppercase tracking-[0.18em]">Mod activity · 7d</span>
+          </div>
+          {isLoading ? (
+            <div className="dashboard-skeleton h-[180px] rounded-xl" />
+          ) : (data?.trend ?? []).length > 0 ? (
             <ResponsiveContainer width="100%" height={180}>
               <BarChart data={data?.trend ?? []}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(136,192,208,0.1)" />
@@ -283,9 +293,13 @@ export function DashboardPage() {
                 <Bar dataKey="cases" fill="#b48ead" radius={[3, 3, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
-          </div>
-        </section>
-      )}
+          ) : (
+            <div className="flex h-[180px] items-center justify-center rounded-xl border border-white/5 bg-white/5">
+              <p className="text-sm text-text-3">No moderation activity in the last 7 days</p>
+            </div>
+          )}
+        </div>
+      </section>
 
       {/* Operational inbox + notifications */}
       <section className="grid gap-4 xl:grid-cols-[1.4fr,1fr]">

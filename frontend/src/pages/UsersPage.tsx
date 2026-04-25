@@ -1,9 +1,9 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Users, UserCheck, Clock } from 'lucide-react'
+import { Users, UserCheck, Clock, Trash2 } from 'lucide-react'
 
 import { formatDate } from '../lib/format'
-import { getJson, patchJson } from '../lib/api'
+import { getJson, patchJson, deleteJson } from '../lib/api'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -54,6 +54,16 @@ export function UsersPage() {
       await usersQuery.refetch()
     } catch (error) {
       console.error('Failed to toggle active:', error)
+    }
+  }
+
+  async function deleteUser(user: UserRecord) {
+    if (!window.confirm(`Delete user "${user.username}"? This cannot be undone.`)) return
+    try {
+      await deleteJson(`/api/users/${user.id}`)
+      await usersQuery.refetch()
+    } catch (error) {
+      console.error('Failed to delete user:', error)
     }
   }
 
@@ -167,6 +177,16 @@ export function UsersPage() {
                     >
                       {user.is_owner ? 'Owner Locked' : user.is_active ? 'Disable' : 'Enable'}
                     </Button>
+                    {!user.is_owner && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => void deleteUser(user)}
+                        title="Delete user"
+                      >
+                        <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                      </Button>
+                    )}
                   </div>
                 </div>
               ))}

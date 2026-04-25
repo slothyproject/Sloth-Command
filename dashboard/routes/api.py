@@ -1365,6 +1365,19 @@ def guild_tickets(guild_id: int):
     })
 
 
+@api_bp.patch("/guilds/<int:guild_id>/members/<int:member_id>")
+@login_required
+@guild_access_required
+def guild_member_update(guild_id: int, member_id: int):
+    """Update can_manage permission for a hub member in this guild."""
+    m = GuildMember.query.filter_by(id=member_id, guild_id=guild_id).first_or_404()
+    data = request.get_json(silent=True) or {}
+    if "can_manage" in data:
+        m.can_manage = bool(data["can_manage"])
+    db.session.commit()
+    return jsonify({"ok": True, "id": m.id, "can_manage": m.can_manage})
+
+
 @api_bp.get("/guilds/<int:guild_id>/members")
 @login_required
 @guild_access_required
@@ -1401,6 +1414,36 @@ def tickets_recent():
         ).order_by(Ticket.created_at.desc()).limit(50).all()
 
     return jsonify([{**t.to_dict(), "guild_name": t.guild.name} for t in tickets])
+
+
+@api_bp.post("/tickets/<int:ticket_id>/reply")
+@login_required
+def ticket_reply(ticket_id: int):
+    """Add a staff reply message to a ticket transcript."""
+    ticket = db.get_or_404(Ticket, ticket_id)
+    guild = db.session.get(Guild, ticket.guild_id)
+    if guild and not current_user.can_manage(guild):
+        return jsonify({"error": "Forbidden"}), 403
+    data = request.get_json(silent=True) or {}
+    content = (data.get("content") or "").strip()
+    if not content:
+        return jsonify({"error": "content is required"}), 400
+    msg = TicketMessage(
+        ticket_id=ticket_id,
+        author_name=current_user.username,
+        content=content,
+        is_staff=True,
+    )
+    db.session.add(msg)
+    ticket.updated_at = datetime.now(timezone.utc)
+    db.session.commit()
+    return jsonify({
+        "id": msg.id,
+        "author_name": msg.author_name,
+        "content": msg.content,
+        "is_staff": msg.is_staff,
+        "created_at": msg.created_at.isoformat(),
+    }), 201
 
 
 @api_bp.get("/tickets/<int:ticket_id>/messages")
@@ -2220,6 +2263,22 @@ def user_update(user_id: int):
     db.session.commit()
     _audit("user_update", target_type="user", target_id=str(user_id), details=data)
     return jsonify({"ok": True, "is_owner": user.is_owner, "is_admin": user.is_admin, "is_active": user.is_active})
+
+
+@api_bp.delete("/users/<int:user_id>")
+@login_required
+@admin_required
+def user_delete(user_id: int):
+    """Permanently delete a hub user account (admin only, cannot delete owners)."""
+    user = db.get_or_404(User, user_id)
+    if user.is_owner:
+        return jsonify({"error": "Cannot delete an owner account"}), 403
+    if user.id == current_user.id:
+        return jsonify({"error": "Cannot delete your own account"}), 403
+    _audit("user_delete", target_type="user", target_id=str(user_id), details={"username": user.username})
+    db.session.delete(user)
+    db.session.commit()
+    return jsonify({"ok": True})
 
 
 # ── Audit log ────────────────────────────────────────────────────
