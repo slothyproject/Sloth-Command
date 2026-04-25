@@ -14,6 +14,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 
 from dashboard.extensions import db, limiter
 from dashboard.routes.api import api_bp
+from dashboard.routes.ai_advisor import advisor_bp
 from dashboard.routes.auth import auth_bp
 from dashboard.routes.core import core_bp
 from dashboard.versioning import get_dashboard_version
@@ -86,6 +87,8 @@ def create_app(config: dict | None = None) -> Flask:
     # ── Blueprints ──────────────────────────────────────────────
     app.register_blueprint(core_bp)
     app.register_blueprint(api_bp, url_prefix="/api")
+    app.register_blueprint(advisor_bp, url_prefix="/api")
+    csrf.exempt(advisor_bp)
     app.register_blueprint(auth_bp, url_prefix="/auth")
 
     # Exempt API routes from CSRF (they use token auth or are read-only)
