@@ -91,6 +91,9 @@ def create_app(config: dict | None = None) -> Flask:
     # Exempt API routes from CSRF (they use token auth or are read-only)
     csrf.exempt(api_bp)
 
+    # Static file routes should never consume rate-limit quota
+    limiter.exempt(core_bp)
+
     # ── Health endpoint ─────────────────────────────────────────
     @app.get("/health")
     def health():
