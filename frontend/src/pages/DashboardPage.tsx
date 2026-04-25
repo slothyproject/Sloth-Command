@@ -1,13 +1,19 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { useQuery } from "@tanstack/react-query";
-import { Activity, Bell, Bot, Shield, Ticket, Users } from "lucide-react";
+import { Activity, Bell, Bot, ChevronRight, Server, Shield, Ticket, TrendingUp, Users } from "lucide-react";
 import { Link } from "react-router-dom";
+import {
+  BarChart, Bar, LineChart, Line,
+  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+} from "recharts";
 
 import { StatCard } from "../components/dashboard/StatCard";
 import { formatDate, formatNumber, formatRelativeDate } from "../lib/format";
 import { getJson } from "../lib/api";
 import { createEventStream } from "../lib/sse";
+import { useAccessibleGuilds, getRoleLabel, getRoleBadgeClass } from "@/lib/permissions";
+import { cn } from "@/lib/cn";
 
 interface GuildSummary {
   id: number;
@@ -63,7 +69,16 @@ interface OverviewResponse {
     unread: number;
     items: NotificationSummary[];
   };
+  trend?: Array<{ date: string; tickets: number; cases: number }>;
 }
+
+const TOOLTIP_STYLE = {
+  backgroundColor: "rgba(13, 18, 30, 0.97)",
+  border: "1px solid rgba(136, 192, 208, 0.2)",
+  borderRadius: "8px",
+  color: "#d8dee9",
+  fontSize: 12,
+} as const;
 
 function getTicketSlaState(createdAt: string, priority: string, status: string) {
   if (status === "closed" || status === "resolved") {
@@ -87,6 +102,18 @@ function getTicketSlaState(createdAt: string, priority: string, status: string) 
 
 export function DashboardPage() {
   const [eventTick, setEventTick] = useState(0);
+  const guilds = useAccessibleGuilds();
+
+  const quickGuilds = useMemo(() =>
+    [...guilds]
+      .sort((a, b) => {
+        const order: Record<string, number> = { owner: 0, manager: 1, admin_override: 2 };
+        return (order[a.role] ?? 9) - (order[b.role] ?? 9);
+      })
+      .slice(0, 6),
+    [guilds]
+  );
+
   const { data } = useQuery({
     queryKey: ["overview", eventTick],
     queryFn: () => getJson<OverviewResponse>("/api/overview"),
@@ -131,6 +158,7 @@ export function DashboardPage() {
 
   return (
     <div className="space-y-6">
+      {/* Hero header */}
       <section className="dashboard-chrome rounded-[1.8rem] p-6">
         <p className="font-mono text-[11px] uppercase tracking-[0.24em] text-accent">Sloth Dojo</p>
         <div className="mt-3 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
@@ -153,6 +181,43 @@ export function DashboardPage() {
         </div>
       </section>
 
+      {/* Your Servers quick-access */}
+      {quickGuilds.length > 0 && (
+        <section>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-semibold text-text-3 uppercase tracking-wider">Your Servers</h2>
+            <Link to="/servers" className="text-xs text-cyan hover:underline flex items-center gap-1">
+              View all <ChevronRight className="w-3 h-3" />
+            </Link>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+            {quickGuilds.map((g) => {
+              const roleClass = getRoleBadgeClass(g.role);
+              return (
+                <Link
+                  key={g.id}
+                  to={`/servers/${g.id}`}
+                  className="group flex flex-col items-center gap-2 p-3 bg-surface/50 border border-cyan/10 hover:border-cyan/40 rounded-xl transition-all hover:-translate-y-0.5 text-center"
+                >
+                  {g.icon_url ? (
+                    <img src={g.icon_url} alt={g.name} className="w-10 h-10 rounded-xl border border-cyan/20 object-cover" />
+                  ) : (
+                    <div className="w-10 h-10 rounded-xl bg-cyan/10 border border-cyan/20 flex items-center justify-center">
+                      <Server className="w-5 h-5 text-cyan/50" />
+                    </div>
+                  )}
+                  <p className="text-xs font-medium text-text-2 group-hover:text-cyan transition-colors truncate w-full">{g.name}</p>
+                  <span className={cn("text-[9px] font-bold px-1.5 py-0.5 rounded-full w-full text-center", roleClass)}>
+                    {getRoleLabel(g.role)}
+                  </span>
+                </Link>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
+      {/* Stat cards */}
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Guilds" value={formatNumber(data?.stats.guilds)} meta="Connected servers in scope" icon={<Users className="h-5 w-5" />} />
         <StatCard label="Members" value={formatNumber(data?.stats.members)} meta="Tracked member footprint" icon={<Shield className="h-5 w-5" />} />
@@ -160,6 +225,7 @@ export function DashboardPage() {
         <StatCard label="Uptime" value={data?.stats.uptime ?? "--"} meta={`Version ${data?.stats.version ?? "--"}`} icon={<Bot className="h-5 w-5" />} />
       </section>
 
+      {/* Ticket SLA */}
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <div className="dashboard-chrome rounded-[1.6rem] p-5">
           <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-amber-200">Awaiting ack</p>
@@ -183,6 +249,44 @@ export function DashboardPage() {
         </div>
       </section>
 
+      {/* Trend charts */}
+      {(data?.trend ?? []).length > 0 && (
+        <section className="grid gap-4 lg:grid-cols-2">
+          <div className="dashboard-chrome rounded-[1.6rem] p-5">
+            <div className="mb-4 flex items-center gap-2 text-cyan">
+              <TrendingUp className="h-4 w-4" />
+              <span className="font-mono text-[11px] uppercase tracking-[0.18em]">Ticket trend · 7d</span>
+            </div>
+            <ResponsiveContainer width="100%" height={180}>
+              <LineChart data={data?.trend ?? []}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(136,192,208,0.1)" />
+                <XAxis dataKey="date" stroke="rgba(255,255,255,0.3)" tick={{ fontSize: 11 }} />
+                <YAxis stroke="rgba(255,255,255,0.3)" tick={{ fontSize: 11 }} allowDecimals={false} />
+                <Tooltip contentStyle={TOOLTIP_STYLE} />
+                <Line type="monotone" dataKey="tickets" stroke="#88c0d0" strokeWidth={2} dot={{ fill: "#a3be8c", r: 3 }} activeDot={{ r: 5 }} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+
+          <div className="dashboard-chrome rounded-[1.6rem] p-5">
+            <div className="mb-4 flex items-center gap-2 text-cyan">
+              <Activity className="h-4 w-4" />
+              <span className="font-mono text-[11px] uppercase tracking-[0.18em]">Mod activity · 7d</span>
+            </div>
+            <ResponsiveContainer width="100%" height={180}>
+              <BarChart data={data?.trend ?? []}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(136,192,208,0.1)" />
+                <XAxis dataKey="date" stroke="rgba(255,255,255,0.3)" tick={{ fontSize: 11 }} />
+                <YAxis stroke="rgba(255,255,255,0.3)" tick={{ fontSize: 11 }} allowDecimals={false} />
+                <Tooltip contentStyle={TOOLTIP_STYLE} />
+                <Bar dataKey="cases" fill="#b48ead" radius={[3, 3, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </section>
+      )}
+
+      {/* Operational inbox + notifications */}
       <section className="grid gap-4 xl:grid-cols-[1.4fr,1fr]">
         <div className="grid gap-4">
           <div className="dashboard-chrome rounded-[1.6rem] p-5">
@@ -240,10 +344,10 @@ export function DashboardPage() {
             <p className="mb-4 font-mono text-[11px] uppercase tracking-[0.18em] text-cyan">Guild focus</p>
             <div className="grid gap-3 md:grid-cols-2">
               {topGuilds.map((guild) => (
-                <div key={guild.id} className="rounded-2xl border border-line bg-white/5 p-4">
+                <Link key={guild.id} to={`/servers/${guild.id}`} className="rounded-2xl border border-line bg-white/5 p-4 hover:border-cyan/30 transition-colors">
                   <p className="text-sm font-medium text-text-0">{guild.name}</p>
                   <p className="mt-1 text-xs text-text-2">{formatNumber(guild.member_count)} members</p>
-                </div>
+                </Link>
               ))}
             </div>
           </div>
