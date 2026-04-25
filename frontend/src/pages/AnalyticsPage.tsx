@@ -32,6 +32,8 @@ interface AnalyticsSummary {
     commands_today: number
     cog_count: number
     version: string
+    guild_count: number
+    member_count: number
     cpu_percent: number
     memory_percent: number
     memory_mb: number
@@ -106,7 +108,8 @@ export function AnalyticsPage() {
   const hasModData = (data?.action_timeline ?? []).some((d) => d.count > 0)
   const hasTicketData = (data?.ticket_timeline ?? []).some((d) => d.count > 0)
   const hasServerEventData = (data?.server_timeline ?? []).some((d) => d.joins > 0 || d.leaves > 0)
-  const hasGuildBreakdown = (data?.guilds_by_members ?? []).some((g) => g.members > 0)
+  // Guild breakdown: show if we have any guilds (Redis always has these when bot is online)
+  const hasGuildBreakdown = (data?.guilds_by_members ?? []).length > 0
 
   return (
     <div className="space-y-8">
@@ -206,10 +209,10 @@ export function AnalyticsPage() {
           </CardContent>
         </Card>
 
-        {/* Summary Stat Cards */}
+        {/* Summary Stat Cards — prefer live Redis counts over DB aggregates */}
         <div className="lg:col-span-2 grid grid-cols-2 sm:grid-cols-3 gap-4 content-start">
-          <StatCard icon={<Server className="w-4 h-4 text-cyan" />} label="Servers" value={isLoading ? '-' : totals?.servers ?? 0} size="sm" />
-          <StatCard icon={<Users className="w-4 h-4 text-cyan" />} label="Total Members" value={isLoading ? '-' : (totals?.members ?? 0).toLocaleString()} size="sm" />
+          <StatCard icon={<Server className="w-4 h-4 text-cyan" />} label="Servers" value={isLoading ? '-' : (bot?.guild_count || totals?.servers || 0)} size="sm" />
+          <StatCard icon={<Users className="w-4 h-4 text-cyan" />} label="Total Members" value={isLoading ? '-' : ((bot?.member_count || totals?.members || 0).toLocaleString())} size="sm" />
           <StatCard icon={<Zap className="w-4 h-4 text-amber-400" />} label={`Mod Actions (${dateRange})`} value={isLoading ? '-' : totalActions} size="sm" />
           <StatCard icon={<Shield className="w-4 h-4 text-red-400" />} label="All-Time Cases" value={isLoading ? '-' : totals?.mod_cases_all_time ?? 0} size="sm" />
           <StatCard icon={<TrendingUp className="w-4 h-4 text-lime" />} label="Tickets Open" value={isLoading ? '-' : totals?.tickets_open ?? 0} size="sm" />

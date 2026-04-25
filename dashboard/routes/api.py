@@ -1613,15 +1613,43 @@ def analytics_summary():
         "tickets_open": total_ticket_q.filter(Ticket.status == "open").count(),
     }
 
-    # ── Guild member breakdown (for chart) ───────────────────────
-    guilds_by_members = [
-        {"name": g.name, "members": g.member_count or 0, "id": g.id}
-        for g in server_q.order_by(Guild.member_count.desc()).limit(10).all()
-    ]
-
-    # ── Bot health from Redis ─────────────────────────────────────
+    # ── Bot state from Redis (written every 2s by the live bot) ──
     bot = get_bot_state()
     health = bot.get("health") or {}
+
+    # ── Guild member breakdown ─────────────────────────────────────
+    # Primary: Redis guild list (always live, bot writes member_count every 2s)
+    redis_guilds = bot.get("guilds", [])
+    if redis_guilds:
+        guilds_by_members = sorted(
+            [
+                {
+                    "name": g.get("name", "Unknown"),
+                    "members": g.get("member_count", 0),
+                    "id": g.get("id", ""),
+                }
+                for g in redis_guilds
+                if g.get("member_count", 0) > 0
+            ],
+            key=lambda x: x["members"],
+            reverse=True,
+        )[:10]
+    else:
+        # Fallback to DB when Redis bot state is unavailable
+        guilds_by_members = [
+            {"name": g.name, "members": g.member_count or 0, "id": str(g.id)}
+            for g in server_q.order_by(Guild.member_count.desc()).limit(10).all()
+            if (g.member_count or 0) > 0
+        ]
+
+    # ── Use live Redis counts for totals (more accurate than DB aggregates) ──
+    live_servers = bot.get("guild_count", 0)
+    live_members = bot.get("member_count", 0)
+
+    # Fill totals — prefer Redis live counts for servers/members
+    totals["servers"] = live_servers or totals["servers"]
+    totals["members"] = live_members or totals["members"]
+
     bot_health = {
         "online": bot.get("online", False),
         "uptime": bot.get("uptime", "offline"),
@@ -1630,6 +1658,8 @@ def analytics_summary():
         "commands_today": bot.get("commands_today", 0),
         "cog_count": bot.get("cog_count", 0),
         "version": bot.get("version", "unknown"),
+        "guild_count": bot.get("guild_count", 0),
+        "member_count": bot.get("member_count", 0),
         "cpu_percent": health.get("cpu_percent", 0),
         "memory_percent": health.get("memory_percent", 0),
         "memory_mb": health.get("memory_mb", 0),
