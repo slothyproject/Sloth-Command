@@ -24,6 +24,7 @@ export function AnalyticsPage() {
     retry: 1,
     staleTime: 60_000,
     refetchInterval: 60_000,
+    refetchOnMount: true,
   })
 
   return (

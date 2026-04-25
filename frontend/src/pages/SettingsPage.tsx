@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { getJson, postJson } from "../lib/api";
 import { useAuthStore } from "../store/authStore";
@@ -333,6 +333,25 @@ export function SettingsPage() {
     }
   }
 
+  const queryClient = useQueryClient();
+
+  const cogsQuery = useQuery<{ cog: string; commands: unknown[]; count: number }[]>({
+    queryKey: ["bot-cogs"],
+    queryFn: () => getJson("/api/bot/cogs"),
+    staleTime: 60_000,
+    retry: false,
+  });
+
+  const toggleCogMutation = useMutation({
+    mutationFn: ({ cog_name, enabled }: { cog_name: string; enabled: boolean }) =>
+      postJson("/api/bot/command", { command: "toggle_cog", payload: { cog_name, enabled } }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["bot-cogs"] });
+      setStatus("Cog toggle sent to bot.");
+    },
+    onError: () => setStatus("Failed to toggle cog."),
+  });
+
   async function runAdminAction(action: "sync_guilds" | "clear_cache" | "reload_config") {
     try {
       await postJson(`/api/actions/${action}`);
@@ -537,6 +556,37 @@ export function SettingsPage() {
           <p className="mt-3 text-xs text-text-2">{status}</p>
         </article>
       </section>
+
+      {/* Cog Management */}
+      {user?.is_admin && (
+        <section className="rounded-2xl border border-white/10 bg-panel/80 p-5 shadow-panel">
+          <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-cyan">Cog management</p>
+          <p className="mt-1 text-sm text-text-2">Toggle bot modules (cogs) on or off. Changes take effect immediately.</p>
+          {cogsQuery.isLoading && <p className="mt-4 text-xs text-text-2">Loading cogs…</p>}
+          {cogsQuery.isError && <p className="mt-4 text-xs text-danger">Could not load cog list.</p>}
+          {cogsQuery.data && (
+            <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              {cogsQuery.data.map(({ cog, count }) => (
+                <div
+                  key={cog}
+                  className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-3 py-2"
+                >
+                  <span className="text-sm text-text-1 truncate flex-1 mr-2" title={cog}>{cog}</span>
+                  <span className="text-[10px] text-text-3 mr-3 flex-shrink-0">{count} cmd{count !== 1 ? 's' : ''}</span>
+                  <button
+                    onClick={() => toggleCogMutation.mutate({ cog_name: cog, enabled: false })}
+                    disabled={toggleCogMutation.isPending}
+                    title="Unload cog"
+                    className="text-xs text-danger hover:text-danger/70 transition flex-shrink-0"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
     </div>
   );
 }

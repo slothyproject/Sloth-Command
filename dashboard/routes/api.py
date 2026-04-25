@@ -292,7 +292,7 @@ def send_bot_command():
     command = data.get("command")
     if not command:
         return jsonify({"error": "command required"}), 400
-    allowed = {"sync_guilds", "clear_cache", "reload_config", "restart_cog", "reload_cog"}
+    allowed = {"sync_guilds", "clear_cache", "reload_config", "restart_cog", "reload_cog", "toggle_cog"}
     if command not in allowed:
         return jsonify({"error": f"unknown command: {command}"}), 400
     push_bot_command(command, data.get("payload", {}))
@@ -1186,6 +1186,24 @@ def ticket_messages(ticket_id: int):
         "is_staff": m.is_staff,
         "created_at": m.created_at.isoformat(),
     } for m in msgs])
+
+
+@api_bp.get("/tickets/<int:ticket_id>")
+@login_required
+def ticket_detail(ticket_id: int):
+    """Return metadata for a single ticket."""
+    ticket = db.get_or_404(Ticket, ticket_id)
+    guild = db.session.get(Guild, ticket.guild_id)
+    if guild and not current_user.can_manage(guild):
+        return jsonify({"error": "Forbidden"}), 403
+    data = ticket.to_dict()
+    data["guild_name"] = guild.name if guild else None
+    data["opener_id"] = ticket.opener_id
+    data["opener_name"] = ticket.opener_name
+    data["closed_by"] = ticket.closed_by
+    data["closed_reason"] = ticket.closed_reason
+    data["closed_at"] = ticket.closed_at.isoformat() if ticket.closed_at else None
+    return jsonify(data)
 
 
 

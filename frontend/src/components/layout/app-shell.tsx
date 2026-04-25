@@ -134,7 +134,8 @@ const SidebarContent: React.FC<SidebarContentProps> = ({ isCollapsed, currentPat
     { label: 'Moderation', href: '/moderation', icon: <ShieldAlert className="w-5 h-5" /> },
     { label: 'Analytics', href: '/analytics', icon: <BarChart3 className="w-5 h-5" /> },
     { label: 'AI Advisor', href: '/ai-advisor', icon: <Bot className="w-5 h-5" /> },
-    { label: 'Logs', href: '/logs', icon: <ScrollText className="w-5 h-5" />, badge: unreadCount > 0 ? unreadCount : undefined },
+    { label: 'Notifications', href: '/notifications', icon: <Bell className="w-5 h-5" />, badge: unreadCount > 0 ? unreadCount : undefined },
+    { label: 'Logs', href: '/logs', icon: <ScrollText className="w-5 h-5" /> },
     { label: 'Users', href: '/users', icon: <Users className="w-5 h-5" />, adminOnly: true },
     { label: 'Settings', href: '/settings', icon: <Settings className="w-5 h-5" /> },
   ]

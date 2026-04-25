@@ -19,6 +19,7 @@ const LogsPage = lazy(() => import("./pages/LogsPage").then((m) => ({ default: m
 const UsersPage = lazy(() => import("./pages/UsersPage").then((m) => ({ default: m.UsersPage })));
 const SettingsPage = lazy(() => import("./pages/SettingsPage").then((m) => ({ default: m.SettingsPage })));
 const ServerDetailPage = lazy(() => import("./pages/ServerDetailPage").then((m) => ({ default: m.ServerDetailPage })));
+const NotificationsPage = lazy(() => import("./pages/NotificationsPage").then((m) => ({ default: m.NotificationsPage })));
 
 function SessionBootstrap() {
   const { status, setAnonymous, setAuthenticated, setLoading } = useAuthStore();
@@ -74,6 +75,7 @@ function SessionBootstrap() {
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/logs" element={<LogsPage />} />
           <Route path="/users" element={<UsersPage />} />
+          <Route path="/notifications" element={<NotificationsPage />} />
         </Route>
         
         <Route path="*" element={<Navigate to="/dashboard" replace />} />

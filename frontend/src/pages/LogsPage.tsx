@@ -24,28 +24,10 @@ export function LogsPage() {
 
   const logsQuery = useQuery({
     queryKey: ['audit-log'],
-    queryFn: () =>
-      getJson<AuditEntry[]>('/api/audit?limit=100').catch(() => [
-        {
-          id: 1,
-          action: 'user.created',
-          actor: 'system',
-          guild: 'Main Server',
-          target_type: 'user',
-          target_id: '123456',
-          created_at: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
-        },
-        {
-          id: 2,
-          action: 'ticket.resolved',
-          actor: 'admin_user',
-          guild: 'Support',
-          target_type: 'ticket',
-          target_id: '42',
-          created_at: new Date(Date.now() - 15 * 60 * 1000).toISOString(),
-        },
-      ]),
-    retry: false,
+    queryFn: () => getJson<AuditEntry[]>('/api/audit?limit=100'),
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+    retry: 1,
   })
 
   const filteredLogs = (logsQuery.data || []).filter(
