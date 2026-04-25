@@ -1262,14 +1262,166 @@ def guild_moderation_action(guild_id: int):
     return jsonify(result), status
 
 
+# ── Phase 24: Risk profile + Appeals ─────────────────────────────
+
+@api_bp.get("/guilds/<int:guild_id>/members/<string:discord_id>/risk-profile")
+@login_required
+@guild_access_required
+def guild_member_risk_profile(guild_id: int, discord_id: str):
+    """Aggregate moderation cases for a Discord member and return a risk profile."""
+    db.get_or_404(Guild, guild_id)
+
+    now = datetime.now(timezone.utc)
+    cutoff_30d = now - timedelta(days=30)
+
+    cases_all = ModerationCase.query.filter_by(guild_id=guild_id, target_id=discord_id).all()
+    cases_recent = [c for c in cases_all if c.created_at and c.created_at >= cutoff_30d]
+    open_cases = [c for c in cases_all if c.is_active]
+
+    # Action weights for risk score
+    weights = {"global_ban": 10, "ban": 8, "kick": 5, "mute": 3, "warn": 1, "unban": -2, "unmute": -1}
+    score = sum(weights.get(c.action, 1) for c in cases_all)
+    score = max(0, min(score, 100))
+
+    # Tier thresholds
+    if score >= 20:
+        tier = "critical"
+    elif score >= 10:
+        tier = "high"
+    elif score >= 4:
+        tier = "guarded"
+    else:
+        tier = "low"
+
+    # Action breakdown
+    breakdown: dict[str, int] = {}
+    for c in cases_all:
+        breakdown[c.action] = breakdown.get(c.action, 0) + 1
+
+    # Count open appeal tickets linked to this discord_id
+    open_appeals = Ticket.query.filter(
+        Ticket.guild_id == guild_id,
+        Ticket.status == "open",
+        Ticket.subject.ilike(f"%appeal%{discord_id}%"),
+    ).count()
+    # Fallback: check opener_id
+    if open_appeals == 0:
+        open_appeals = Ticket.query.filter(
+            Ticket.guild_id == guild_id,
+            Ticket.status == "open",
+            Ticket.opener_id == discord_id,
+            Ticket.subject.ilike("%appeal%"),
+        ).count()
+
+    return jsonify({
+        "member_id": discord_id,
+        "risk_score": score,
+        "risk_tier": tier,
+        "case_count_total": len(cases_all),
+        "case_count_recent_30d": len(cases_recent),
+        "open_case_count": len(open_cases),
+        "open_appeal_count": open_appeals,
+        "action_breakdown": [{"action": k, "count": v} for k, v in sorted(breakdown.items())],
+    })
+
+
+@api_bp.get("/guilds/<int:guild_id>/appeals")
+@login_required
+@guild_access_required
+def guild_appeals_list(guild_id: int):
+    """List appeal tickets for a guild, optionally filtered by member discord_id."""
+    db.get_or_404(Guild, guild_id)
+    member_id = request.args.get("member_id")
+    page = int(request.args.get("page", 1))
+    per_page = min(int(request.args.get("per_page", 25)), 100)
+
+    q = Ticket.query.filter_by(guild_id=guild_id).filter(
+        Ticket.subject.ilike("%appeal%")
+    )
+    if member_id:
+        q = q.filter(
+            db.or_(
+                Ticket.opener_id == member_id,
+                Ticket.subject.ilike(f"%{member_id}%"),
+            )
+        )
+
+    total = q.count()
+    tickets = q.order_by(Ticket.created_at.desc()).paginate(
+        page=page, per_page=per_page, error_out=False
+    )
+    items = [_serialize_ticket_for_dashboard(t) for t in tickets.items]
+    return jsonify({"total": total, "page": page, "per_page": per_page, "tickets": items})
+
+
+@api_bp.post("/guilds/<int:guild_id>/appeals")
+@login_required
+@guild_access_required
+def guild_appeals_create(guild_id: int):
+    """Open an appeal ticket linked to a moderation case."""
+    guild = db.get_or_404(Guild, guild_id)
+    data = request.get_json(silent=True) or {}
+
+    member_id = str(data.get("member_id", "")).strip()
+    member_name = str(data.get("member_name", member_id)).strip()
+    case_number = data.get("case_number")
+    reason = str(data.get("reason", "Appeal request")).strip()
+    priority = str(data.get("priority", "normal")).strip()
+
+    if not member_id:
+        return jsonify({"error": "member_id is required"}), 400
+    if priority not in ("low", "normal", "high", "urgent"):
+        priority = "normal"
+
+    subject = f"Appeal – Case #{case_number} – {member_id}" if case_number else f"Appeal – {member_name}"
+
+    ticket_num = Ticket.query.filter_by(guild_id=guild_id).count() + 1
+    ticket = Ticket(
+        guild_id=guild_id,
+        ticket_number=ticket_num,
+        opener_id=member_id,
+        opener_name=member_name,
+        subject=subject,
+        status="open",
+        priority=priority,
+    )
+    db.session.add(ticket)
+    db.session.flush()
+
+    # Add opening message
+    msg = TicketMessage(
+        ticket_id=ticket.id,
+        author_id=member_id,
+        author_name=member_name,
+        content=reason,
+        is_staff=False,
+    )
+    db.session.add(msg)
+    ticket.message_count = 1
+    db.session.commit()
+
+    _audit("appeal_ticket_created", guild_id=guild_id, target_type="ticket", target_id=str(ticket.id),
+           details={"case_number": case_number, "member_id": member_id})
+    _notify_admins(
+        "ticket_open",
+        f"Appeal ticket #{ticket_num} opened",
+        body=f"{member_name} appealed case #{case_number} in {guild.name}",
+        link=f"/app/tickets/{ticket.id}",
+        guild_id=guild_id,
+    )
+
+    return jsonify({"ok": True, "ticket": _serialize_ticket_for_dashboard(ticket)}), 201
+
+
 @api_bp.get("/moderation/global-bans")
 @login_required
 def get_global_bans():
     """List global bans stored in the hub."""
     cases = ModerationCase.query.filter_by(action="global_ban").order_by(
         ModerationCase.created_at.desc()
-    ).limit(100).all()
-    return jsonify([c.to_dict() for c in cases])
+    ).limit(200).all()
+    items = [c.to_dict() for c in cases]
+    return jsonify({"total": len(items), "cases": items})
 
 
 @api_bp.post("/moderation/global-bans")
@@ -1278,7 +1430,7 @@ def create_global_ban():
     """Create a cross-server ban via the Dissident bot backend."""
     data = request.get_json(silent=True) or {}
     user_id = str(data.get("user_id", ""))
-    username = data.get("username", "")
+    username = data.get("user_name") or data.get("username", "")
     reason = data.get("reason", "")
     evidence = data.get("evidence", "")
     source_guild_id = data.get("source_guild_id")

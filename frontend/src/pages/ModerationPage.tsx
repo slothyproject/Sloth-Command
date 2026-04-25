@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { Search, AlertTriangle, Shield, Clock, Download } from 'lucide-react'
+import { Search, AlertTriangle, Shield, Clock, Download, Ban, Plus } from 'lucide-react'
 
 import { formatDate } from '../lib/format'
-import { getJson, postJson, patchJson } from '../lib/api'
+import { getJson, postJson, patchJson, deleteJson } from '../lib/api'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -64,7 +64,18 @@ interface AppealResponse {
   tickets: AppealTicket[];
 }
 
+interface GlobalBan {
+  id: number;
+  case_number: number;
+  target_id: string;
+  target_name?: string | null;
+  moderator_name?: string | null;
+  reason?: string | null;
+  created_at: string;
+}
+
 export function ModerationPage() {
+  const [tab, setTab] = useState<"cases" | "global-bans">("cases");
   const [selectedGuild, setSelectedGuild] = useState<number | null>(null);
   const [page, setPage] = useState(1);
   const [action, setAction] = useState("");
@@ -76,6 +87,11 @@ export function ModerationPage() {
   const [confirmBulkOpen, setConfirmBulkOpen] = useState(false);
   const [editReason, setEditReason] = useState("");
   const [savingReason, setSavingReason] = useState(false);
+  const [gbTargetId, setGbTargetId] = useState("");
+  const [gbReason, setGbReason] = useState("");
+  const [gbTargetName, setGbTargetName] = useState("");
+
+  const queryClient = useQueryClient();
 
   const guildsQuery = useQuery({
     queryKey: ["guilds"],
@@ -119,6 +135,23 @@ export function ModerationPage() {
     queryFn: () => getJson<AppealResponse>(`/api/guilds/${selectedGuild}/appeals?member_id=${encodeURIComponent(activeCase?.target_id ?? "")}&per_page=6`),
     enabled: selectedGuild != null && Boolean(activeCase?.target_id),
     retry: false,
+  });
+
+  const globalBansQuery = useQuery({
+    queryKey: ["global-bans"],
+    queryFn: () => getJson<{ cases: GlobalBan[]; total: number }>("/api/moderation/global-bans"),
+    retry: false,
+  });
+
+  const addGlobalBanMutation = useMutation({
+    mutationFn: (payload: { user_id: string; user_name?: string; reason?: string }) =>
+      postJson("/api/moderation/global-bans", payload),
+    onSuccess: () => {
+      toast.success("Global ban added.");
+      setGbTargetId(""); setGbReason(""); setGbTargetName("");
+      void queryClient.invalidateQueries({ queryKey: ["global-bans"] });
+    },
+    onError: (err: Error) => toast.error(err.message || "Failed to add global ban."),
   });
 
   useEffect(() => {
@@ -362,8 +395,28 @@ export function ModerationPage() {
         <p className="font-mono text-[11px] uppercase tracking-[0.24em] text-cyan">Moderation</p>
         <h2 className="mt-3 text-3xl font-semibold text-text-0">React moderation workspace</h2>
         <p className="mt-3 max-w-3xl text-sm leading-6 text-text-2">This view is already running against the live moderation API. Select a guild, filter by action, and search the current page while we layer in bulk actions and member deep-dive workflows next.</p>
+        <div className="mt-5 flex gap-2">
+          <button
+            onClick={() => setTab("cases")}
+            className={`rounded-xl border px-4 py-2 text-sm font-medium transition ${tab === "cases" ? "border-cyan/40 bg-cyan/15 text-cyan" : "border-white/10 bg-white/5 text-text-2 hover:text-text-1"}`}
+          >
+            <Shield className="inline w-4 h-4 mr-1.5 -mt-0.5" />
+            Cases
+          </button>
+          <button
+            onClick={() => setTab("global-bans")}
+            className={`rounded-xl border px-4 py-2 text-sm font-medium transition ${tab === "global-bans" ? "border-rose-400/40 bg-rose-400/15 text-rose-200" : "border-white/10 bg-white/5 text-text-2 hover:text-text-1"}`}
+          >
+            <Ban className="inline w-4 h-4 mr-1.5 -mt-0.5" />
+            Global Bans
+            {(globalBansQuery.data?.total ?? 0) > 0 && (
+              <span className="ml-2 rounded-full bg-rose-400/20 px-2 py-0.5 text-xs text-rose-200">{globalBansQuery.data?.total}</span>
+            )}
+          </button>
+        </div>
       </section>
 
+      {tab === "cases" && (
       <section className="grid gap-4 xl:grid-cols-[320px,1fr]">
         <aside className="rounded-2xl border border-white/10 bg-panel/80 p-5 shadow-panel">
           <p className="mb-4 font-mono text-[11px] uppercase tracking-[0.18em] text-cyan">Filters</p>
@@ -585,6 +638,92 @@ export function ModerationPage() {
           </div>
         </div>
       </section>
+      )}
+
+      {/* ── Global Bans Tab ──────────────────────────── */}
+      {tab === "global-bans" && (
+        <section className="rounded-2xl border border-white/10 bg-panel/80 p-5 shadow-panel space-y-5">
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-rose-300">Global Ban List</p>
+              <h3 className="mt-2 text-xl font-semibold text-text-0">Cross-server bans</h3>
+            </div>
+            <span className="rounded-full border border-rose-400/30 bg-rose-400/10 px-3 py-1 text-xs text-rose-200">{globalBansQuery.data?.total ?? 0} total</span>
+          </div>
+
+          {/* Add form */}
+          <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+            <p className="mb-3 font-mono text-[11px] uppercase tracking-[0.14em] text-text-2">Add Global Ban</p>
+            <div className="flex flex-wrap gap-2">
+              <input
+                value={gbTargetId}
+                onChange={(e) => setGbTargetId(e.target.value)}
+                placeholder="Discord user ID"
+                className="w-48 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-text-0 outline-none placeholder:text-text-3 focus:border-cyan/40"
+              />
+              <input
+                value={gbTargetName}
+                onChange={(e) => setGbTargetName(e.target.value)}
+                placeholder="Username (optional)"
+                className="w-44 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-text-0 outline-none placeholder:text-text-3 focus:border-cyan/40"
+              />
+              <input
+                value={gbReason}
+                onChange={(e) => setGbReason(e.target.value)}
+                placeholder="Reason"
+                className="flex-1 min-w-[200px] rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-text-0 outline-none placeholder:text-text-3 focus:border-cyan/40"
+              />
+              <button
+                disabled={!gbTargetId.trim() || addGlobalBanMutation.isPending}
+                onClick={() => addGlobalBanMutation.mutate({ user_id: gbTargetId.trim(), user_name: gbTargetName.trim() || undefined, reason: gbReason.trim() || undefined })}
+                className="flex items-center gap-1.5 rounded-xl border border-rose-400/30 bg-rose-400/15 px-4 py-2 text-sm text-rose-200 transition hover:bg-rose-400/25 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <Plus className="w-4 h-4" />
+                {addGlobalBanMutation.isPending ? "Banning…" : "Add Ban"}
+              </button>
+            </div>
+          </div>
+
+          {/* Table */}
+          {globalBansQuery.isLoading ? (
+            <p className="text-sm text-text-2">Loading global bans…</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full border-separate border-spacing-y-2 text-left text-sm text-text-1">
+                <thead className="text-xs uppercase tracking-[0.18em] text-text-2">
+                  <tr>
+                    <th className="px-3 py-2">Case</th>
+                    <th className="px-3 py-2">Target</th>
+                    <th className="px-3 py-2">Discord ID</th>
+                    <th className="px-3 py-2">Moderator</th>
+                    <th className="px-3 py-2">Reason</th>
+                    <th className="px-3 py-2">Date</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(globalBansQuery.data?.cases ?? []).length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="rounded-2xl border border-white/10 bg-white/5 px-4 py-6 text-center text-sm text-text-2">No global bans on record.</td>
+                    </tr>
+                  ) : null}
+                  {(globalBansQuery.data?.cases ?? []).map((ban) => (
+                    <tr key={ban.id} className="rounded-2xl">
+                      <td className="rounded-l-2xl border-y border-l border-white/10 bg-white/5 px-3 py-3">
+                        <span className="font-mono text-xs text-text-2">#{ban.case_number}</span>
+                      </td>
+                      <td className="border-y border-white/10 bg-white/5 px-3 py-3 text-text-0">{ban.target_name ?? "—"}</td>
+                      <td className="border-y border-white/10 bg-white/5 px-3 py-3 font-mono text-xs text-text-2">{ban.target_id}</td>
+                      <td className="border-y border-white/10 bg-white/5 px-3 py-3">{ban.moderator_name ?? "—"}</td>
+                      <td className="border-y border-white/10 bg-white/5 px-3 py-3 max-w-[260px] truncate">{ban.reason ?? "—"}</td>
+                      <td className="rounded-r-2xl border-y border-r border-white/10 bg-white/5 px-3 py-3 text-xs text-text-2">{formatDate(ban.created_at)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      )}
     </div>
   );
 }
