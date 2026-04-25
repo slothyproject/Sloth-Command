@@ -1800,22 +1800,131 @@ def analytics_summary():
         reverse=True,
     )[:10]
 
-    # ── Top moderators by case count ─────────────────────────────
+    # ── Top moderators by case count (use moderator_name) ────────
     top_mod_rows = (
         _mod_q()
         .with_entities(
-            ModerationCase.moderator_discord_id,
+            ModerationCase.moderator_name,
+            ModerationCase.moderator_id,
             sa_func.count(ModerationCase.id).label("n"),
         )
-        .group_by(ModerationCase.moderator_discord_id)
+        .group_by(ModerationCase.moderator_name, ModerationCase.moderator_id)
         .order_by(sa_func.count(ModerationCase.id).desc())
         .limit(10)
         .all()
     )
     top_moderators = [
-        {"moderator": row.moderator_discord_id or "system", "count": row.n}
+        {
+            "moderator": row.moderator_name or row.moderator_id or "system",
+            "count": row.n,
+        }
         for row in top_mod_rows
     ]
+
+    # ── Ticket resolution metrics ─────────────────────────────────
+    closed_tickets_in_range = (
+        _ticket_q()
+        .filter(
+            Ticket.status.in_(["closed", "resolved"]),
+            Ticket.closed_at.isnot(None),
+        )
+        .with_entities(Ticket.created_at, Ticket.closed_at)
+        .all()
+    )
+    resolution_secs = [
+        (r.closed_at - r.created_at).total_seconds()
+        for r in closed_tickets_in_range
+        if r.closed_at and r.created_at and r.closed_at > r.created_at
+    ]
+    avg_ticket_resolution_hours: float | None = (
+        round(sum(resolution_secs) / len(resolution_secs) / 3600, 1)
+        if resolution_secs else None
+    )
+    tickets_in_range_total = _ticket_q().count()
+    ticket_resolution_rate: float | None = (
+        round(len(closed_tickets_in_range) / tickets_in_range_total * 100, 1)
+        if tickets_in_range_total > 0 else None
+    )
+
+    # ── Period-over-period comparison (previous same-length window) ──
+    prev_since = since - timedelta(days=days)
+
+    def _prev_mod_q():
+        q = ModerationCase.query.filter(
+            ModerationCase.created_at >= prev_since,
+            ModerationCase.created_at < since,
+        )
+        if guild_filter is not None:
+            q = q.filter(ModerationCase.guild_id.in_(guild_filter))
+        return q
+
+    def _prev_ticket_q():
+        q = Ticket.query.filter(
+            Ticket.created_at >= prev_since,
+            Ticket.created_at < since,
+        )
+        if guild_filter is not None:
+            q = q.filter(Ticket.guild_id.in_(guild_filter))
+        return q
+
+    prev_cmd_q = BotEvent.query.filter(
+        BotEvent.event_type == "command_use",
+        BotEvent.created_at >= prev_since,
+        BotEvent.created_at < since,
+    )
+    if guild_filter is not None:
+        prev_cmd_q = prev_cmd_q.filter(
+            db.or_(BotEvent.guild_id.in_(guild_filter), BotEvent.guild_id.is_(None))
+        )
+
+    prev_period = {
+        "mod_count": _prev_mod_q().count(),
+        "ticket_count": _prev_ticket_q().count(),
+        "command_count": prev_cmd_q.count(),
+    }
+
+    # ── Hourly command activity (0–23) ───────────────────────────
+    hourly_rows = (
+        _event_q("command_use")
+        .with_entities(
+            sa_func.date_part("hour", BotEvent.created_at).label("hour"),
+            sa_func.count(BotEvent.id).label("n"),
+        )
+        .group_by("hour")
+        .order_by("hour")
+        .all()
+    )
+    hourly_map: dict[int, int] = {int(row.hour): row.n for row in hourly_rows}
+    hourly_command_activity = [{"hour": h, "count": hourly_map.get(h, 0)} for h in range(24)]
+
+    # ── Multi-action daily timeline (top ≤5 action types) ────────
+    top_action_names = [row["action"].lower() for row in action_counts[:5]]
+    if top_action_names:
+        ma_rows = (
+            _mod_q()
+            .with_entities(
+                sa_func.date_trunc("day", ModerationCase.created_at).label("day"),
+                ModerationCase.action.label("action"),
+                sa_func.count(ModerationCase.id).label("n"),
+            )
+            .filter(ModerationCase.action.in_(top_action_names))
+            .group_by("day", ModerationCase.action)
+            .order_by("day")
+            .all()
+        )
+        ma_map: dict = {}
+        for row in ma_rows:
+            if row.day:
+                d = row.day.date() if hasattr(row.day, "date") else row.day
+                if d not in ma_map:
+                    ma_map[d] = {}
+                ma_map[d][row.action] = row.n
+        multi_action_timeline = [
+            {"date": _fmt(d), **{a: ma_map.get(d, {}).get(a, 0) for a in top_action_names}}
+            for d in day_labels
+        ]
+    else:
+        multi_action_timeline = [{"date": _fmt(d)} for d in day_labels]
 
     # ── Totals (all-time, scoped to visible guilds) ───────────────
     total_mod_q = ModerationCase.query
@@ -1905,6 +2014,13 @@ def analytics_summary():
         "commands_timeline": commands_timeline,
         "top_commands": top_commands,
         "top_moderators": top_moderators,
+        # ── New analytics fields ──────────────────────────────────
+        "avg_ticket_resolution_hours": avg_ticket_resolution_hours,
+        "ticket_resolution_rate": ticket_resolution_rate,
+        "prev_period": prev_period,
+        "hourly_command_activity": hourly_command_activity,
+        "multi_action_timeline": multi_action_timeline,
+        "top_action_names": top_action_names,
     })
 
 

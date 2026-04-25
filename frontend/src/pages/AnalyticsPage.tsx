@@ -3,9 +3,9 @@ import { useQuery } from '@tanstack/react-query'
 import {
   BarChart, Bar, LineChart, Line, AreaChart, Area,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend,
-  ResponsiveContainer,
+  ResponsiveContainer, Cell,
 } from 'recharts'
-import { Download, TrendingUp, AlertCircle, Shield, Server, Users, Zap, Clock, Cpu, Activity, MemoryStick } from 'lucide-react'
+import { Download, TrendingUp, AlertCircle, Shield, Server, Users, Zap, Clock, Activity, ArrowUp, ArrowDown, Minus, Timer, CheckCircle2 } from 'lucide-react'
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -51,6 +51,13 @@ interface AnalyticsSummary {
   commands_timeline: Array<{ date: string; count: number }>
   top_commands?: Array<{ command: string; count: number }>
   top_moderators?: Array<{ moderator: string; count: number }>
+  // New analytics fields
+  avg_ticket_resolution_hours: number | null
+  ticket_resolution_rate: number | null
+  prev_period: { mod_count: number; ticket_count: number; command_count: number }
+  hourly_command_activity: Array<{ hour: number; count: number }>
+  multi_action_timeline: Array<{ date: string; [action: string]: number | string }>
+  top_action_names: string[]
 }
 
 const TOOLTIP_STYLE = {
@@ -91,6 +98,29 @@ function HealthBar({ label, value, max = 100, color = 'bg-cyan/60' }: {
     </div>
   )
 }
+
+// ── Delta badge: shows period-over-period change ──────────────
+function DeltaBadge({ current, previous }: { current: number; previous: number }) {
+  if (previous === 0 && current === 0) return <span className="text-xs text-text-3">—</span>
+  if (previous === 0) return <span className="text-xs text-green-400 flex items-center gap-0.5"><ArrowUp className="w-3 h-3" />new</span>
+  const pct = Math.round(((current - previous) / previous) * 100)
+  if (pct === 0) return <span className="text-xs text-text-3 flex items-center gap-0.5"><Minus className="w-3 h-3" />0%</span>
+  return pct > 0
+    ? <span className="text-xs text-green-400 flex items-center gap-0.5"><ArrowUp className="w-3 h-3" />{pct}%</span>
+    : <span className="text-xs text-red-400 flex items-center gap-0.5"><ArrowDown className="w-3 h-3" />{Math.abs(pct)}%</span>
+}
+
+// ── Action colour palette ─────────────────────────────────────
+const ACTION_COLORS: Record<string, string> = {
+  warn: '#ebcb8b',
+  mute: '#b48ead',
+  kick: '#d08070',
+  ban: '#bf616a',
+  unban: '#a3be8c',
+  unmute: '#88c0d0',
+}
+const HOUR_LABELS = ['12a','1a','2a','3a','4a','5a','6a','7a','8a','9a','10a','11a',
+  '12p','1p','2p','3p','4p','5p','6p','7p','8p','9p','10p','11p']
 
 export function AnalyticsPage() {
   const [dateRange, setDateRange] = useState<'7d' | '30d' | '90d'>('7d')
@@ -164,6 +194,16 @@ export function AnalyticsPage() {
   // Guild breakdown: show if we have any guilds (Redis always has these when bot is online)
   const hasGuildBreakdown = (data?.guilds_by_members ?? []).length > 0
   const hasCommandData = (data?.commands_timeline ?? []).some((d) => d.count > 0)
+  const hasHourlyData = (data?.hourly_command_activity ?? []).some((d) => d.count > 0)
+  const hasMultiActionData = (data?.multi_action_timeline ?? []).some(
+    (d) => (data?.top_action_names ?? []).some((a) => (d[a] as number) > 0)
+  )
+  const currentCmdCount = (data?.commands_timeline ?? []).reduce((s, d) => s + d.count, 0)
+  const prevPeriod = data?.prev_period ?? { mod_count: 0, ticket_count: 0, command_count: 0 }
+  const peakHour = (data?.hourly_command_activity ?? []).reduce(
+    (best, d) => (d.count > best.count ? d : best),
+    { hour: 0, count: 0 }
+  )
 
   return (
     <div className="space-y-8">
@@ -288,6 +328,63 @@ export function AnalyticsPage() {
         </div>
       </div>
 
+      {/* ── Period-over-Period KPI comparison ─────────────────── */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        {[
+          {
+            label: 'Mod Actions',
+            current: totalActions,
+            prev: prevPeriod.mod_count,
+            icon: <Shield className="w-4 h-4 text-cyan" />,
+            desc: `vs prev ${dateRange}`,
+          },
+          {
+            label: 'Tickets Created',
+            current: (data?.ticket_timeline ?? []).reduce((s, d) => s + d.count, 0),
+            prev: prevPeriod.ticket_count,
+            icon: <TrendingUp className="w-4 h-4 text-green-400" />,
+            desc: `vs prev ${dateRange}`,
+          },
+          {
+            label: 'Cmds Used',
+            current: currentCmdCount,
+            prev: prevPeriod.command_count,
+            icon: <Zap className="w-4 h-4 text-amber-400" />,
+            desc: `vs prev ${dateRange}`,
+          },
+          {
+            label: 'Avg Resolution',
+            current: data?.avg_ticket_resolution_hours ?? null,
+            prev: null,
+            icon: <Timer className="w-4 h-4 text-purple-400" />,
+            desc: data?.ticket_resolution_rate != null
+              ? `${data.ticket_resolution_rate}% resolved`
+              : 'no closed tickets',
+            raw: data?.avg_ticket_resolution_hours != null
+              ? data.avg_ticket_resolution_hours >= 24
+                ? `${(data.avg_ticket_resolution_hours / 24).toFixed(1)}d`
+                : `${data.avg_ticket_resolution_hours}h`
+              : '—',
+          },
+        ].map(({ label, current, prev, icon, desc, raw }) => (
+          <div key={label} className="dashboard-chrome rounded-2xl p-4 space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                {icon}
+                <span className="text-xs text-text-3">{label}</span>
+              </div>
+              {prev !== null && current !== null && (
+                <DeltaBadge current={current as number} previous={prev} />
+              )}
+            </div>
+            <p className="text-2xl font-bold font-display text-text-0">
+              {isLoading ? '—' : raw ?? (current ?? '—')}
+            </p>
+            <p className="text-xs text-text-3">{desc}</p>
+          </div>
+        ))}
+      </div>
+
       {/* ── Guild Member Breakdown ──────────────────────────────── */}
       {(isLoading || hasGuildBreakdown) && (
         <Card variant="elevated">
@@ -348,9 +445,63 @@ export function AnalyticsPage() {
         </Card>
       )}
 
+      {/* ── Hourly Command Activity ─────────────────────────────── */}
+      {(isLoading || hasHourlyData) && (
+        <Card variant="elevated">
+          <CardHeader>
+            <div className="flex items-start justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <Clock className="w-4 h-4 text-cyan" />
+                  Activity by Hour of Day
+                </CardTitle>
+                <CardDescription>
+                  When commands are used most — UTC{' '}
+                  {!isLoading && hasHourlyData && (
+                    <span className="text-cyan font-medium">
+                      · peak at {HOUR_LABELS[peakHour.hour]} ({peakHour.count} uses)
+                    </span>
+                  )}
+                </CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {isLoading ? <ChartSkeleton /> : !hasHourlyData ? (
+              <EmptyChart icon={<Clock className="w-8 h-8" />} label="No command data yet for this period" />
+            ) : (
+              <ResponsiveContainer width="100%" height={180}>
+                <BarChart data={data?.hourly_command_activity ?? []} margin={{ bottom: 4 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(136,192,208,0.08)" vertical={false} />
+                  <XAxis
+                    dataKey="hour"
+                    tickFormatter={(h: number) => HOUR_LABELS[h]}
+                    {...AXIS_STYLE}
+                    interval={2}
+                  />
+                  <YAxis {...AXIS_STYLE} allowDecimals={false} width={28} />
+                  <Tooltip
+                    contentStyle={TOOLTIP_STYLE}
+                    labelFormatter={(h: number) => `${HOUR_LABELS[h]} UTC`}
+                    formatter={(v: number) => [v, 'Commands']}
+                  />
+                  <Bar dataKey="count" name="Commands" radius={[3, 3, 0, 0]}>
+                    {(data?.hourly_command_activity ?? []).map((entry) => (
+                      <Cell
+                        key={entry.hour}
+                        fill={entry.hour === peakHour.hour ? '#88c0d0' : 'rgba(136,192,208,0.3)'}
+                      />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       {/* ── Activity Timelines ──────────────────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-
         <Card variant="elevated">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -414,6 +565,46 @@ export function AnalyticsPage() {
         </Card>
       </div>
 
+      {/* ── Multi-Action Breakdown Timeline ────────────────────── */}
+      {(isLoading || hasMultiActionData) && (
+        <Card variant="elevated">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Shield className="w-4 h-4 text-cyan" />
+              Moderation Breakdown Over Time
+            </CardTitle>
+            <CardDescription>Ban / Warn / Kick / Mute daily — {dateRange}</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {isLoading ? <ChartSkeleton /> : !hasMultiActionData ? (
+              <EmptyChart icon={<Shield className="w-8 h-8" />} label="No moderation data in this period" />
+            ) : (
+              <ResponsiveContainer width="100%" height={240}>
+                <LineChart data={data?.multi_action_timeline ?? []}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(136,192,208,0.08)" />
+                  <XAxis dataKey="date" {...AXIS_STYLE} />
+                  <YAxis {...AXIS_STYLE} allowDecimals={false} />
+                  <Tooltip contentStyle={TOOLTIP_STYLE} />
+                  <Legend wrapperStyle={{ fontSize: 11, color: '#d8dee9' }} />
+                  {(data?.top_action_names ?? []).map((action) => (
+                    <Line
+                      key={action}
+                      type="monotone"
+                      dataKey={action}
+                      name={action.charAt(0).toUpperCase() + action.slice(1)}
+                      stroke={ACTION_COLORS[action] ?? '#88c0d0'}
+                      strokeWidth={2}
+                      dot={{ r: 2 }}
+                      activeDot={{ r: 4 }}
+                    />
+                  ))}
+                </LineChart>
+              </ResponsiveContainer>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       {/* ── Action Type + Server Events ─────────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
@@ -466,6 +657,40 @@ export function AnalyticsPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* ── Ticket Resolution Metrics ───────────────────────────── */}
+      {!isLoading && (data?.avg_ticket_resolution_hours != null || data?.ticket_resolution_rate != null) && (
+        <div className="grid grid-cols-2 gap-4">
+          {data?.avg_ticket_resolution_hours != null && (
+            <div className="dashboard-chrome rounded-2xl p-4 flex items-center gap-4">
+              <div className="w-10 h-10 rounded-xl bg-purple-400/10 flex items-center justify-center shrink-0">
+                <Timer className="w-5 h-5 text-purple-400" />
+              </div>
+              <div>
+                <p className="text-xs text-text-3 mb-0.5">Avg Resolution Time</p>
+                <p className="text-xl font-bold font-display text-text-0">
+                  {data.avg_ticket_resolution_hours >= 24
+                    ? `${(data.avg_ticket_resolution_hours / 24).toFixed(1)} days`
+                    : `${data.avg_ticket_resolution_hours} hrs`}
+                </p>
+                <p className="text-xs text-text-3">from open to close</p>
+              </div>
+            </div>
+          )}
+          {data?.ticket_resolution_rate != null && (
+            <div className="dashboard-chrome rounded-2xl p-4 flex items-center gap-4">
+              <div className="w-10 h-10 rounded-xl bg-green-400/10 flex items-center justify-center shrink-0">
+                <CheckCircle2 className="w-5 h-5 text-green-400" />
+              </div>
+              <div>
+                <p className="text-xs text-text-3 mb-0.5">Resolution Rate</p>
+                <p className="text-xl font-bold font-display text-text-0">{data.ticket_resolution_rate}%</p>
+                <p className="text-xs text-text-3">tickets closed this period</p>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ── Ticket Status + Priority ────────────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
