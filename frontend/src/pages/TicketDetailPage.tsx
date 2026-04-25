@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { useQuery } from "@tanstack/react-query";
+import { Download } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
 import { toast } from "sonner";
 
@@ -181,7 +182,20 @@ export function TicketDetailPage() {
         <div className="rounded-2xl border border-white/10 bg-panel/80 p-5 shadow-panel">
           <div className="mb-4 flex items-center justify-between gap-2">
             <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-cyan">Transcript</p>
-            <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-text-1">{ticket?.status ?? "--"}</span>
+            <div className="flex items-center gap-2">
+              <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-text-1">{ticket?.status ?? "--"}</span>
+              {ticketId && (
+                <a
+                  href={`/api/tickets/${ticketId}/transcript`}
+                  download={`ticket-${ticket?.ticket_number ?? ticketId}-transcript.txt`}
+                  title="Download transcript as .txt"
+                  className="inline-flex items-center gap-1 rounded-xl border border-white/10 bg-white/5 px-3 py-1 text-xs text-text-1 transition hover:border-cyan/30 hover:text-cyan"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  Download
+                </a>
+              )}
+            </div>
           </div>
 
           <div className="space-y-3">

@@ -1,5 +1,5 @@
-import { Suspense, lazy, useEffect } from "react";
-import { Navigate, Route, Routes, useLocation } from "react-router-dom";
+import { Suspense, lazy, useEffect, useRef } from "react";
+import { Navigate, Route, Routes } from "react-router-dom";
 
 import { AppShell } from "./components/layout/app-shell";
 import { useAuthStore } from "./store/authStore";
@@ -21,10 +21,14 @@ const SettingsPage = lazy(() => import("./pages/SettingsPage").then((m) => ({ de
 const ServerDetailPage = lazy(() => import("./pages/ServerDetailPage").then((m) => ({ default: m.ServerDetailPage })));
 
 function SessionBootstrap() {
-  const location = useLocation();
   const { status, setAnonymous, setAuthenticated, setLoading } = useAuthStore();
+  // Only bootstrap once — never re-fetch on navigation to avoid spinner flash.
+  const initialized = useRef(false);
 
   useEffect(() => {
+    if (initialized.current) return;
+    initialized.current = true;
+
     let active = true;
 
     async function loadSession() {
@@ -46,7 +50,7 @@ function SessionBootstrap() {
     return () => {
       active = false;
     };
-  }, [location.pathname, setAnonymous, setAuthenticated, setLoading]);
+  }, [setAnonymous, setAuthenticated, setLoading]);
 
   if (status === "loading") {
     return <div className="grid min-h-screen place-items-center bg-void text-text-1 font-mono text-sm">Synchronising guardian access…</div>;

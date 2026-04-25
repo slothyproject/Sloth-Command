@@ -1,4 +1,4 @@
-"""
+﻿"""
 REST API — full bot management API.
 """
 from __future__ import annotations
@@ -31,6 +31,8 @@ from dashboard.services.ai_provider import (
 )
 from dashboard.services.encryption import decrypt_secret, encrypt_secret
 from dashboard.versioning import get_dashboard_version
+
+from sqlalchemy import func as sa_func
 
 api_bp = Blueprint("api", __name__)
 
@@ -83,7 +85,7 @@ def guild_access_required(f):
     def decorated(*args, **kwargs):
         guild_id = kwargs.get("guild_id") or request.view_args.get("guild_id")
         if guild_id:
-            guild = Guild.query.get(guild_id)
+            guild = db.session.get(Guild, guild_id)
             if guild and not _user_can_access_guild(guild):
                 return jsonify({"error": "Forbidden"}), 403
         return f(*args, **kwargs)
@@ -96,7 +98,7 @@ def guild_manage_required(f):
     def decorated(*args, **kwargs):
         guild_id = kwargs.get("guild_id") or request.view_args.get("guild_id")
         if guild_id:
-            guild = Guild.query.get(guild_id)
+            guild = db.session.get(Guild, guild_id)
             if guild and not current_user.can_manage(guild):
                 return jsonify({"error": "Forbidden"}), 403
         return f(*args, **kwargs)
@@ -488,7 +490,7 @@ def ai_advisor_chat():
     # Build optional guild context prefix
     context_prefix = ""
     if guild_id:
-        guild = Guild.query.get(int(guild_id))
+        guild = db.session.get(Guild, int(guild_id))
         if guild:
             context_prefix = f"Context: I am working on a Discord server called '{guild.name}'. "
 
@@ -841,7 +843,7 @@ def guilds():
 @login_required
 @guild_access_required
 def guild_detail(guild_id: int):
-    guild = Guild.query.get_or_404(guild_id)
+    guild = db.get_or_404(Guild, guild_id)
     data = guild.to_dict()
     data["channel_count"] = guild.channel_count
     data["role_count"] = guild.role_count
@@ -888,7 +890,7 @@ def _settings_dict(s: GuildSettings) -> dict:
 @login_required
 @guild_access_required
 def guild_settings_get(guild_id: int):
-    guild = Guild.query.get_or_404(guild_id)
+    guild = db.get_or_404(Guild, guild_id)
     return jsonify(_settings_dict(guild.settings or GuildSettings()))
 
 
@@ -896,7 +898,7 @@ def guild_settings_get(guild_id: int):
 @login_required
 @guild_manage_required
 def guild_settings_update(guild_id: int):
-    guild = Guild.query.get_or_404(guild_id)
+    guild = db.get_or_404(Guild, guild_id)
     data = request.get_json() or {}
 
     if not guild.settings:
@@ -934,7 +936,7 @@ def guild_settings_update(guild_id: int):
 @login_required
 @guild_access_required
 def guild_commands(guild_id: int):
-    Guild.query.get_or_404(guild_id)
+    db.get_or_404(Guild, guild_id)
     cmds = GuildCommand.query.filter_by(guild_id=guild_id).order_by(GuildCommand.command_name).all()
     return jsonify([{
         "id": c.id,
@@ -949,7 +951,7 @@ def guild_commands(guild_id: int):
 @login_required
 @guild_manage_required
 def guild_command_update(guild_id: int, cmd_name: str):
-    guild = Guild.query.get_or_404(guild_id)
+    guild = db.get_or_404(Guild, guild_id)
     cmd = GuildCommand.query.filter_by(guild_id=guild_id, command_name=cmd_name).first()
     if not cmd:
         cmd = GuildCommand(guild_id=guild_id, command_name=cmd_name)
@@ -978,7 +980,7 @@ def guild_command_update(guild_id: int, cmd_name: str):
 @login_required
 @guild_access_required
 def guild_moderation(guild_id: int):
-    Guild.query.get_or_404(guild_id)
+    db.get_or_404(Guild, guild_id)
     page = int(request.args.get("page", 1))
     per_page = min(int(request.args.get("per_page", 25)), 100)
     action_filter = request.args.get("action")
@@ -1012,7 +1014,7 @@ def guild_moderation_action(guild_id: int):
     if not getattr(current_user, "discord_id", None):
         return jsonify({"error": "A Discord-linked account is required for moderation actions"}), 400
 
-    guild = Guild.query.get_or_404(guild_id)
+    guild = db.get_or_404(Guild, guild_id)
     data = request.get_json(silent=True) or {}
     action = str(data.get("action", "ban")).lower()
     user_id = str(data.get("user_id", ""))
@@ -1075,7 +1077,7 @@ def create_global_ban():
     if not user_id:
         return jsonify({"error": "user_id is required"}), 400
 
-    guild = Guild.query.get(source_guild_id) if source_guild_id else None
+    guild = db.session.get(Guild, source_guild_id) if source_guild_id else None
     source_guild_discord_id = guild.discord_id if guild else None
 
     json_payload = {
@@ -1130,7 +1132,7 @@ def moderation_recent():
 @login_required
 @guild_access_required
 def guild_tickets(guild_id: int):
-    Guild.query.get_or_404(guild_id)
+    db.get_or_404(Guild, guild_id)
     page = int(request.args.get("page", 1))
     per_page = min(int(request.args.get("per_page", 25)), 100)
     status = request.args.get("status")
@@ -1172,8 +1174,8 @@ def tickets_recent():
 @api_bp.get("/tickets/<int:ticket_id>/messages")
 @login_required
 def ticket_messages(ticket_id: int):
-    ticket = Ticket.query.get_or_404(ticket_id)
-    guild = Guild.query.get(ticket.guild_id)
+    ticket = db.get_or_404(Ticket, ticket_id)
+    guild = db.session.get(Guild, ticket.guild_id)
     if guild and not current_user.can_manage(guild):
         return jsonify({"error": "Forbidden"}), 403
     msgs = ticket.messages.order_by(TicketMessage.created_at.asc()).all()
@@ -1195,8 +1197,8 @@ def ticket_close(ticket_id: int):
 
 
 def _ticket_set_status(ticket_id: int, status: str, reason: str | None):
-    ticket = Ticket.query.get_or_404(ticket_id)
-    guild = Guild.query.get(ticket.guild_id)
+    ticket = db.get_or_404(Ticket, ticket_id)
+    guild = db.session.get(Guild, ticket.guild_id)
     if guild and not current_user.can_manage(guild):
         return jsonify({"error": "Forbidden"}), 403
 
@@ -1235,8 +1237,8 @@ def ticket_set_status(ticket_id: int):
 @api_bp.post("/tickets/<int:ticket_id>/assign")
 @login_required
 def ticket_assign(ticket_id: int):
-    ticket = Ticket.query.get_or_404(ticket_id)
-    guild = Guild.query.get(ticket.guild_id)
+    ticket = db.get_or_404(Ticket, ticket_id)
+    guild = db.session.get(Guild, ticket.guild_id)
     if guild and not current_user.can_manage(guild):
         return jsonify({"error": "Forbidden"}), 403
 
@@ -1255,6 +1257,148 @@ def ticket_assign(ticket_id: int):
         details={"assigned_to": ticket.assigned_to},
     )
     return jsonify({"ok": True, "assigned_to": ticket.assigned_to})
+
+
+@api_bp.get("/tickets/<int:ticket_id>/transcript")
+@login_required
+def ticket_transcript(ticket_id: int):
+    """Return a plain-text transcript of all messages in a ticket."""
+    ticket = db.get_or_404(Ticket, ticket_id)
+    guild = db.session.get(Guild, ticket.guild_id)
+    if guild and not current_user.can_manage(guild):
+        abort(403)
+
+    messages = (
+        TicketMessage.query
+        .filter_by(ticket_id=ticket_id)
+        .order_by(TicketMessage.created_at.asc())
+        .all()
+    )
+
+    lines: list[str] = [
+        f"=== Ticket #{ticket.ticket_number}: {ticket.subject or 'No subject'} ===",
+        f"Opened by: {ticket.opener_name or ticket.opener_id}",
+        f"Status: {ticket.status}",
+        f"Priority: {ticket.priority}",
+        f"Opened: {ticket.created_at.strftime('%Y-%m-%d %H:%M UTC')}",
+        "" ,
+        "─" * 60,
+        "",
+    ]
+    for msg in messages:
+        prefix = "[STAFF] " if msg.is_staff else ""
+        ts = msg.created_at.strftime("%Y-%m-%d %H:%M UTC")
+        lines.append(f"[{ts}] {prefix}{msg.author_name or msg.author_id}")
+        lines.append(msg.content)
+        lines.append("")
+
+    if not messages:
+        lines.append("(no messages)")
+
+    filename = f"ticket-{ticket.ticket_number}-transcript.txt"
+    text = "\n".join(lines)
+    return Response(
+        text,
+        mimetype="text/plain",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+# ── Analytics ────────────────────────────────────────────────────
+
+@api_bp.get("/analytics/summary")
+@login_required
+def analytics_summary():
+    """Return moderation action counts, timeline, and ticket stats for the requested range."""
+    range_param = request.args.get("range", "7d")
+    days_map = {"7d": 7, "30d": 30, "90d": 90}
+    days = days_map.get(range_param, 7)
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+
+    # ── Moderation action counts ─────────────────────────────────
+    # Restrict to guilds the user can see
+    if current_user.is_admin:
+        guild_filter = None
+    else:
+        managed_ids = [
+            m.guild_id for m in GuildMember.query.filter_by(user_id=current_user.id).all()
+        ]
+        owned_ids = [
+            g.id for g in Guild.query.filter_by(
+                owner_discord_id=current_user.discord_id, is_active=True
+            ).all()
+        ]
+        guild_filter = list(set(managed_ids + owned_ids))
+
+    def _base_mod_query():
+        q = ModerationCase.query.filter(ModerationCase.created_at >= since)
+        if guild_filter is not None:
+            q = q.filter(ModerationCase.guild_id.in_(guild_filter))
+        return q
+
+    def _base_ticket_query():
+        q = Ticket.query.filter(Ticket.created_at >= since)
+        if guild_filter is not None:
+            q = q.filter(Ticket.guild_id.in_(guild_filter))
+        return q
+
+    # Action counts grouped by action type
+    action_rows = (
+        _base_mod_query()
+        .with_entities(ModerationCase.action, sa_func.count(ModerationCase.id).label("count"))
+        .group_by(ModerationCase.action)
+        .all()
+    )
+    action_counts = [{"action": row.action or "unknown", "count": row.count} for row in action_rows]
+
+    # Daily timeline — count actions per calendar day
+    date_trunc = sa_func.date_trunc("day", ModerationCase.created_at)
+    timeline_rows = (
+        _base_mod_query()
+        .with_entities(date_trunc.label("day"), sa_func.count(ModerationCase.id).label("count"))
+        .group_by("day")
+        .order_by("day")
+        .all()
+    )
+    action_timeline = [
+        {"date": row.day.strftime("%b %d") if row.day else "?", "count": row.count}
+        for row in timeline_rows
+    ]
+
+    # Ticket status counts
+    ticket_status_rows = (
+        _base_ticket_query()
+        .with_entities(Ticket.status, sa_func.count(Ticket.id).label("count"))
+        .group_by(Ticket.status)
+        .all()
+    )
+    ticket_status_counts = [
+        {"status": (row.status or "unknown").capitalize(), "count": row.count}
+        for row in ticket_status_rows
+    ]
+
+    # Ticket priority counts
+    ticket_priority_rows = (
+        _base_ticket_query()
+        .with_entities(Ticket.priority, sa_func.count(Ticket.id).label("count"))
+        .group_by(Ticket.priority)
+        .all()
+    )
+    ticket_priority_counts = [
+        {"priority": (row.priority or "normal").capitalize(), "count": row.count}
+        for row in ticket_priority_rows
+    ]
+
+    return jsonify({
+        "range": range_param,
+        "days": days,
+        "since": since.isoformat(),
+        "action_counts": action_counts,
+        "action_timeline": action_timeline,
+        "ticket_status_counts": ticket_status_counts,
+        "ticket_priority_counts": ticket_priority_counts,
+    })
+
 
 # ── Webhook (bot → hub) ──────────────────────────────────────────
 
@@ -1329,8 +1473,12 @@ def _handle_guild_join(payload: dict):
         guild.icon = payload.get("icon", guild.icon)
         guild.member_count = payload.get("member_count", guild.member_count)
         guild.channel_count = payload.get("channel_count", guild.channel_count)
+        guild.role_count = payload.get("role_count", guild.role_count)
         guild.owner_discord_id = str(payload.get("owner_id", "") or "") or guild.owner_discord_id
         guild.is_active = True
+
+    # Always update last_sync timestamp so the dashboard shows when data was last refreshed.
+    guild.last_sync = datetime.now(timezone.utc)
 
     # Only notify on genuine new guild join, not heartbeat re-syncs
     if is_new:
@@ -1430,6 +1578,14 @@ def notifications():
     })
 
 
+@api_bp.get("/notifications/unread-count")
+@login_required
+def notifications_unread_count():
+    """Lightweight endpoint used by the nav badge — no full notification list."""
+    unread = Notification.query.filter_by(user_id=current_user.id, is_read=False).count()
+    return jsonify({"unread": unread})
+
+
 @api_bp.post("/notifications/read-all")
 @login_required
 def notifications_read_all():
@@ -1468,7 +1624,7 @@ def notifications_clear_duplicates():
 @api_bp.post("/notifications/<int:notif_id>/read")
 @login_required
 def notification_read(notif_id: int):
-    notif = Notification.query.get_or_404(notif_id)
+    notif = db.get_or_404(Notification, notif_id)
     if notif.user_id != current_user.id:
         return jsonify({"error": "Forbidden"}), 403
     notif.is_read = True
@@ -1538,7 +1694,7 @@ def users():
 @login_required
 @admin_required
 def user_update(user_id: int):
-    user = User.query.get_or_404(user_id)
+    user = db.get_or_404(User, user_id)
     data = request.get_json() or {}
 
     if user.is_owner and not current_user.is_owner:

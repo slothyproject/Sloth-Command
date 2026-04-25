@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { BarChart, Bar, LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
-import { TrendingUp } from 'lucide-react'
+import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
+import { TrendingUp, AlertCircle } from 'lucide-react'
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -18,40 +18,12 @@ interface AnalyticsSummary {
 export function AnalyticsPage() {
   const [dateRange, setDateRange] = useState<'7d' | '30d' | '90d'>('7d')
 
-  const { data: analytics, isLoading } = useQuery({
+  const { data: analytics, isLoading, isError } = useQuery({
     queryKey: ['analytics-summary', dateRange],
-    queryFn: () =>
-      getJson<AnalyticsSummary>('/api/analytics/summary').catch(() => ({
-        action_counts: [
-          { action: 'warn', count: 45 },
-          { action: 'mute', count: 28 },
-          { action: 'kick', count: 15 },
-          { action: 'ban', count: 8 },
-        ],
-        action_timeline: [
-          { date: 'Mon', count: 12 },
-          { date: 'Tue', count: 18 },
-          { date: 'Wed', count: 14 },
-          { date: 'Thu', count: 22 },
-          { date: 'Fri', count: 28 },
-          { date: 'Sat', count: 15 },
-          { date: 'Sun', count: 9 },
-        ],
-        ticket_status_counts: [
-          { status: 'Open', count: 28 },
-          { status: 'In Progress', count: 15 },
-          { status: 'Resolved', count: 142 },
-          { status: 'Closed', count: 98 },
-        ],
-        ticket_priority_counts: [
-          { priority: 'Low', count: 64 },
-          { priority: 'Normal', count: 102 },
-          { priority: 'High', count: 74 },
-          { priority: 'Urgent', count: 43 },
-        ],
-      })),
-    retry: false,
-    refetchInterval: 30000,
+    queryFn: () => getJson<AnalyticsSummary>(`/api/analytics/summary?range=${dateRange}`),
+    retry: 1,
+    staleTime: 60_000,
+    refetchInterval: 60_000,
   })
 
   return (
@@ -75,6 +47,14 @@ export function AnalyticsPage() {
           </Button>
         ))}
       </div>
+
+      {/* Error state */}
+      {isError && (
+        <div className="flex items-center gap-3 rounded-lg border border-red-500/30 bg-red-500/10 p-4 text-red-400">
+          <AlertCircle className="w-5 h-5 shrink-0" />
+          <span>Failed to load analytics data. The analytics service may be unavailable.</span>
+        </div>
+      )}
 
       {/* Stats Preview */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">

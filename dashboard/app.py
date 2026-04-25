@@ -8,12 +8,11 @@ import os
 
 from flask import Flask
 from flask_login import LoginManager
-from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
 from flask_socketio import SocketIO
 from flask_wtf.csrf import CSRFProtect
+from werkzeug.middleware.proxy_fix import ProxyFix
 
-from dashboard.extensions import db
+from dashboard.extensions import db, limiter
 from dashboard.routes.api import api_bp
 from dashboard.routes.auth import auth_bp
 from dashboard.routes.core import core_bp
@@ -22,13 +21,6 @@ from dashboard.versioning import get_dashboard_version
 log = logging.getLogger(__name__)
 
 socketio = SocketIO()
-limiter = Limiter(
-    key_func=get_remote_address,
-    default_limits=["300 per day", "60 per hour"],
-    storage_uri=os.environ.get("REDIS_URL") or "memory://",
-    swallow_errors=True,
-    in_memory_fallback_enabled=True,
-)
 login_manager = LoginManager()
 csrf = CSRFProtect()
 
@@ -42,11 +34,21 @@ def create_app(config: dict | None = None) -> Flask:
     if _db_url.startswith("postgres://"):
         _db_url = "postgresql://" + _db_url[len("postgres://"):]
 
+    _secret_key = os.environ.get("SECRET_KEY", "")
+    if not _secret_key:
+        if not app.debug:
+            raise RuntimeError(
+                "SECRET_KEY environment variable must be set in production. "
+                "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
+            )
+        _secret_key = "dev-secret-insecure-do-not-use-in-production"
+
     app.config.update(
-        SECRET_KEY=os.environ.get("SECRET_KEY", "dev-secret-change-me"),
+        SECRET_KEY=_secret_key,
         SQLALCHEMY_DATABASE_URI=_db_url,
         SQLALCHEMY_TRACK_MODIFICATIONS=False,
-        SESSION_COOKIE_SECURE=os.environ.get("FLASK_ENV") == "production",
+        # Always True: Railway always terminates TLS at the proxy level.
+        SESSION_COOKIE_SECURE=True,
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE="Lax",
         WTF_CSRF_TIME_LIMIT=3600,
@@ -57,9 +59,14 @@ def create_app(config: dict | None = None) -> Flask:
     # ── Extensions ──────────────────────────────────────────────
     db.init_app(app)
     csrf.init_app(app)
+    _allowed_origins = [
+        o.strip()
+        for o in os.environ.get("ALLOWED_ORIGINS", "https://slothlee.xyz").split(",")
+        if o.strip()
+    ]
     socketio.init_app(
         app,
-        cors_allowed_origins="*",
+        cors_allowed_origins=_allowed_origins,
         message_queue=os.environ.get("REDIS_URL"),
         async_mode="gevent",
     )
@@ -100,6 +107,8 @@ def create_app(config: dict | None = None) -> Flask:
     with app.app_context():
         db.create_all()
         _ensure_admin_user(app)
+    # Trust one level of Railway reverse-proxy headers for real client IP.
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)  # type: ignore[method-assign]
     log.info("Sloth Lee Command Hub started")
     return app
 

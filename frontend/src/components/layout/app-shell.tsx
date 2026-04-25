@@ -2,12 +2,13 @@
 
 import React, { useState } from 'react'
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom'
-import { Menu, X, LayoutDashboard, Server, Ticket, ShieldAlert, BarChart3, Bot, ScrollText, Users, Settings, LogOut, User, ChevronRight } from 'lucide-react'
+import { Menu, X, LayoutDashboard, Server, Ticket, ShieldAlert, BarChart3, Bot, ScrollText, Users, Settings, LogOut, User, ChevronRight, Bell } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
 import { cn } from '@/lib/cn'
 import { Button } from '../ui/button'
 import { useAuthStore } from '@/store/authStore'
 import { useAccessibleGuilds } from '@/lib/permissions'
-import { postJson } from '@/lib/api'
+import { getJson, postJson } from '@/lib/api'
 
 interface AppShellProps {
   className?: string
@@ -42,6 +43,7 @@ const AppShell: React.FC<AppShellProps> = ({ className }) => {
           >
             {sidebarOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
           </Button>
+          <BotStatusBadge />
           <div className="ml-auto text-sm text-text-2 flex items-center gap-3">
             <span className="hidden sm:block text-text-3">Sloth Lee</span>
             <span className="text-cyan font-semibold font-display tracking-wider">COMMAND CENTER</span>
@@ -75,6 +77,36 @@ interface NavItem {
   badge?: number
 }
 
+interface BotState {
+  online: boolean
+  stale: boolean
+  latency_ms: number | null
+  version: string | null
+}
+
+function BotStatusBadge() {
+  const { data: bot } = useQuery<BotState>({
+    queryKey: ['bot-state-header'],
+    queryFn: () => getJson<BotState>('/api/bot'),
+    refetchInterval: 15_000,
+    staleTime: 10_000,
+    retry: false,
+  })
+
+  const isOnline = bot?.online && !bot?.stale
+  const color = !bot ? 'bg-text-3' : isOnline ? 'bg-lime' : 'bg-amber'
+  const label = !bot ? 'Unknown' : isOnline ? 'Online' : (bot?.stale ? 'Stale' : 'Offline')
+  const latency = bot?.latency_ms != null ? `${Math.round(bot.latency_ms)}ms` : '—'
+
+  return (
+    <div className="ml-3 flex items-center gap-1.5 text-xs text-text-2" title={`Bot ${label} · Latency: ${latency}`}>
+      <span className={cn('w-2 h-2 rounded-full animate-pulse', color)} />
+      <span className="hidden sm:block">{label}</span>
+      {isOnline && <span className="hidden md:block text-text-3">· {latency}</span>}
+    </div>
+  )
+}
+
 interface SidebarContentProps {
   isCollapsed: boolean
   currentPath: string
@@ -86,6 +118,15 @@ const SidebarContent: React.FC<SidebarContentProps> = ({ isCollapsed, currentPat
   const navigate = useNavigate()
   const guilds = useAccessibleGuilds()
 
+  const { data: notifData } = useQuery<{ unread: number }>({
+    queryKey: ['notif-unread-count'],
+    queryFn: () => getJson<{ unread: number }>('/api/notifications/unread-count'),
+    refetchInterval: 30_000,
+    staleTime: 15_000,
+    retry: false,
+  })
+  const unreadCount = notifData?.unread ?? 0
+
   const navItems: NavItem[] = [
     { label: 'Dashboard', href: '/dashboard', icon: <LayoutDashboard className="w-5 h-5" /> },
     { label: 'Servers', href: '/servers', icon: <Server className="w-5 h-5" />, badge: guilds.length },
@@ -93,7 +134,7 @@ const SidebarContent: React.FC<SidebarContentProps> = ({ isCollapsed, currentPat
     { label: 'Moderation', href: '/moderation', icon: <ShieldAlert className="w-5 h-5" /> },
     { label: 'Analytics', href: '/analytics', icon: <BarChart3 className="w-5 h-5" /> },
     { label: 'AI Advisor', href: '/ai-advisor', icon: <Bot className="w-5 h-5" /> },
-    { label: 'Logs', href: '/logs', icon: <ScrollText className="w-5 h-5" /> },
+    { label: 'Logs', href: '/logs', icon: <ScrollText className="w-5 h-5" />, badge: unreadCount > 0 ? unreadCount : undefined },
     { label: 'Users', href: '/users', icon: <Users className="w-5 h-5" />, adminOnly: true },
     { label: 'Settings', href: '/settings', icon: <Settings className="w-5 h-5" /> },
   ]

@@ -21,7 +21,7 @@ from flask import (
 )
 from flask_login import current_user, login_required, login_user, logout_user
 
-from dashboard.extensions import db
+from dashboard.extensions import db, limiter
 from dashboard.models import AuditLog, Guild, GuildMember, User
 
 auth_bp = Blueprint("auth", __name__)
@@ -77,6 +77,7 @@ def _resolve_discord_redirect_uri() -> str:
 
 
 @auth_bp.get("/login/discord")
+@limiter.limit("20 per minute")
 def discord_login():
     client_id = (os.environ.get("DISCORD_CLIENT_ID") or "").strip()
     if not client_id:
@@ -98,6 +99,7 @@ def discord_login():
 
 
 @auth_bp.get("/callback")
+@limiter.limit("20 per minute")
 def discord_callback():
     if request.args.get("error"):
         flash("Discord login was cancelled.", "warning")
@@ -230,6 +232,7 @@ def login():
 
 
 @auth_bp.post("/login")
+@limiter.limit("10 per minute")
 def login_post():
     username = request.form.get("username", "").strip()
     password = request.form.get("password", "")
@@ -270,16 +273,19 @@ def me():
     # Build per-guild role list
     guilds_out = []
     if current_user.is_admin:
-        # Admins see all active guilds with admin_override role
+        # Pre-fetch all GuildMember rows for this user in a single query.
+        admin_member_map: dict[int, bool] = {
+            m.guild_id: m.can_manage
+            for m in GuildMember.query.filter_by(user_id=current_user.id).all()
+        }
         all_guilds = Guild.query.filter_by(is_active=True).order_by(Guild.name).all()
         for guild in all_guilds:
             if guild.owner_discord_id == current_user.discord_id:
                 role = "owner"
+            elif guild.id in admin_member_map:
+                role = "manager" if admin_member_map[guild.id] else "admin_override"
             else:
-                member = GuildMember.query.filter_by(
-                    guild_id=guild.id, user_id=current_user.id
-                ).first()
-                role = "manager" if (member and member.can_manage) else "admin_override"
+                role = "admin_override"
             guilds_out.append({
                 "id": guild.id,
                 "discord_id": guild.discord_id,
