@@ -13,7 +13,7 @@ from functools import wraps
 from flask import Blueprint, abort, current_app, jsonify, request, stream_with_context, Response
 from flask_login import current_user, login_required
 
-from dashboard.extensions import db, redis_client
+from dashboard.extensions import db, limiter, redis_client
 from dashboard.models import (
     AuditLog, BotEvent, Guild, GuildCommand, GuildMember,
     GuildSettings, ModerationCase, Notification, Ticket, TicketMessage,
@@ -2298,6 +2298,7 @@ def notification_read(notif_id: int):
 
 @api_bp.get("/events")
 @login_required
+@limiter.exempt
 def sse_events():
     """Server-Sent Events — real-time bot state + notifications."""
     def generate():
