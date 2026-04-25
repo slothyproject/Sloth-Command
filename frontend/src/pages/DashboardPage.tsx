@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { useQuery } from "@tanstack/react-query";
-import { Activity, Bell, Bot, ChevronRight, Server, Shield, Ticket, TrendingUp, Users } from "lucide-react";
+import { Activity, Bot, ChevronRight, Server, Shield, Ticket, TrendingUp, Users } from "lucide-react";
 import { Link } from "react-router-dom";
 import {
   BarChart, Bar, LineChart, Line,
@@ -9,6 +9,7 @@ import {
 } from "recharts";
 
 import { StatCard } from "../components/dashboard/StatCard";
+import { LiveFeed } from "../components/dashboard/LiveFeed";
 import { formatDate, formatNumber, formatRelativeDate } from "../lib/format";
 import { getJson } from "../lib/api";
 import { createEventStream } from "../lib/sse";
@@ -353,20 +354,7 @@ export function DashboardPage() {
           </div>
         </div>
 
-        <div className="dashboard-chrome rounded-[1.6rem] p-5">
-          <div className="mb-4 flex items-center gap-2 text-cyan"><Bell className="h-4 w-4" /> <span className="font-mono text-[11px] uppercase tracking-[0.18em]">Notification stream</span></div>
-          <div className="space-y-3">
-            {(data?.notifications.items ?? []).map((item) => (
-              <div key={item.id} className="rounded-2xl border border-line bg-white/5 p-3">
-                <div className="flex items-start justify-between gap-3">
-                  <p className="text-sm font-medium text-text-0">{item.title}</p>
-                  <span className="font-mono text-[11px] uppercase tracking-[0.16em] text-text-2">{formatRelativeDate(item.created_at)}</span>
-                </div>
-                {item.body ? <p className="mt-2 text-sm leading-6 text-text-2">{item.body}</p> : null}
-              </div>
-            ))}
-          </div>
-        </div>
+        <LiveFeed />
       </section>
     </div>
   );

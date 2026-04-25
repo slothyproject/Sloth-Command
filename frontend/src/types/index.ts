@@ -176,8 +176,22 @@ export interface OverviewStats {
 }
 
 export interface OverviewResponse {
+  // Flat headline counts (DB-scoped, backward-compat)
+  servers: number;
+  members: number;
+  tickets: number;
+  cases: number;
+  // Enriched fields
   stats: OverviewStats;
   guilds: GuildSummary[];
+  trend: Array<{ date: string; tickets: number; cases: number }>;
+  recent_events: Array<{
+    id: string;
+    type: string;
+    message: string;
+    severity: "info" | "warning";
+    timestamp: string;
+  }>;
   recent_cases: Array<{
     id: number;
     case_number: number;

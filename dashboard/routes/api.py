@@ -167,6 +167,25 @@ def _notify_admins(type_: str, title: str, body: str = "", link: str = "", guild
     }))
 
 
+def push_live_event(
+    event_type: str,
+    title: str,
+    body: str = "",
+    severity: str = "info",
+    guild_id: int | None = None,
+) -> None:
+    """Publish a real-time event to the SSE live feed (hub:live_events channel)."""
+    redis_client.publish("hub:live_events", json.dumps({
+        "type": "live_event",
+        "event_type": event_type,
+        "title": title,
+        "body": body,
+        "severity": severity,
+        "guild_id": guild_id,
+        "ts": datetime.now(timezone.utc).isoformat(),
+    }))
+
+
 def _get_or_create_ai_usage(user: User) -> UserAIProviderUsageStat:
     usage = UserAIProviderUsageStat.query.filter_by(user_id=user.id).first()
     if not usage:
@@ -339,13 +358,95 @@ def overview():
         for e in recent
     ]
 
+    # Bot state from Redis (live)
+    bot = get_bot_state()
+
+    # Accessible guilds (for dashboard server cards)
+    guild_q = Guild.query.filter_by(is_active=True)
+    if guild_ids is not None:
+        guild_q = guild_q.filter(Guild.id.in_(guild_ids))
+    accessible_guilds = guild_q.order_by(Guild.member_count.desc()).limit(20).all()
+
+    # Recent mod cases (last 5 across all visible guilds)
+    case_q2 = ModerationCase.query
+    if guild_ids is not None:
+        case_q2 = case_q2.filter(ModerationCase.guild_id.in_(guild_ids))
+    recent_cases_rows = case_q2.order_by(ModerationCase.created_at.desc()).limit(5).all()
+    recent_cases = [
+        {
+            "id": c.id,
+            "case_number": c.case_number,
+            "action": c.action,
+            "target_name": c.target_name,
+            "target_id": c.target_id,
+            "reason": c.reason,
+            "created_at": c.created_at.isoformat(),
+            "guild_name": c.guild.name if c.guild else None,
+        }
+        for c in recent_cases_rows
+    ]
+
+    # Recent open tickets (last 5)
+    ticket_q2 = Ticket.query.filter_by(status="open")
+    if guild_ids is not None:
+        ticket_q2 = ticket_q2.filter(Ticket.guild_id.in_(guild_ids))
+    recent_ticket_rows = ticket_q2.order_by(Ticket.created_at.desc()).limit(5).all()
+    recent_tickets = [
+        {
+            "id": t.id,
+            "ticket_number": t.ticket_number,
+            "subject": t.subject,
+            "status": t.status,
+            "priority": t.priority,
+            "created_at": t.created_at.isoformat(),
+            "assigned_to": t.assigned_to,
+            "guild_name": t.guild.name if t.guild else None,
+        }
+        for t in recent_ticket_rows
+    ]
+
+    # Notifications for the current user
+    notif_items = (
+        Notification.query
+        .filter_by(user_id=current_user.id)
+        .order_by(Notification.created_at.desc())
+        .limit(10)
+        .all()
+    )
+    notif_unread = Notification.query.filter_by(
+        user_id=current_user.id, is_read=False
+    ).count()
+
+    # Prefer live Redis counts for the headline stats
+    live_servers = bot.get("guild_count") or servers
+    live_members = bot.get("member_count") or int(members_total)
+
     return jsonify({
+        # Flat fields kept for backward-compat / other consumers
         "servers": servers,
         "members": int(members_total),
         "tickets": tickets_open,
         "cases": cases_week,
         "trend": trend,
         "recent_events": recent_events,
+        # Enriched fields for the React dashboard
+        "stats": {
+            "guilds": live_servers,
+            "members": live_members,
+            "channels": bot.get("channel_count", 0),
+            "commands_today": bot.get("commands_today", 0),
+            "uptime": bot.get("uptime", "--"),
+            "latency_ms": bot.get("latency_ms", 0),
+            "version": bot.get("version", "--"),
+            "online": bot.get("online", False),
+        },
+        "guilds": [g.to_dict() for g in accessible_guilds],
+        "recent_cases": recent_cases,
+        "recent_tickets": recent_tickets,
+        "notifications": {
+            "unread": notif_unread,
+            "items": [n.to_dict() for n in notif_items],
+        },
     })
 
 
@@ -1771,6 +1872,13 @@ def _handle_guild_join(payload: dict):
             f"/servers/{guild.id}" if guild.id else "",
             guild_id=guild.id,
         )
+        push_live_event(
+            "guild_join",
+            f"Bot joined {guild.name}",
+            body=f"{payload.get('member_count', 0)} members",
+            severity="info",
+            guild_id=guild.id,
+        )
 
 
 def _handle_guild_leave(payload: dict):
@@ -1779,6 +1887,12 @@ def _handle_guild_leave(payload: dict):
     if guild:
         guild.is_active = False
         _notify_admins("guild_leave", f"Bot left {guild.name}", guild_id=guild.id)
+        push_live_event(
+            "guild_leave",
+            f"Bot left {guild.name}",
+            severity="warning",
+            guild_id=guild.id,
+        )
 
 
 def _handle_mod_action(payload: dict, guild: Guild | None):
@@ -1797,6 +1911,15 @@ def _handle_mod_action(payload: dict, guild: Guild | None):
         duration=payload.get("duration"),
     )
     db.session.add(case)
+    action = (payload.get("action") or "action").capitalize()
+    target = payload.get("target_name") or payload.get("target_id") or "?"
+    push_live_event(
+        "mod_action",
+        f"{action} – {target}",
+        body=f"In {guild.name}" + (f": {payload['reason']}" if payload.get("reason") else ""),
+        severity="warning",
+        guild_id=guild.id,
+    )
 
 
 def _handle_ticket_open(payload: dict, guild: Guild | None):
@@ -1813,6 +1936,14 @@ def _handle_ticket_open(payload: dict, guild: Guild | None):
         priority=payload.get("priority", "normal"),
     )
     db.session.add(ticket)
+    opener = payload.get("opener_name") or payload.get("opener_id") or "?"
+    push_live_event(
+        "ticket_open",
+        f"Ticket opened by {opener}",
+        body=f"In {guild.name}" + (f" · {payload['subject']}" if payload.get("subject") else ""),
+        severity="info",
+        guild_id=guild.id,
+    )
 
 
 def _handle_ticket_close(payload: dict, guild: Guild | None):
@@ -1825,6 +1956,14 @@ def _handle_ticket_close(payload: dict, guild: Guild | None):
         ticket.closed_by = payload.get("closed_by")
         ticket.closed_reason = payload.get("reason")
         ticket.closed_at = datetime.now(timezone.utc)
+        closed_by = payload.get("closed_by") or "staff"
+        push_live_event(
+            "ticket_close",
+            f"Ticket closed by {closed_by}",
+            body=f"In {guild.name}" + (f": {payload['reason']}" if payload.get("reason") else ""),
+            severity="info",
+            guild_id=guild.id,
+        )
 
 
 def _handle_ticket_message(payload: dict, guild: Guild | None):
@@ -1923,7 +2062,7 @@ def sse_events():
     def generate():
         import time
         pubsub = redis_client.pubsub()
-        pubsub.subscribe("hub:notifications", "hub:bot_events")
+        pubsub.subscribe("hub:notifications", "hub:bot_events", "hub:live_events")
         try:
             # Send initial state
             bot = get_bot_state()
