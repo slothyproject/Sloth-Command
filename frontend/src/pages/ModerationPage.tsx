@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { Search, AlertTriangle, Shield, Clock, Download, Ban, Plus } from 'lucide-react'
+import { Search, AlertTriangle, Shield, Clock, Download, Ban, Plus, History } from 'lucide-react'
 
 import { formatDate } from '../lib/format'
 import { getJson, postJson, patchJson, deleteJson } from '../lib/api'
@@ -12,6 +12,7 @@ import { Badge } from '@/components/ui/badge'
 import { StatCard } from '@/components/ui/stat-card'
 import { Select } from '@/components/ui/select'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
+import { MemberHistorySlideOver } from '@/components/MemberHistorySlideOver'
 
 interface GuildSummary {
   id: number;
@@ -90,6 +91,8 @@ export function ModerationPage() {
   const [gbTargetId, setGbTargetId] = useState("");
   const [gbReason, setGbReason] = useState("");
   const [gbTargetName, setGbTargetName] = useState("");
+  const [historyMemberId, setHistoryMemberId] = useState<string | null>(null);
+  const [historyMemberName, setHistoryMemberName] = useState<string | null>(null);
 
   const queryClient = useQueryClient();
 
@@ -382,6 +385,13 @@ export function ModerationPage() {
 
   return (
     <div className="space-y-6">
+      {historyMemberId && (
+        <MemberHistorySlideOver
+          discordId={historyMemberId}
+          displayName={historyMemberName}
+          onClose={() => { setHistoryMemberId(null); setHistoryMemberName(null); }}
+        />
+      )}
       <ConfirmDialog
         open={confirmBulkOpen}
         title={`Bulk ${bulkAction.toUpperCase()} — ${selectedTargets.length} target(s)`}
@@ -513,6 +523,13 @@ export function ModerationPage() {
                   <p className="mt-1 text-sm text-text-1">{activeCase.target_name || activeCase.target_id}</p>
                 </div>
                 <button onClick={() => void createAppealFromCase(activeCase)} className="rounded-lg border border-white/10 bg-white/5 px-3 py-1 text-xs text-text-1 transition hover:border-cyan/30 hover:text-cyan">Open appeal ticket</button>
+                <button
+                  onClick={() => { setHistoryMemberId(activeCase.target_id); setHistoryMemberName(activeCase.target_name ?? null); }}
+                  className="flex items-center gap-1 rounded-lg border border-white/10 bg-white/5 px-3 py-1 text-xs text-text-1 transition hover:border-cyan/30 hover:text-cyan"
+                >
+                  <History className="w-3.5 h-3.5" />
+                  Cross-guild history
+                </button>
               </div>
 
               <div className="grid gap-3 xl:grid-cols-[1.1fr,1fr]">

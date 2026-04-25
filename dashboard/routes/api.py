@@ -2326,6 +2326,82 @@ def analytics_summary():
     })
 
 
+# ── Phase 28: Cross-guild member history ──────────────────────────
+
+@api_bp.get("/members/<string:discord_id>/history")
+@login_required
+def member_cross_guild_history(discord_id: str):
+    """Aggregate moderation cases and tickets for a Discord user across all guilds."""
+    discord_id = discord_id.strip()
+    if not discord_id:
+        return jsonify({"error": "discord_id is required"}), 400
+
+    # Restrict to guilds the current user can see
+    if current_user.is_admin:
+        visible_guild_ids = None
+    else:
+        managed = [m.guild_id for m in GuildMember.query.filter_by(user_id=current_user.id).all()]
+        owned = [
+            g.id for g in Guild.query.filter_by(
+                owner_discord_id=current_user.discord_id, is_active=True
+            ).all()
+        ]
+        visible_guild_ids = list(set(managed + owned))
+
+    # Mod cases
+    case_q = ModerationCase.query.filter(ModerationCase.target_id == discord_id)
+    if visible_guild_ids is not None:
+        case_q = case_q.filter(ModerationCase.guild_id.in_(visible_guild_ids))
+    cases = case_q.order_by(ModerationCase.created_at.desc()).limit(100).all()
+
+    # Tickets (opened by this member)
+    ticket_q = Ticket.query.filter(Ticket.opener_id == discord_id)
+    if visible_guild_ids is not None:
+        ticket_q = ticket_q.filter(Ticket.guild_id.in_(visible_guild_ids))
+    tickets = ticket_q.order_by(Ticket.created_at.desc()).limit(50).all()
+
+    # Summary
+    action_tally: dict[str, int] = {}
+    for c in cases:
+        action_tally[c.action] = action_tally.get(c.action, 0) + 1
+
+    first_seen = cases[-1].created_at.isoformat() if cases else None
+    last_seen = cases[0].created_at.isoformat() if cases else None
+
+    return jsonify({
+        "discord_id": discord_id,
+        "case_count": len(cases),
+        "ticket_count": len(tickets),
+        "action_tally": [{"action": k, "count": v} for k, v in sorted(action_tally.items(), key=lambda x: x[1], reverse=True)],
+        "first_seen": first_seen,
+        "last_seen": last_seen,
+        "cases": [
+            {
+                "id": c.id,
+                "case_number": c.case_number,
+                "action": c.action,
+                "reason": c.reason,
+                "moderator_name": c.moderator_name,
+                "guild_name": c.guild.name if c.guild else None,
+                "created_at": c.created_at.isoformat(),
+            }
+            for c in cases
+        ],
+        "tickets": [
+            {
+                "id": t.id,
+                "ticket_number": t.ticket_number,
+                "subject": t.subject,
+                "status": t.status,
+                "priority": t.priority,
+                "guild_name": t.guild.name if t.guild else None,
+                "created_at": t.created_at.isoformat(),
+            }
+            for t in tickets
+        ],
+    })
+
+
 # ── Webhook (bot → hub) ──────────────────────────────────────────
 
 @api_bp.post("/webhook/bot")
