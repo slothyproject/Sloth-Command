@@ -446,37 +446,3 @@ export function AnalyticsPage() {
     </div>
   )
 }
-
-
-interface AnalyticsSummary {
-  range: string
-  days: number
-  totals: {
-    servers: number
-    members: number
-    mod_cases_all_time: number
-    tickets_all_time: number
-    tickets_open: number
-  }
-  action_counts: Array<{ action: string; count: number }>
-  action_timeline: Array<{ date: string; count: number }>
-  ticket_timeline: Array<{ date: string; count: number }>
-  server_timeline: Array<{ date: string; joins: number; leaves: number }>
-  ticket_status_counts: Array<{ status: string; count: number }>
-  ticket_priority_counts: Array<{ priority: string; count: number }>
-  top_guilds: Array<{ id: number; name: string; count: number }>
-}
-
-const TOOLTIP_STYLE = {
-  backgroundColor: 'rgba(13, 18, 30, 0.97)',
-  border: '1px solid rgba(136, 192, 208, 0.25)',
-  borderRadius: '8px',
-  color: '#d8dee9',
-  fontSize: 12,
-}
-
-const AXIS_STYLE = { stroke: 'rgba(255,255,255,0.3)', fontSize: 11 }
-
-function ChartSkeleton() {
-  return <Skeleton count={1} className="h-[260px] w-full" />
-}
