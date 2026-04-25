@@ -1613,11 +1613,35 @@ def analytics_summary():
         "tickets_open": total_ticket_q.filter(Ticket.status == "open").count(),
     }
 
+    # ── Guild member breakdown (for chart) ───────────────────────
+    guilds_by_members = [
+        {"name": g.name, "members": g.member_count or 0, "id": g.id}
+        for g in server_q.order_by(Guild.member_count.desc()).limit(10).all()
+    ]
+
+    # ── Bot health from Redis ─────────────────────────────────────
+    bot = get_bot_state()
+    health = bot.get("health") or {}
+    bot_health = {
+        "online": bot.get("online", False),
+        "uptime": bot.get("uptime", "offline"),
+        "uptime_seconds": bot.get("uptime_seconds", 0),
+        "latency_ms": bot.get("latency_ms", 0),
+        "commands_today": bot.get("commands_today", 0),
+        "cog_count": bot.get("cog_count", 0),
+        "version": bot.get("version", "unknown"),
+        "cpu_percent": health.get("cpu_percent", 0),
+        "memory_percent": health.get("memory_percent", 0),
+        "memory_mb": health.get("memory_mb", 0),
+    }
+
     return jsonify({
         "range": range_param,
         "days": days,
         "since": since.isoformat(),
         "totals": totals,
+        "bot_health": bot_health,
+        "guilds_by_members": guilds_by_members,
         "action_counts": action_counts,
         "action_timeline": action_timeline,
         "ticket_timeline": ticket_timeline,
