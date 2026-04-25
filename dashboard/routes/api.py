@@ -1140,6 +1140,72 @@ def guild_settings_update(guild_id: int):
     return jsonify({"ok": True, "updated": list(changed.keys())})
 
 
+# ── Phase 26: XP Leaderboard ─────────────────────────────────────
+
+@api_bp.get("/guilds/<int:guild_id>/leveling/leaderboard")
+@login_required
+@guild_access_required
+def guild_xp_leaderboard(guild_id: int):
+    """Return the top XP earners for a guild, derived from BotEvent records."""
+    db.get_or_404(Guild, guild_id)
+    limit = min(int(request.args.get("limit", 50)), 200)
+
+    # Supported event types the bot may emit
+    xp_event_types = {"xp_gain", "xp_update", "level_up", "xp"}
+
+    events = (
+        BotEvent.query
+        .filter(
+            BotEvent.guild_id == guild_id,
+            BotEvent.event_type.in_(list(xp_event_types)),
+        )
+        .order_by(BotEvent.created_at.asc())
+        .all()
+    )
+
+    # Aggregate per member — for xp_update/level_up we trust total_xp as the
+    # authoritative cumulative value; for xp_gain we sum incrementally.
+    totals: dict[str, dict] = {}   # member_id -> {total_xp, level, username}
+
+    for ev in events:
+        payload = ev.payload or {}
+        member_id = str(payload.get("member_id") or payload.get("user_id") or "")
+        if not member_id:
+            continue
+        username = payload.get("username") or payload.get("member_name") or member_id
+        level = int(payload.get("level") or 0)
+
+        if ev.event_type in ("xp_update", "level_up") and payload.get("total_xp") is not None:
+            # Authoritative snapshot — overwrite running total
+            totals[member_id] = {
+                "member_id": member_id,
+                "username": username,
+                "total_xp": int(payload["total_xp"]),
+                "level": level,
+            }
+        else:
+            # Incremental gain
+            xp_delta = int(payload.get("xp") or payload.get("xp_gained") or 0)
+            if member_id not in totals:
+                totals[member_id] = {
+                    "member_id": member_id,
+                    "username": username,
+                    "total_xp": 0,
+                    "level": level,
+                }
+            totals[member_id]["total_xp"] += xp_delta
+            if level > totals[member_id]["level"]:
+                totals[member_id]["level"] = level
+            if username != member_id:
+                totals[member_id]["username"] = username
+
+    ranked = sorted(totals.values(), key=lambda x: x["total_xp"], reverse=True)[:limit]
+    for i, entry in enumerate(ranked, 1):
+        entry["rank"] = i
+
+    return jsonify({"total": len(ranked), "leaderboard": ranked})
+
+
 # ── Guild commands ───────────────────────────────────────────────
 
 @api_bp.get("/guilds/<int:guild_id>/commands")
