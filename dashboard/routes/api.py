@@ -259,6 +259,90 @@ def bot_state_route():
     return jsonify(get_bot_state())
 
 
+# ── Phase 27: Bot health detail ───────────────────────────────────
+
+@api_bp.get("/bot/health-detail")
+@login_required
+def bot_health_detail():
+    """Lightweight bot health snapshot: Redis state + 24-hour event sparkline."""
+    from collections import defaultdict
+
+    now = datetime.now(timezone.utc)
+    yesterday = now - timedelta(days=1)
+    two_days_ago = now - timedelta(days=2)
+
+    bot = get_bot_state()
+    health = bot.get("health") or {}
+
+    # 24-hour hourly event counts (proxy for activity / latency trend)
+    recent_events = (
+        BotEvent.query
+        .filter(BotEvent.created_at >= yesterday)
+        .with_entities(BotEvent.created_at, BotEvent.event_type)
+        .all()
+    )
+
+    hourly: dict[int, int] = defaultdict(int)
+    for ev_ts, _et in recent_events:
+        hourly[ev_ts.hour] += 1
+
+    sparkline = [{"hour": h, "events": hourly.get(h, 0)} for h in range(24)]
+
+    # Commands today vs yesterday
+    commands_today = int(bot.get("commands_today") or 0)
+    commands_q = BotEvent.query.filter(
+        BotEvent.event_type == "command",
+        BotEvent.created_at >= yesterday,
+        BotEvent.created_at < now,
+    ).count()
+    commands_yesterday = BotEvent.query.filter(
+        BotEvent.event_type == "command",
+        BotEvent.created_at >= two_days_ago,
+        BotEvent.created_at < yesterday,
+    ).count()
+
+    # Most recent heartbeat — proxy for "last seen"
+    last_event = (
+        BotEvent.query
+        .order_by(BotEvent.created_at.desc())
+        .first()
+    )
+    last_seen = last_event.created_at.isoformat() if last_event else None
+
+    # Event type distribution over last 24h
+    type_counts: dict[str, int] = defaultdict(int)
+    for _ts, et in recent_events:
+        type_counts[et] += 1
+    event_breakdown = sorted(
+        [{"type": k, "count": v} for k, v in type_counts.items()],
+        key=lambda x: x["count"], reverse=True
+    )[:10]
+
+    # Uptime percentage from uptime_seconds: (uptime_s / 86400) capped at 100%
+    uptime_s = int(bot.get("uptime_seconds") or 0)
+    uptime_pct = min(round(uptime_s / 864, 1), 100.0)  # 864 = 86400/100
+
+    return jsonify({
+        "online": bool(bot.get("online", False)),
+        "uptime": bot.get("uptime", "offline"),
+        "uptime_seconds": uptime_s,
+        "uptime_pct": uptime_pct,
+        "latency_ms": float(bot.get("latency_ms") or 0),
+        "commands_today": commands_today or commands_q,
+        "commands_yesterday": commands_yesterday,
+        "cog_count": int(bot.get("cog_count") or 0),
+        "version": bot.get("version", "unknown"),
+        "guild_count": int(bot.get("guild_count") or 0),
+        "member_count": int(bot.get("member_count") or 0),
+        "cpu_percent": float(health.get("cpu_percent") or 0),
+        "memory_percent": float(health.get("memory_percent") or 0),
+        "memory_mb": float(health.get("memory_mb") or 0),
+        "last_seen": last_seen,
+        "sparkline": sparkline,
+        "event_breakdown": event_breakdown,
+    })
+
+
 @api_bp.get("/overview")
 @login_required
 def overview():

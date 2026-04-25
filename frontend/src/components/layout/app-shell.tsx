@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react'
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom'
-import { Menu, X, LayoutDashboard, Server, Ticket, ShieldAlert, BarChart3, Bot, ScrollText, Users, Settings, LogOut, User, ChevronRight, Bell, Command } from 'lucide-react'
+import { Menu, X, LayoutDashboard, Server, Ticket, ShieldAlert, BarChart3, Bot, ScrollText, Users, Settings, LogOut, User, ChevronRight, Bell, Command, HeartPulse } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { cn } from '@/lib/cn'
 import { Button } from '../ui/button'
@@ -157,6 +157,7 @@ const SidebarContent: React.FC<SidebarContentProps> = ({ isCollapsed, currentPat
     { label: 'Moderation', href: '/moderation', icon: <ShieldAlert className="w-5 h-5" /> },
     { label: 'Analytics', href: '/analytics', icon: <BarChart3 className="w-5 h-5" /> },
     { label: 'AI Advisor', href: '/ai-advisor', icon: <Bot className="w-5 h-5" /> },
+    { label: 'Bot Health', href: '/bot-health', icon: <HeartPulse className="w-5 h-5" /> },
     { label: 'Notifications', href: '/notifications', icon: <Bell className="w-5 h-5" />, badge: unreadCount > 0 ? unreadCount : undefined },
     { label: 'Logs', href: '/logs', icon: <ScrollText className="w-5 h-5" /> },
     { label: 'Users', href: '/users', icon: <Users className="w-5 h-5" />, adminOnly: true },
