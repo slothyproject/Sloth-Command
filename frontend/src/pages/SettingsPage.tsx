@@ -38,7 +38,7 @@ interface BotConfigResponse {
   updated_at: string | null;
 }
 
-type AIProvider = "ollama" | "openai" | "anthropic" | "gemini" | "custom_openai";
+type AIProvider = "ollama_cloud" | "ollama" | "openai" | "anthropic" | "gemini" | "custom_openai";
 
 interface AIProviderStatusResponse {
   configured: boolean;
@@ -67,7 +67,8 @@ interface AIProviderValidationResponse {
 }
 
 const DEFAULT_PROVIDER_OPTIONS: Record<AIProvider, { label: string; default_model: string; requires_base_url: boolean }> = {
-  ollama: { label: "Ollama", default_model: "llama3.1:8b", requires_base_url: true },
+  ollama_cloud: { label: "Ollama Cloud", default_model: "kimi-k2.6:cloud", requires_base_url: false },
+  ollama: { label: "Ollama (Self-hosted)", default_model: "llama3.1:8b", requires_base_url: true },
   openai: { label: "OpenAI", default_model: "gpt-4o-mini", requires_base_url: false },
   anthropic: { label: "Anthropic", default_model: "claude-3-5-haiku-latest", requires_base_url: false },
   gemini: { label: "Google Gemini", default_model: "gemini-2.0-flash", requires_base_url: false },
