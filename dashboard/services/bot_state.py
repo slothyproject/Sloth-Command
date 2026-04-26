@@ -17,7 +17,7 @@ log = logging.getLogger(__name__)
 
 # The key the bot actually writes to (from bot/api/shared_state.py)
 _BOT_STATE_KEY = "dissident:bot_state"
-_STALE_THRESHOLD = 30  # seconds
+_STALE_THRESHOLD = 120  # seconds — more forgiving for Railway services
 
 _OFFLINE: dict = {
     "online": False,
@@ -44,14 +44,18 @@ def get_bot_state() -> dict:
             return _OFFLINE.copy()
 
         data = json.loads(raw)
-        stats = data.get("stats", data)  # bot wraps in {"stats": {...}}
+        # Support both flat and nested {"stats": {...}} shapes
+        stats = data.get("stats", data)
+
+        # Prefer top-level status if present, fall back to nested
+        status = data.get("status") or stats.get("status", "offline")
 
         # Check staleness
         stale = _is_stale(data)
 
         return {
-            "online": stats.get("status") == "online" and not stale,
-            "status": stats.get("status", "offline"),
+            "online": status == "online" and not stale,
+            "status": status,
             "guild_count": stats.get("servers", 0),
             "member_count": stats.get("users", 0),
             "channel_count": stats.get("channels", 0),

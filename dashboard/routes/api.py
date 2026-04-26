@@ -33,7 +33,7 @@ from dashboard.services.ai_provider import (
 from dashboard.services.encryption import decrypt_secret, encrypt_secret
 from dashboard.versioning import get_dashboard_version
 
-from sqlalchemy import func as sa_func
+from sqlalchemy import func as sa_func, or_
 
 api_bp = Blueprint("api", __name__)
 
@@ -407,7 +407,7 @@ def overview():
     event_q = BotEvent.query.filter(BotEvent.event_type != "heartbeat")
     if guild_ids is not None:
         event_q = event_q.filter(
-            db.or_(BotEvent.guild_id.in_(guild_ids), BotEvent.guild_id.is_(None))
+            or_(BotEvent.guild_id.in_(guild_ids), BotEvent.guild_id.is_(None))
         )
     recent = event_q.order_by(BotEvent.created_at.desc()).limit(8).all()
 
@@ -1501,7 +1501,7 @@ def guild_appeals_list(guild_id: int):
     )
     if member_id:
         q = q.filter(
-            db.or_(
+            or_(
                 Ticket.opener_id == member_id,
                 Ticket.subject.ilike(f"%{member_id}%"),
             )
@@ -1964,7 +1964,7 @@ def analytics_summary():
         )
         if guild_filter is not None:
             q = q.filter(
-                db.or_(BotEvent.guild_id.in_(guild_filter), BotEvent.guild_id.is_(None))
+                or_(BotEvent.guild_id.in_(guild_filter), BotEvent.guild_id.is_(None))
             )
         return q
 
@@ -2188,7 +2188,7 @@ def analytics_summary():
     )
     if guild_filter is not None:
         prev_cmd_q = prev_cmd_q.filter(
-            db.or_(BotEvent.guild_id.in_(guild_filter), BotEvent.guild_id.is_(None))
+            or_(BotEvent.guild_id.in_(guild_filter), BotEvent.guild_id.is_(None))
         )
 
     prev_period = {
