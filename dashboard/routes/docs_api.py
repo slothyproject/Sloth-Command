@@ -32,7 +32,18 @@ except ImportError:
 
 docs_bp = Blueprint("docs", __name__)
 
-_REPO_ROOT = Path(__file__).resolve().parents[3]
+# ── Repo resolution ──────────────────────────────────────────────────
+
+def _find_repo_root() -> Path:
+    """Find repository root by walking up from this file."""
+    p = Path(__file__).resolve().parent
+    while p != p.parent:
+        if (p / "wsgi.py").exists() or (p / "requirements.txt").exists():
+            return p
+        p = p.parent
+    return Path(__file__).resolve().parents[3]
+
+_REPO_ROOT = _find_repo_root()
 _CONTENT_DIRS = [_REPO_ROOT / d for d in ("docs/wiki", "docs/generated")]
 _STATIC_DOCS = [
     _REPO_ROOT / "docs" / f
