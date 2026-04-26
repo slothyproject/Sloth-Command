@@ -212,6 +212,77 @@ def get_sitemap():
     return jsonify({"categories": _index.sitemap()})
 
 
+# ── NEW: Structured commands endpoint ──────────────────────────────
+
+_COG_EMOJIS: dict[str, str] = {
+    "moderation": "🛡️",
+    "tickets": "🎫",
+    "welcome": "👋",
+    "fun": "🎉",
+    "economy": "💰",
+    "music": "🎵",
+    "logging": "📋",
+    "automod": "🤖",
+    "leveling": "⭐",
+    "utility": "🔧",
+    "skill_factory_bridge": "🔨",
+}
+
+
+def _parse_command_markdown(path: Path) -> list[dict]:
+    """Parse a generated command markdown file into structured data."""
+    text = path.read_text(encoding="utf-8")
+    commands: list[dict] = []
+    current: dict | None = None
+    in_table = False
+    for line in text.splitlines():
+        stripped = line.strip()
+        # Table header
+        if stripped.startswith("|`!"):
+            in_table = True
+            continue
+        if in_table and stripped.startswith("|---"):
+            continue
+        if in_table and stripped.startswith("|`"):
+            parts = stripped.split("|")
+            if len(parts) >= 4:
+                raw_cmd = parts[1].strip().strip("` !")
+                args_raw = parts[2].strip()
+                perms_raw = parts[3].strip()
+                desc = parts[4].strip() if len(parts) > 4 else ""
+                commands.append({
+                    "name": raw_cmd,
+                    "args": args_raw,
+                    "permissions": perms_raw,
+                    "description": desc,
+                    "example": "",
+                })
+            continue
+        if in_table and not stripped.startswith("|"):
+            in_table = False
+        # Usage example: | `!name` args |  or **Syntax:** `!name args`
+        m = re.search(r"`!/([a-z_]+)`\s+(.*)", stripped)
+        if m and commands:
+            commands[-1]["example"] = m.group(0).strip().strip("|`").strip()
+    return commands
+
+
+@docs_bp.get("/docs/commands")
+def list_commands():
+    cogs: list[dict] = []
+    gen_dir = _REPO_ROOT / "docs" / "generated"
+    for path in sorted(gen_dir.glob("commands-*.md")):
+        cog_name = path.stem.replace("commands-", "")
+        cmds = _parse_command_markdown(path)
+        cogs.append({
+            "name": cog_name,
+            "emoji": _COG_EMOJIS.get(cog_name, "🤖"),
+            "command_count": len(cmds),
+            "commands": cmds,
+        })
+    return jsonify({"cogs": cogs})
+
+
 @docs_bp.get("/docs/<category>/<slug>")
 def get_page(category: str, slug: str):
     page = _index.get(category, slug)

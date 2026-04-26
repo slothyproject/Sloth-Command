@@ -10,6 +10,8 @@ import { getJson } from "./lib/api";
 // Lazy load pages
 const DashboardPage = lazy(() => import("./pages/DashboardPage").then((m) => ({ default: m.DashboardPage })));
 const WikiPage = lazy(() => import("./pages/WikiPage").then((m) => ({ default: m.WikiPage })));
+const WikiHomePage = lazy(() => import("./pages/WikiHomePage").then((m) => ({ default: m.WikiHomePage })));
+const CommandIndex = lazy(() => import("./pages/CommandIndex").then((m) => ({ default: m.CommandIndex })));
 const LoginPage = lazy(() => import("./pages/LoginPage").then((m) => ({ default: m.LoginPage })));
 const ModerationPage = lazy(() => import("./pages/ModerationPage").then((m) => ({ default: m.ModerationPage })));
 const TicketsPage = lazy(() => import("./pages/TicketsPage").then((m) => ({ default: m.TicketsPage })));
@@ -74,8 +76,9 @@ function SessionBootstrap() {
         <Route path="/login" element={<LoginPage />} />
         
         {/* Public wiki routes */}
-        <Route path="/docs" element={<WikiPage />} />
+        <Route path="/docs" element={<WikiHomePage />} />
         <Route path="/docs/:category/:slug" element={<WikiPage />} />
+        <Route path="/commands" element={<CommandIndex />} />
         
         {/* Protected routes with AppShell layout */}
         <Route element={<Protected><AppShell /></Protected>}>
