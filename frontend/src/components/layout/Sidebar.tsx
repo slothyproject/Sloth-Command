@@ -1,4 +1,4 @@
-import { BarChart3, Bell, LayoutDashboard, ScrollText, Server, Settings, ShieldAlert, Ticket, Users, WandSparkles } from "lucide-react";
+import { BarChart3, Bell, BookOpen, LayoutDashboard, ScrollText, Server, Settings, ShieldAlert, Ticket, Users, WandSparkles } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 
@@ -11,6 +11,7 @@ import { useAuthStore } from "../../store/authStore";
 const baseLinks = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { to: "/servers", label: "Servers", icon: Server },
+  { to: "/docs", label: "Docs", icon: BookOpen },
   { to: "/moderation", label: "Moderation", icon: ShieldAlert },
   { to: "/tickets", label: "Tickets", icon: Ticket },
   { to: "/notifications", label: "Notifications", icon: Bell, badge: true },
