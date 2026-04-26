@@ -68,10 +68,11 @@ def homepage_story():
 @core_bp.get("/docs")
 @core_bp.get("/docs/")
 @core_bp.get("/docs/<path:subpath>")
-def homepage_docs(subpath: str | None = None):
-    if subpath:
-        return _serve_homepage_export(f"docs/{subpath}")
-    return _serve_homepage_export("docs")
+def react_docs(subpath: str | None = None):
+    """Serve the React docs SPA. Let client-side routing handle all /docs/* paths."""
+    if not FRONTEND_DIST.exists():
+        return redirect(url_for("auth.login"))
+    return send_from_directory(FRONTEND_DIST, "index.html")
 
 
 @core_bp.get("/faq")
@@ -218,6 +219,15 @@ def invite():
 @core_bp.get("/login")
 def login_redirect():
     return redirect(url_for("auth.login"))
+
+
+@core_bp.get("/commands")
+@core_bp.get("/commands/")
+def react_commands():
+    """Serve the React SPA for the commands reference page."""
+    if not FRONTEND_DIST.exists():
+        return redirect(url_for("auth.login"))
+    return send_from_directory(FRONTEND_DIST, "index.html")
 
 
 @core_bp.get("/app")
