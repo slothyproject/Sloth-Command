@@ -1,0 +1,8 @@
+# Dissident Bot Module Registry
+# Set enabled: false to skip loading a cog at startup.
+
+cogs:
+  - name: skill_factory_bridge
+    description: Scaffolds Discord cogs + Factory skill files via !skill create
+    enabled: true
+    path: bot/cogs/skill_factory_bridge.py

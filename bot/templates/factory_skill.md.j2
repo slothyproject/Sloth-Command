@@ -1,0 +1,24 @@
+{%- raw -%}
+---
+name: {{ skill_name }}
+description: Factory skill for the {{ class_name }} Discord cog.
+model: inherit
+---
+# {{ class_name }} Skill
+
+## Trigger
+Manual: `droid run {{ skill_name }} --task "<instructions>"`
+
+## Context
+- Cog path: `{{ cog_path }}`
+- Bot command: `!{{ skill_name }}`
+
+## Procedure
+1. Load the cog into the bot context.
+2. Execute the command logic as specified in the task.
+3. Report results.
+
+## Constraints
+- Do not restart the bot.
+- Do not modify other cogs.
+{%- endraw -%}
