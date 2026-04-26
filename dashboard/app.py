@@ -189,6 +189,29 @@ def _run_migrations(app: Flask) -> None:
             if "disabled_channels" not in ccols:
                 migrations.append("ALTER TABLE hub_guild_commands ADD COLUMN disabled_channels JSONB DEFAULT '[]'::jsonb")
 
+        # hub_owner_ip_allowlist
+        if "hub_owner_ip_allowlist" not in existing_tables:
+            migrations.append(
+                "CREATE TABLE IF NOT EXISTS hub_owner_ip_allowlist ("
+                "id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES hub_users(id) ON DELETE CASCADE, "
+                "ip_address VARCHAR(45) NOT NULL, description VARCHAR(200), "
+                "expires_at TIMESTAMPTZ, created_at TIMESTAMPTZ DEFAULT NOW()"
+                ")"
+            )
+            migrations.append("CREATE INDEX IF NOT EXISTS idx_ip_allowlist_user ON hub_owner_ip_allowlist(user_id)")
+            migrations.append("CREATE INDEX IF NOT EXISTS idx_ip_allowlist_ip ON hub_owner_ip_allowlist(ip_address)")
+
+        # hub_failed_login_attempts
+        if "hub_failed_login_attempts" not in existing_tables:
+            migrations.append(
+                "CREATE TABLE IF NOT EXISTS hub_failed_login_attempts ("
+                "id SERIAL PRIMARY KEY, username VARCHAR(80) NOT NULL, ip_address VARCHAR(45), "
+                "created_at TIMESTAMPTZ DEFAULT NOW()"
+                ")"
+            )
+            migrations.append("CREATE INDEX IF NOT EXISTS idx_failed_login_username ON hub_failed_login_attempts(username)")
+            migrations.append("CREATE INDEX IF NOT EXISTS idx_failed_login_created ON hub_failed_login_attempts(created_at)")
+
         if not migrations:
             log.info("Schema up to date — no migrations needed")
             return

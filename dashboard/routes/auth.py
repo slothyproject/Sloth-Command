@@ -22,7 +22,15 @@ from flask import (
 from flask_login import current_user, login_required, login_user, logout_user
 
 from dashboard.extensions import db, limiter
-from dashboard.models import AuditLog, Guild, GuildMember, User
+from dashboard.models import (
+    AuditLog,
+    FailedLoginAttempt,
+    Guild,
+    GuildMember,
+    OwnerIPAllowlist,
+    User,
+)
+from datetime import datetime, timedelta, timezone
 
 auth_bp = Blueprint("auth", __name__)
 
@@ -210,7 +218,6 @@ def discord_callback():
         if discord_user.get("email"):
             user.email = discord_user["email"]
 
-    from datetime import datetime, timezone
     user.last_login = datetime.now(timezone.utc)
     _apply_owner_overrides(user)
     db.session.commit()
@@ -231,14 +238,58 @@ def login():
     return render_template("auth/login.html")
 
 
+def _ip_allowed(user: User, ip: str | None) -> bool:
+    """Return False only if the user is an owner and has an allowlist without this IP."""
+    if not user.is_owner:
+        return True
+    entries = OwnerIPAllowlist.query.filter_by(user_id=user.id).all()
+    if not entries:
+        return True
+    if not ip:
+        return False
+    now = datetime.now(timezone.utc)
+    for e in entries:
+        if e.expires_at and e.expires_at < now:
+            continue
+        if e.ip_address == ip:
+            return True
+    return False
+
+
+def _brute_force_ok(username: str, ip: str | None) -> bool:
+    """Block after 5 failed attempts in the last 15 minutes."""
+    window = datetime.now(timezone.utc) - timedelta(minutes=15)
+    query = FailedLoginAttempt.query.filter(
+        FailedLoginAttempt.username == username,
+        FailedLoginAttempt.created_at >= window,
+    )
+    if ip:
+        query = query.filter(FailedLoginAttempt.ip_address == ip)
+    return query.count() < 5
+
+
+def _record_failure(username: str, ip: str | None) -> None:
+    db.session.add(FailedLoginAttempt(username=username, ip_address=ip))
+    db.session.commit()
+
+
 @auth_bp.post("/login")
 @limiter.limit("10 per minute")
 def login_post():
     username = request.form.get("username", "").strip()
     password = request.form.get("password", "")
+    ip = request.remote_addr
 
     user = User.query.filter_by(username=username).first()
+
+    # Brute-force gate — check before user lookup so usernames can't be enumerated via timing
+    if not _brute_force_ok(username, ip):
+        current_app.logger.warning("Brute-force block for user=%s ip=%s", username, ip)
+        flash("Too many failed attempts. Try again in 15 minutes.", "danger")
+        return render_template("auth/login.html"), 429
+
     if not user or not user.check_password(password):
+        _record_failure(username, ip)
         flash("Invalid username or password.", "danger")
         return render_template("auth/login.html"), 401
 
@@ -246,11 +297,15 @@ def login_post():
         flash("This account is disabled.", "danger")
         return render_template("auth/login.html"), 403
 
-    from datetime import datetime, timezone
+    if not _ip_allowed(user, ip):
+        current_app.logger.warning("IP allowlist block for user=%s ip=%s", username, ip)
+        flash("Login from this IP is not allowed.", "danger")
+        return render_template("auth/login.html"), 403
+
     user.last_login = datetime.now(timezone.utc)
     db.session.commit()
     login_user(user, remember=True)
-    _audit(user.id, "local_login", ip=request.remote_addr)
+    _audit(user.id, "local_login", ip=ip)
 
     next_url = request.args.get("next") or url_for("core.dashboard")
     return redirect(next_url)
