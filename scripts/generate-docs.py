@@ -40,13 +40,29 @@ def extract_commands(filepath: Path) -> list[dict]:
         # Parse docstring
         docstring = ast.get_docstring(node) or ""
         # Parse permissions
+        # Parse permissions from @commands.has_permissions decorators
         perms = []
+        checks = []
         for dec in node.decorator_list:
             if isinstance(dec, ast.Call):
-                if getattr(dec.func, "attr", None) in ("has_permissions", "has_guild_permissions"):
+                caller = getattr(dec.func, "attr", "")
+                if caller in ("has_permissions", "has_guild_permissions"):
                     for kw in dec.keywords:
                         if isinstance(kw.value, ast.Constant) and kw.value.value is True:
                             perms.append(kw.arg)
+                elif caller == "has_role":
+                    try:
+                        checks.append(f"has_role: {ast.literal_eval(dec.args[0])}")
+                    except Exception:
+                        pass
+                elif caller == "has_any_role":
+                    try:
+                        roles = [ast.literal_eval(a) for a in dec.args]
+                        checks.append(f"has_any_role: {', '.join(roles)}")
+                    except Exception:
+                        pass
+            elif isinstance(dec, ast.Attribute) and dec.attr in ("is_owner", "check"):
+                checks.append(dec.attr)
         # Arguments after ctx
         args = []
         for arg in node.args.args[1:]:
