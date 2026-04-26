@@ -38,7 +38,7 @@ const defaultOptions: DefaultOptions = {
     throwOnError: false, // Don't throw errors - handle them in components
     
     // Loading state
-    placeholderData: (previousData) => previousData, // Use previous data while loading new
+    placeholderData: (previousData: unknown) => previousData, // Use previous data while loading new
   },
   mutations: {
     // Retry configuration for mutations

@@ -1,66 +1,62 @@
-/**
- * Analytics Page
- * Comprehensive analytics and metrics dashboard
- */
-
 'use client';
 
 import React, { useState } from 'react';
 import {
-  LineChart,
-  Line,
-  BarChart,
-  Bar,
-  AreaChart,
-  Area,
-  PieChart,
-  Pie,
-  Cell,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  Legend,
+  LineChart, Line, BarChart, Bar, AreaChart, Area,
+  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend
 } from 'recharts';
+import { MetricCard } from '@/app/components/ui';
 import { cn } from '@/app/lib/utils';
 
 type TimeRange = '24h' | '7d' | '30d' | '90d';
 
 export default function AnalyticsPage() {
   const [timeRange, setTimeRange] = useState<TimeRange>('7d');
-  const [activeTab, setActiveTab] = useState('overview');
 
-  // Mock data
-  const trafficData = [
-    { time: '00:00', requests: 120, errors: 2 },
-    { time: '04:00', requests: 80, errors: 1 },
-    { time: '08:00', requests: 450, errors: 5 },
-    { time: '12:00', requests: 890, errors: 8 },
-    { time: '16:00', requests: 720, errors: 6 },
-    { time: '20:00', requests: 340, errors: 3 },
-    { time: '23:59', requests: 180, errors: 2 },
+  const messagesData = [
+    { time: 'Mon', messages: 420, users: 120 },
+    { time: 'Tue', messages: 580, users: 145 },
+    { time: 'Wed', messages: 390, users: 110 },
+    { time: 'Thu', messages: 720, users: 190 },
+    { time: 'Fri', messages: 650, users: 170 },
+    { time: 'Sat', messages: 340, users: 95 },
+    { time: 'Sun', messages: 280, users: 80 },
   ];
 
-  const costData = [
-    { service: 'Website', cost: 85, color: '#06b6d4' },
-    { service: 'API Backend', cost: 120, color: '#8b5cf6' },
-    { service: 'Discord Bot', cost: 45, color: '#f59e0b' },
-    { service: 'Secrets Service', cost: 25, color: '#22c55e' },
+  const commandsData = [
+    { command: '/deploy', count: 84 },
+    { command: '/status', count: 62 },
+    { command: '/logs', count: 45 },
+    { command: '/restart', count: 30 },
+    { command: '/backup', count: 22 },
+    { command: '/alert', count: 18 },
   ];
 
-  const performanceData = [
-    { metric: 'P50', value: 45, target: 50 },
-    { metric: 'P95', value: 120, target: 100 },
-    { metric: 'P99', value: 280, target: 200 },
+  const ticketResolutionData = [
+    { period: 'Week 1', created: 12, resolved: 10 },
+    { period: 'Week 2', created: 18, resolved: 15 },
+    { period: 'Week 3', created: 14, resolved: 16 },
+    { period: 'Week 4', created: 10, resolved: 12 },
+  ];
+
+  const activityHeatmap = [
+    { hour: '00:00', score: 12 },
+    { hour: '04:00', score: 5 },
+    { hour: '08:00', score: 45 },
+    { hour: '12:00', score: 78 },
+    { hour: '16:00', score: 92 },
+    { hour: '20:00', score: 65 },
   ];
 
   const stats = {
-    totalRequests: '1.2M',
-    avgResponseTime: '145ms',
-    errorRate: '0.12%',
-    uptime: '99.98%',
+    messages: '3.4K',
+    users: '1.2K',
+    moderationEvents: '28',
+    ticketsResolved: '53',
   };
+
+  const totalMessages = messagesData.reduce((sum, d) => sum + d.messages, 0);
+  const totalUsers = messagesData.reduce((sum, d) => sum + d.users, 0);
 
   return (
     <div className="space-y-6">
@@ -68,7 +64,7 @@ export default function AnalyticsPage() {
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-white">Analytics</h1>
-          <p className="text-slate-400 mt-1">Track performance, costs, and usage metrics</p>
+          <p className="text-slate-400 mt-1">Platform metrics, trends, and performance insights</p>
         </div>
 
         <div className="flex items-center gap-2">
@@ -83,250 +79,101 @@ export default function AnalyticsPage() {
                   : 'bg-white/5 text-slate-400 hover:bg-white/10 hover:text-white'
               )}
             >
-              {range === '24h' && 'Last 24 Hours'}
-              {range === '7d' && 'Last 7 Days'}
-              {range === '30d' && 'Last 30 Days'}
-              {range === '90d' && 'Last 90 Days'}
+              {range === '24h' ? 'Last 24 Hours' : range === '7d' ? 'Last 7 Days' : range === '30d' ? 'Last 30 Days' : 'Last 90 Days'}
             </button>
           ))}
         </div>
       </div>
 
-      {/* Stats Grid */}
+      {/* Stat Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard
-          title="Total Requests"
-          value={stats.totalRequests}
-          change="+12% from last period"
-          trend="up"
-          icon="Activity"
-        />
-        <StatCard
-          title="Avg Response Time"
-          value={stats.avgResponseTime}
-          change="-5ms improvement"
-          trend="up"
-          icon="Clock"
-        />
-        <StatCard
-          title="Error Rate"
-          value={stats.errorRate}
-          change="Within acceptable range"
-          trend="stable"
-          icon="AlertCircle"
-        />
-        <StatCard
-          title="Uptime"
-          value={stats.uptime}
-          change="Excellent reliability"
-          trend="up"
-          icon="CheckCircle"
-        />
+        <MetricCard title="Messages" value={stats.messages} color="cyan" size="sm" />
+        <MetricCard title="Users" value={stats.users} color="violet" size="sm" />
+        <MetricCard title="Moderation Events" value={stats.moderationEvents} color="yellow" size="sm" />
+        <MetricCard title="Tickets Resolved" value={stats.ticketsResolved} color="green" size="sm" />
       </div>
 
-      {/* Traffic Chart */}
-      <div className="glass-card p-6">
-        <div className="flex items-center justify-between mb-6">
-          <h3 className="font-semibold text-white">Traffic Overview</h3>
-          <button className="btn-glass px-4 py-2 rounded-lg text-sm">
-            Export Report
-          </button>
-        </div>
-
-        <div className="h-80">
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={trafficData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
-              <XAxis dataKey="time" stroke="#64748b" fontSize={12} tickLine={false} />
-              <YAxis stroke="#64748b" fontSize={12} tickLine={false} />
-              <Tooltip
-                contentStyle={{
-                  backgroundColor: '#1e293b',
-                  border: '1px solid rgba(255,255,255,0.1)',
-                  borderRadius: '8px',
-                }}
-                itemStyle={{ color: '#fff' }}
-              />
-              <Legend />
-              <Area
-                type="monotone"
-                dataKey="requests"
-                name="Requests"
-                stroke="#06b6d4"
-                fill="#06b6d4"
-                fillOpacity={0.2}
-              />
-              <Area
-                type="monotone"
-                dataKey="errors"
-                name="Errors"
-                stroke="#ef4444"
-                fill="#ef4444"
-                fillOpacity={0.2}
-              />
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-
-      {/* Charts Grid */}
+      {/* Charts grid */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Cost Breakdown */}
+        {/* Messages Over Time */}
         <div className="glass-card p-6">
-          <div className="flex items-center justify-between mb-6">
-            <h3 className="font-semibold text-white">Cost Breakdown</h3>
-            <span className="text-2xl font-bold text-white">$275</span>
-          </div>
-
+          <h3 className="font-semibold text-white mb-6">Messages Over Time</h3>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={costData}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={60}
-                  outerRadius={80}
-                  paddingAngle={5}
-                  dataKey="cost"
-                >
-                  {costData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color} />
-                  ))}
-                </Pie>
-                <Tooltip
-                  formatter={(value) => [`$${value}`, 'Cost']}
-                  contentStyle={{
-                    backgroundColor: '#1e293b',
-                    border: '1px solid rgba(255,255,255,0.1)',
-                    borderRadius: '8px',
-                  }}
-                />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
-
-          <div className="space-y-2 mt-4">
-            {costData.map((item) => (
-              <div key={item.service} className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div
-                    className="w-3 h-3 rounded-full"
-                    style={{ backgroundColor: item.color }}
-                  />
-                  <span className="text-slate-400">{item.service}</span>
-                </div>
-                <span className="text-white font-medium">${item.cost}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Response Time Distribution */}
-        <div className="glass-card p-6">
-          <div className="flex items-center justify-between mb-6">
-            <h3 className="font-semibold text-white">Response Time Distribution</h3>
-            <span className="text-sm text-slate-400">In milliseconds</span>
-          </div>
-
-          <div className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={performanceData}>
+              <AreaChart data={messagesData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
-                <XAxis dataKey="metric" stroke="#64748b" fontSize={12} tickLine={false} />
+                <XAxis dataKey="time" stroke="#64748b" fontSize={12} tickLine={false} />
                 <YAxis stroke="#64748b" fontSize={12} tickLine={false} />
                 <Tooltip
-                  formatter={(value) => [`${value}ms`, 'Response Time']}
-                  contentStyle={{
-                    backgroundColor: '#1e293b',
-                    border: '1px solid rgba(255,255,255,0.1)',
-                    borderRadius: '8px',
-                  }}
+                  contentStyle={{ backgroundColor: '#1e293b', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px' }}
+                  itemStyle={{ color: '#fff' }}
                 />
-                <Bar dataKey="value" fill="#8b5cf6" radius={[4, 4, 0, 0]} />
-                <Bar dataKey="target" fill="#22c55e" radius={[4, 4, 0, 0]} />
+                <Legend />
+                <Area type="monotone" dataKey="messages" name="Messages" stroke="#06b6d4" fill="#06b6d4" fillOpacity={0.2} />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* User Activity Heatmap */}
+        <div className="glass-card p-6">
+          <h3 className="font-semibold text-white mb-6">User Activity Heatmap</h3>
+          <div className="h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={activityHeatmap}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
+                <XAxis dataKey="hour" stroke="#64748b" fontSize={12} tickLine={false} />
+                <YAxis stroke="#64748b" fontSize={12} tickLine={false} />
+                <Tooltip
+                  contentStyle={{ backgroundColor: '#1e293b', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px' }}
+                  itemStyle={{ color: '#fff' }}
+                />
+                <Bar dataKey="score" name="Activity Score" fill="#8b5cf6" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
+        </div>
 
-          <div className="flex justify-center gap-6 mt-4">
-            <LegendItem color="#8b5cf6" label="Actual" />
-            <LegendItem color="#22c55e" label="Target" />
+        {/* Top Commands */}
+        <div className="glass-card p-6">
+          <h3 className="font-semibold text-white mb-6">Top Commands</h3>
+          <div className="h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={commandsData} layout="vertical">
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
+                <XAxis type="number" stroke="#64748b" fontSize={12} tickLine={false} />
+                <YAxis dataKey="command" type="category" stroke="#64748b" fontSize={12} tickLine={false} />
+                <Tooltip
+                  contentStyle={{ backgroundColor: '#1e293b', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px' }}
+                  itemStyle={{ color: '#fff' }}
+                />
+                <Bar dataKey="count" name="Usage" fill="#eab308" radius={[0, 4, 4, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* Ticket Resolution Rate */}
+        <div className="glass-card p-6">
+          <h3 className="font-semibold text-white mb-6">Ticket Resolution Rate</h3>
+          <div className="h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={ticketResolutionData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
+                <XAxis dataKey="period" stroke="#64748b" fontSize={12} tickLine={false} />
+                <YAxis stroke="#64748b" fontSize={12} tickLine={false} />
+                <Tooltip
+                  contentStyle={{ backgroundColor: '#1e293b', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px' }}
+                  itemStyle={{ color: '#fff' }}
+                />
+                <Legend />
+                <Line type="monotone" dataKey="created" name="Created" stroke="#ef4444" strokeWidth={2} dot={false} />
+                <Line type="monotone" dataKey="resolved" name="Resolved" stroke="#22c55e" strokeWidth={2} dot={false} />
+              </LineChart>
+            </ResponsiveContainer>
           </div>
         </div>
       </div>
-    </div>
-  );
-}
-
-// Stat Card
-function StatCard({
-  title,
-  value,
-  change,
-  trend,
-  icon,
-}: {
-  title: string;
-  value: string;
-  change: string;
-  trend: 'up' | 'down' | 'stable';
-  icon: string;
-}) {
-  const icons: Record<string, React.ReactNode> = {
-    Activity: (
-      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-      </svg>
-    ),
-    Clock: (
-      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-      </svg>
-    ),
-    AlertCircle: (
-      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-      </svg>
-    ),
-    CheckCircle: (
-      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-      </svg>
-    ),
-  };
-
-  return (
-    <div className="glass-card p-5">
-      <div className="flex items-start justify-between">
-        <div>
-          <p className="text-sm text-slate-400">{title}</p>
-          <p className="text-2xl font-bold text-white mt-1">{value}</p>
-          <p
-            className={cn(
-              'text-xs mt-2',
-              trend === 'up' && 'text-green-400',
-              trend === 'down' && 'text-red-400',
-              trend === 'stable' && 'text-slate-400'
-            )}
-          >
-            {change}
-          </p>
-        </div>
-        <div className="p-2 rounded-lg bg-white/5">
-          <div className="text-cyan-400">{icons[icon]}</div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// Legend Item
-function LegendItem({ color, label }: { color: string; label: string }) {
-  return (
-    <div className="flex items-center gap-2">
-      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: color }} />
-      <span className="text-sm text-slate-400">{label}</span>
     </div>
   );
 }

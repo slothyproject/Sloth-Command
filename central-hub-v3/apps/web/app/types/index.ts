@@ -201,6 +201,10 @@ export interface AgentPlan {
     priority: number;
     requiresApproval: boolean;
   };
+  result?: {
+    success: boolean;
+    message: string;
+  };
   createdAt: string;
   startedAt?: string;
   completedAt?: string;
@@ -218,6 +222,13 @@ export interface AgentResponse {
   agentType: AgentType;
   status: TaskStatus;
   summary: string;
+  plan?: {
+    goal: string;
+    steps?: { id: string; description: string }[];
+    requiresApproval?: boolean;
+  };
+  response?: string;
+  suggestedActions?: string[];
 }
 
 // ============================================================================
