@@ -174,7 +174,8 @@ class DissidentBot(commands.Bot):
         pass
 
     async def _run_action(self, action: str, payload: dict) -> None:
-        gid = int(payload.get("guildId", 0)); uid = int(payload.get("userId", 0))
+        gid = int(payload.get("guildId", 0))
+        uid = int(payload.get("userId", 0))
         guild = self.get_guild(gid)
         if not guild:
             return

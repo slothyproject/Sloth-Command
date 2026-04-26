@@ -233,16 +233,10 @@ def _parse_command_markdown(path: Path) -> list[dict]:
     """Parse a generated command markdown file into structured data."""
     text = path.read_text(encoding="utf-8")
     commands: list[dict] = []
-    current: dict | None = None
     in_table = False
     for line in text.splitlines():
         stripped = line.strip()
-        # Table header
-        if stripped.startswith("|`!"):
-            in_table = True
-            continue
-        if in_table and stripped.startswith("|---"):
-            continue
+        # Table data row
         if in_table and stripped.startswith("|`"):
             parts = stripped.split("|")
             if len(parts) >= 4:
@@ -260,10 +254,11 @@ def _parse_command_markdown(path: Path) -> list[dict]:
             continue
         if in_table and not stripped.startswith("|"):
             in_table = False
-        # Usage example: | `!name` args |  or **Syntax:** `!name args`
-        m = re.search(r"`!/([a-z_]+)`\s+(.*)", stripped)
-        if m and commands:
-            commands[-1]["example"] = m.group(0).strip().strip("|`").strip()
+        if stripped.startswith("|`!"):
+            in_table = True
+            continue
+        if stripped.startswith("|---"):
+            continue
     return commands
 
 
