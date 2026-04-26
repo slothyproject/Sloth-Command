@@ -112,7 +112,7 @@ def _check_rate_limit(cred: UserAIProviderCredential) -> tuple[bool, str | None]
     window = usage.current_hour_started_at
     if window and window.tzinfo is None:
         window = window.replace(tzinfo=timezone.utc)
-    if window and window + __import__("datetime").timedelta(hours=1) > now:
+    if window and window + timedelta(hours=1) > now:
         limit = cred.usage_limit_requests_per_hour or 100
         if usage.requests_this_hour >= limit:
             return False, f"Hourly limit of {limit} requests reached"
@@ -128,7 +128,7 @@ def _record_usage(token_count: int = 0, error: str | None = None) -> None:
     window = usage.current_hour_started_at
     if window and window.tzinfo is None:
         window = window.replace(tzinfo=timezone.utc)
-    if not window or window + __import__("datetime").timedelta(hours=1) <= now:
+    if not window or window + timedelta(hours=1) <= now:
         usage.current_hour_started_at = now.replace(minute=0, second=0, microsecond=0)
         usage.requests_this_hour = 0
         usage.tokens_this_hour = 0
@@ -266,13 +266,12 @@ def ai_operator():
         guild = _resolve_guild_id(guild_id)
         if guild:
             cases = (
-                __import__("dashboard.models", fromlist=["ModerationCase"])
-                .ModerationCase.query.filter_by(guild_id=guild.id)
-                .order_by(__import__("dashboard.models", fromlist=["ModerationCase"]).ModerationCase.created_at.desc())
+                ModerationCase.query.filter_by(guild_id=guild.id)
+                .order_by(ModerationCase.created_at.desc())
                 .limit(5)
                 .all()
             )
-            tickets_open = __import__("dashboard.models", fromlist=["Ticket"]).Ticket.query.filter_by(
+            tickets_open = Ticket.query.filter_by(
                 guild_id=guild.id, status="open"
             ).count()
             research_context = (
@@ -378,7 +377,7 @@ def ai_operator_confirm():
             continue
         exec_result = _execute_step(op, params)
         results.append({"op": op, **exec_result})
-        _api_audit(
+        _audit(
             f"operator_exec:{op}",
             guild_id=_resolve_guild_id(params.get("guildId")).id if _resolve_guild_id(params.get("guildId")) else None,
             target_type="operator_step",
