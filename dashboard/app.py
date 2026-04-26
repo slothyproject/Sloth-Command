@@ -16,8 +16,10 @@ from dashboard.extensions import SESSION_CONFIG, db, limiter
 from dashboard.routes.api import api_bp
 from dashboard.routes.ai_advisor import advisor_bp
 from dashboard.routes.ai_operator import operator_bp
+from dashboard.routes.ai_operator import operator_bp
 from dashboard.routes.auth import auth_bp
 from dashboard.routes.core import core_bp
+from dashboard.routes.docs_api import docs_bp
 from dashboard.versioning import get_dashboard_version
 
 log = logging.getLogger(__name__)
@@ -95,6 +97,7 @@ def create_app(config: dict | None = None) -> Flask:
     csrf.exempt(advisor_bp)
     csrf.exempt(operator_bp)
     app.register_blueprint(auth_bp, url_prefix="/auth")
+    app.register_blueprint(docs_bp, url_prefix="/api")
 
     # Exempt API routes from CSRF (they use token auth or are read-only)
     csrf.exempt(api_bp)
