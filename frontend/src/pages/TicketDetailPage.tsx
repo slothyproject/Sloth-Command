@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 
 import { useQuery } from "@tanstack/react-query";
+import { Download, Send } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
 import { toast } from "sonner";
 
 import { formatDate } from "../lib/format";
-import { getJson, postJson } from "../lib/api";
+import { getJson, patchJson, postJson } from "../lib/api";
 
 interface TicketDetail {
   id: number;
@@ -46,6 +47,10 @@ interface TicketMessage {
 export function TicketDetailPage() {
   const { ticketId } = useParams();
   const [assignedTo, setAssignedTo] = useState("");
+  const [replyText, setReplyText] = useState("");
+  const [sendingReply, setSendingReply] = useState(false);
+  const [priority, setPriority] = useState<string>("normal");
+  const [savingPriority, setSavingPriority] = useState(false);
 
   const ticketQuery = useQuery({
     queryKey: ["ticket-detail", ticketId],
@@ -70,7 +75,8 @@ export function TicketDetailPage() {
 
   useEffect(() => {
     setAssignedTo(ticketQuery.data?.assigned_to ?? "");
-  }, [ticketQuery.data?.assigned_to]);
+    setPriority(ticketQuery.data?.priority ?? "normal");
+  }, [ticketQuery.data?.assigned_to, ticketQuery.data?.priority]);
 
   async function setStatus(status: "open" | "resolved" | "closed") {
     if (status === "closed") {
@@ -89,8 +95,21 @@ export function TicketDetailPage() {
     }
   }
 
-  async function saveAssignment() {
+  async function savePriority(newPriority: string) {
+    setSavingPriority(true);
     try {
+      await patchJson(`/api/tickets/${ticketId}/priority`, { priority: newPriority });
+      setPriority(newPriority);
+      toast.success(`Priority set to ${newPriority}.`);
+      await ticketQuery.refetch();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not update priority.");
+    } finally {
+      setSavingPriority(false);
+    }
+  }
+
+  async function saveAssignment() {    try {
       await postJson(`/api/tickets/${ticketId}/assign`, {
         assigned_to: assignedTo.trim() || null,
       });
@@ -98,6 +117,23 @@ export function TicketDetailPage() {
       await ticketQuery.refetch();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not update assignment.");
+    }
+  }
+
+  async function sendReply() {
+    const content = replyText.trim();
+    if (!content) return;
+    setSendingReply(true);
+    try {
+      await postJson(`/api/tickets/${ticketId}/reply`, { content });
+      setReplyText("");
+      toast.success("Reply posted.");
+      await messagesQuery.refetch();
+      await ticketQuery.refetch();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not post reply.");
+    } finally {
+      setSendingReply(false);
     }
   }
 
@@ -165,6 +201,23 @@ export function TicketDetailPage() {
           </div>
 
           <div>
+            <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-cyan">Priority</p>
+            <div className="mt-3 flex gap-2">
+              <select
+                value={priority}
+                onChange={(e) => void savePriority(e.target.value)}
+                disabled={savingPriority}
+                className="flex-1 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-text-0 outline-none disabled:opacity-60"
+              >
+                <option value="low">Low</option>
+                <option value="normal">Normal</option>
+                <option value="high">High</option>
+                <option value="urgent">Urgent</option>
+              </select>
+            </div>
+          </div>
+
+          <div>
             <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-cyan">Assignment</p>
             <div className="mt-3 flex gap-2">
               <input
@@ -181,7 +234,20 @@ export function TicketDetailPage() {
         <div className="rounded-2xl border border-white/10 bg-panel/80 p-5 shadow-panel">
           <div className="mb-4 flex items-center justify-between gap-2">
             <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-cyan">Transcript</p>
-            <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-text-1">{ticket?.status ?? "--"}</span>
+            <div className="flex items-center gap-2">
+              <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-text-1">{ticket?.status ?? "--"}</span>
+              {ticketId && (
+                <a
+                  href={`/api/tickets/${ticketId}/transcript`}
+                  download={`ticket-${ticket?.ticket_number ?? ticketId}-transcript.txt`}
+                  title="Download transcript as .txt"
+                  className="inline-flex items-center gap-1 rounded-xl border border-white/10 bg-white/5 px-3 py-1 text-xs text-text-1 transition hover:border-cyan/30 hover:text-cyan"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  Download
+                </a>
+              )}
+            </div>
           </div>
 
           <div className="space-y-3">
@@ -202,6 +268,33 @@ export function TicketDetailPage() {
             <p className="mt-2 rounded-xl border border-white/10 bg-white/5 px-3 py-4 text-center text-sm text-text-2">No ticket messages recorded yet.</p>
           ) : null}
           {messagesQuery.isError ? <p className="mt-2 rounded-xl border border-rose-400/20 bg-rose-400/10 px-3 py-4 text-center text-sm text-rose-200">Could not load ticket transcript.</p> : null}
+
+          {ticket && ticket.status !== "closed" ? (
+            <div className="mt-4 border-t border-white/10 pt-4">
+              <p className="mb-2 font-mono text-[11px] uppercase tracking-[0.18em] text-cyan">Staff reply</p>
+              <div className="flex gap-2">
+                <textarea
+                  value={replyText}
+                  onChange={(e) => setReplyText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                      void sendReply();
+                    }
+                  }}
+                  placeholder="Type a staff reply… (Ctrl+Enter to send)"
+                  rows={3}
+                  className="flex-1 resize-none rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-text-0 outline-none placeholder:text-text-3 focus:border-cyan/40"
+                />
+                <button
+                  onClick={() => void sendReply()}
+                  disabled={sendingReply || !replyText.trim()}
+                  className="self-end rounded-xl border border-cyan/30 bg-cyan/10 px-3 py-2 text-sm text-cyan transition hover:bg-cyan/20 disabled:opacity-40"
+                >
+                  <Send className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          ) : null}
         </div>
       </section>
     </div>

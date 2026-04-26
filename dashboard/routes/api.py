@@ -1,4 +1,4 @@
-"""
+﻿"""
 REST API — full bot management API.
 """
 from __future__ import annotations
@@ -10,19 +10,21 @@ import os
 from datetime import datetime, timedelta, timezone
 from functools import wraps
 
-from flask import Blueprint, abort, jsonify, request, stream_with_context, Response
+from flask import Blueprint, abort, current_app, jsonify, request, stream_with_context, Response
 from flask_login import current_user, login_required
 
-from dashboard.extensions import db, redis_client
+from dashboard.extensions import db, limiter, redis_client
 from dashboard.models import (
     AuditLog, BotEvent, Guild, GuildCommand, GuildMember,
     GuildSettings, ModerationCase, Notification, Ticket, TicketMessage,
-    User, UserAIProviderCredential, UserAIProviderUsageStat,
+    User, UserAIProviderCredential, UserAIProviderUsageStat, DashboardBotCredential,
+    UserNotificationPrefs,
 )
 from dashboard.services.bot_state import get_bot_state, push_bot_command
 from dashboard.services.dissident_api import call_dissident_api
 from dashboard.services.ai_provider import (
     SUPPORTED_AI_PROVIDERS,
+    invoke_ai_provider,
     mask_api_key,
     normalize_ai_provider_payload,
     serialize_ai_provider_credential,
@@ -30,6 +32,8 @@ from dashboard.services.ai_provider import (
 )
 from dashboard.services.encryption import decrypt_secret, encrypt_secret
 from dashboard.versioning import get_dashboard_version
+
+from sqlalchemy import func as sa_func
 
 api_bp = Blueprint("api", __name__)
 
@@ -41,6 +45,15 @@ def admin_required(f):
     def decorated(*args, **kwargs):
         if not current_user.is_authenticated or not (current_user.is_admin or getattr(current_user, "is_owner", False)):
             return jsonify({"error": "Forbidden"}), 403
+        return f(*args, **kwargs)
+    return decorated
+
+
+def owner_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not current_user.is_authenticated or not getattr(current_user, "is_owner", False):
+            return jsonify({"error": "Owner access required"}), 403
         return f(*args, **kwargs)
     return decorated
 
@@ -73,7 +86,7 @@ def guild_access_required(f):
     def decorated(*args, **kwargs):
         guild_id = kwargs.get("guild_id") or request.view_args.get("guild_id")
         if guild_id:
-            guild = Guild.query.get(guild_id)
+            guild = db.session.get(Guild, guild_id)
             if guild and not _user_can_access_guild(guild):
                 return jsonify({"error": "Forbidden"}), 403
         return f(*args, **kwargs)
@@ -86,7 +99,7 @@ def guild_manage_required(f):
     def decorated(*args, **kwargs):
         guild_id = kwargs.get("guild_id") or request.view_args.get("guild_id")
         if guild_id:
-            guild = Guild.query.get(guild_id)
+            guild = db.session.get(Guild, guild_id)
             if guild and not current_user.can_manage(guild):
                 return jsonify({"error": "Forbidden"}), 403
         return f(*args, **kwargs)
@@ -152,6 +165,25 @@ def _notify_admins(type_: str, title: str, body: str = "", link: str = "", guild
     # Publish to Redis for real-time SSE
     redis_client.publish("hub:notifications", json.dumps({
         "type": type_, "title": title, "body": body, "link": link
+    }))
+
+
+def push_live_event(
+    event_type: str,
+    title: str,
+    body: str = "",
+    severity: str = "info",
+    guild_id: int | None = None,
+) -> None:
+    """Publish a real-time event to the SSE live feed (hub:live_events channel)."""
+    redis_client.publish("hub:live_events", json.dumps({
+        "type": "live_event",
+        "event_type": event_type,
+        "title": title,
+        "body": body,
+        "severity": severity,
+        "guild_id": guild_id,
+        "ts": datetime.now(timezone.utc).isoformat(),
     }))
 
 
@@ -228,6 +260,281 @@ def bot_state_route():
     return jsonify(get_bot_state())
 
 
+# ── Phase 27: Bot health detail ───────────────────────────────────
+
+@api_bp.get("/bot/health-detail")
+@login_required
+def bot_health_detail():
+    """Lightweight bot health snapshot: Redis state + 24-hour event sparkline."""
+    from collections import defaultdict
+
+    now = datetime.now(timezone.utc)
+    yesterday = now - timedelta(days=1)
+    two_days_ago = now - timedelta(days=2)
+
+    bot = get_bot_state()
+    health = bot.get("health") or {}
+
+    # 24-hour hourly event counts (proxy for activity / latency trend)
+    recent_events = (
+        BotEvent.query
+        .filter(BotEvent.created_at >= yesterday)
+        .with_entities(BotEvent.created_at, BotEvent.event_type)
+        .all()
+    )
+
+    hourly: dict[int, int] = defaultdict(int)
+    for ev_ts, _et in recent_events:
+        hourly[ev_ts.hour] += 1
+
+    sparkline = [{"hour": h, "events": hourly.get(h, 0)} for h in range(24)]
+
+    # Commands today vs yesterday
+    commands_today = int(bot.get("commands_today") or 0)
+    commands_q = BotEvent.query.filter(
+        BotEvent.event_type == "command",
+        BotEvent.created_at >= yesterday,
+        BotEvent.created_at < now,
+    ).count()
+    commands_yesterday = BotEvent.query.filter(
+        BotEvent.event_type == "command",
+        BotEvent.created_at >= two_days_ago,
+        BotEvent.created_at < yesterday,
+    ).count()
+
+    # Most recent heartbeat — proxy for "last seen"
+    last_event = (
+        BotEvent.query
+        .order_by(BotEvent.created_at.desc())
+        .first()
+    )
+    last_seen = last_event.created_at.isoformat() if last_event else None
+
+    # Event type distribution over last 24h
+    type_counts: dict[str, int] = defaultdict(int)
+    for _ts, et in recent_events:
+        type_counts[et] += 1
+    event_breakdown = sorted(
+        [{"type": k, "count": v} for k, v in type_counts.items()],
+        key=lambda x: x["count"], reverse=True
+    )[:10]
+
+    # Uptime percentage from uptime_seconds: (uptime_s / 86400) capped at 100%
+    uptime_s = int(bot.get("uptime_seconds") or 0)
+    uptime_pct = min(round(uptime_s / 864, 1), 100.0)  # 864 = 86400/100
+
+    return jsonify({
+        "online": bool(bot.get("online", False)),
+        "uptime": bot.get("uptime", "offline"),
+        "uptime_seconds": uptime_s,
+        "uptime_pct": uptime_pct,
+        "latency_ms": float(bot.get("latency_ms") or 0),
+        "commands_today": commands_today or commands_q,
+        "commands_yesterday": commands_yesterday,
+        "cog_count": int(bot.get("cog_count") or 0),
+        "version": bot.get("version", "unknown"),
+        "guild_count": int(bot.get("guild_count") or 0),
+        "member_count": int(bot.get("member_count") or 0),
+        "cpu_percent": float(health.get("cpu_percent") or 0),
+        "memory_percent": float(health.get("memory_percent") or 0),
+        "memory_mb": float(health.get("memory_mb") or 0),
+        "last_seen": last_seen,
+        "sparkline": sparkline,
+        "event_breakdown": event_breakdown,
+    })
+
+
+@api_bp.get("/overview")
+@login_required
+def overview():
+    """Dashboard overview — real DB counts + 7-day trends + recent events."""
+    now = datetime.now(timezone.utc)
+    seven_days_ago = now - timedelta(days=7)
+
+    # Guild visibility filter for non-admins
+    if current_user.is_admin:
+        guild_ids = None
+    else:
+        managed_ids = [m.guild_id for m in GuildMember.query.filter_by(user_id=current_user.id).all()]
+        owned_ids = [
+            g.id for g in Guild.query.filter_by(
+                owner_discord_id=current_user.discord_id, is_active=True
+            ).all()
+        ]
+        guild_ids = list(set(managed_ids + owned_ids))
+
+    # Core counts
+    server_q = Guild.query.filter_by(is_active=True)
+    if guild_ids is not None:
+        server_q = server_q.filter(Guild.id.in_(guild_ids))
+    servers = server_q.count()
+
+    # Total members — sum of all active guild member_counts
+    members_total = server_q.with_entities(sa_func.coalesce(sa_func.sum(Guild.member_count), 0)).scalar() or 0
+
+    # Open tickets
+    ticket_q = Ticket.query.filter_by(status="open")
+    if guild_ids is not None:
+        ticket_q = ticket_q.filter(Ticket.guild_id.in_(guild_ids))
+    tickets_open = ticket_q.count()
+
+    # Mod cases this week
+    case_q = ModerationCase.query.filter(ModerationCase.created_at >= seven_days_ago)
+    if guild_ids is not None:
+        case_q = case_q.filter(ModerationCase.guild_id.in_(guild_ids))
+    cases_week = case_q.count()
+
+    # 7-day daily trend: tickets created + mod cases per day
+    trend = []
+    for i in range(6, -1, -1):
+        day_start = now - timedelta(days=i + 1)
+        day_end = now - timedelta(days=i)
+        label = day_start.strftime("%a")
+
+        t_q = Ticket.query.filter(Ticket.created_at >= day_start, Ticket.created_at < day_end)
+        if guild_ids is not None:
+            t_q = t_q.filter(Ticket.guild_id.in_(guild_ids))
+
+        c_q = ModerationCase.query.filter(
+            ModerationCase.created_at >= day_start, ModerationCase.created_at < day_end
+        )
+        if guild_ids is not None:
+            c_q = c_q.filter(ModerationCase.guild_id.in_(guild_ids))
+
+        trend.append({"date": label, "tickets": t_q.count(), "cases": c_q.count()})
+
+    # Recent events from BotEvent table (skip heartbeats)
+    event_q = BotEvent.query.filter(BotEvent.event_type != "heartbeat")
+    if guild_ids is not None:
+        event_q = event_q.filter(
+            db.or_(BotEvent.guild_id.in_(guild_ids), BotEvent.guild_id.is_(None))
+        )
+    recent = event_q.order_by(BotEvent.created_at.desc()).limit(8).all()
+
+    _sev_map = {
+        "guild_join": "info", "guild_leave": "warning",
+        "mod_action": "warning", "ticket_open": "info",
+        "ticket_close": "info", "ticket_message": "info",
+    }
+
+    def _event_label(e: BotEvent) -> str:
+        p = e.payload or {}
+        gn = (e.guild.name if e.guild else None) or p.get("guild_name", "Unknown server")
+        if e.event_type == "guild_join":
+            return f"Bot joined {gn}"
+        if e.event_type == "guild_leave":
+            return f"Bot left {gn}"
+        if e.event_type == "mod_action":
+            return f"{(p.get('action') or 'action').capitalize()} – {p.get('target_name') or '?'} in {gn}"
+        if e.event_type == "ticket_open":
+            return f"Ticket opened by {p.get('opener_name') or '?'} in {gn}"
+        if e.event_type == "ticket_close":
+            return f"Ticket closed in {gn}"
+        return e.event_type.replace("_", " ").title()
+
+    recent_events = [
+        {
+            "id": str(e.id),
+            "type": e.event_type,
+            "message": _event_label(e),
+            "severity": _sev_map.get(e.event_type, "info"),
+            "timestamp": e.created_at.isoformat(),
+        }
+        for e in recent
+    ]
+
+    # Bot state from Redis (live)
+    bot = get_bot_state()
+
+    # Accessible guilds (for dashboard server cards)
+    guild_q = Guild.query.filter_by(is_active=True)
+    if guild_ids is not None:
+        guild_q = guild_q.filter(Guild.id.in_(guild_ids))
+    accessible_guilds = guild_q.order_by(Guild.member_count.desc()).limit(20).all()
+
+    # Recent mod cases (last 5 across all visible guilds)
+    case_q2 = ModerationCase.query
+    if guild_ids is not None:
+        case_q2 = case_q2.filter(ModerationCase.guild_id.in_(guild_ids))
+    recent_cases_rows = case_q2.order_by(ModerationCase.created_at.desc()).limit(5).all()
+    recent_cases = [
+        {
+            "id": c.id,
+            "case_number": c.case_number,
+            "action": c.action,
+            "target_name": c.target_name,
+            "target_id": c.target_id,
+            "reason": c.reason,
+            "created_at": c.created_at.isoformat(),
+            "guild_name": c.guild.name if c.guild else None,
+        }
+        for c in recent_cases_rows
+    ]
+
+    # Recent open tickets (last 5)
+    ticket_q2 = Ticket.query.filter_by(status="open")
+    if guild_ids is not None:
+        ticket_q2 = ticket_q2.filter(Ticket.guild_id.in_(guild_ids))
+    recent_ticket_rows = ticket_q2.order_by(Ticket.created_at.desc()).limit(5).all()
+    recent_tickets = [
+        {
+            "id": t.id,
+            "ticket_number": t.ticket_number,
+            "subject": t.subject,
+            "status": t.status,
+            "priority": t.priority,
+            "created_at": t.created_at.isoformat(),
+            "assigned_to": t.assigned_to,
+            "guild_name": t.guild.name if t.guild else None,
+        }
+        for t in recent_ticket_rows
+    ]
+
+    # Notifications for the current user
+    notif_items = (
+        Notification.query
+        .filter_by(user_id=current_user.id)
+        .order_by(Notification.created_at.desc())
+        .limit(10)
+        .all()
+    )
+    notif_unread = Notification.query.filter_by(
+        user_id=current_user.id, is_read=False
+    ).count()
+
+    # Prefer live Redis counts for the headline stats
+    live_servers = bot.get("guild_count") or servers
+    live_members = bot.get("member_count") or int(members_total)
+
+    return jsonify({
+        # Flat fields kept for backward-compat / other consumers
+        "servers": servers,
+        "members": int(members_total),
+        "tickets": tickets_open,
+        "cases": cases_week,
+        "trend": trend,
+        "recent_events": recent_events,
+        # Enriched fields for the React dashboard
+        "stats": {
+            "guilds": live_servers,
+            "members": live_members,
+            "channels": bot.get("channel_count", 0),
+            "commands_today": bot.get("commands_today", 0),
+            "uptime": bot.get("uptime", "--"),
+            "latency_ms": bot.get("latency_ms", 0),
+            "version": bot.get("version", "--"),
+            "online": bot.get("online", False),
+        },
+        "guilds": [g.to_dict() for g in accessible_guilds],
+        "recent_cases": recent_cases,
+        "recent_tickets": recent_tickets,
+        "notifications": {
+            "unread": notif_unread,
+            "items": [n.to_dict() for n in notif_items],
+        },
+    })
+
+
 @api_bp.get("/stats")
 @login_required
 def stats():
@@ -280,7 +587,7 @@ def send_bot_command():
     command = data.get("command")
     if not command:
         return jsonify({"error": "command required"}), 400
-    allowed = {"sync_guilds", "clear_cache", "reload_config", "restart_cog", "reload_cog"}
+    allowed = {"sync_guilds", "clear_cache", "reload_config", "restart_cog", "reload_cog", "toggle_cog"}
     if command not in allowed:
         return jsonify({"error": f"unknown command: {command}"}), 400
     push_bot_command(command, data.get("payload", {}))
@@ -291,11 +598,270 @@ def send_bot_command():
 @api_bp.get("/bot/invite")
 @login_required
 def bot_invite():
-    client_id = os.environ.get("DISCORD_CLIENT_ID", "")
+    cfg = DashboardBotCredential.query.order_by(DashboardBotCredential.updated_at.desc()).first()
+    client_id = (cfg.client_id if cfg and cfg.client_id else os.environ.get("DISCORD_CLIENT_ID", "")).strip()
     perms = 8  # Administrator — or use fine-grained: 1374389534902
     url = f"https://discord.com/oauth2/authorize?client_id={client_id}&permissions={perms}&scope=bot%20applications.commands"
     return jsonify({"url": url, "client_id": client_id})
 
+
+@api_bp.get("/bot/config")
+@login_required
+@admin_required
+def bot_config_get():
+    cfg = DashboardBotCredential.query.order_by(DashboardBotCredential.updated_at.desc()).first()
+    if not cfg:
+        return jsonify({
+            "configured": False,
+            "bot_name": None,
+            "client_id": None,
+            "application_id": None,
+            "public_key": None,
+            "guild_id": None,
+            "token_hint": None,
+            "client_secret_hint": None,
+            "status": "not_configured",
+            "updated_at": None,
+        })
+    return jsonify(cfg.to_dict())
+
+
+@api_bp.post("/bot/config")
+@login_required
+@owner_required
+def bot_config_save():
+    payload = request.get_json() or {}
+
+    cfg = DashboardBotCredential.query.order_by(DashboardBotCredential.updated_at.desc()).first()
+    if not cfg:
+        cfg = DashboardBotCredential()
+        db.session.add(cfg)
+
+    cfg.bot_name = str(payload.get("bot_name", cfg.bot_name or "") or "").strip() or None
+    cfg.client_id = str(payload.get("client_id", cfg.client_id or "") or "").strip() or None
+    cfg.application_id = str(payload.get("application_id", cfg.application_id or "") or "").strip() or None
+    cfg.public_key = str(payload.get("public_key", cfg.public_key or "") or "").strip() or None
+    cfg.guild_id = str(payload.get("guild_id", cfg.guild_id or "") or "").strip() or None
+
+    token = str(payload.get("token", "") or "").strip()
+    if token:
+        try:
+            encrypted_token, token_iv = encrypt_secret(token)
+        except (RuntimeError, ValueError) as exc:
+            return jsonify({"error": str(exc)}), 503
+        cfg.encrypted_token = encrypted_token
+        cfg.token_iv = token_iv
+        cfg.token_hint = mask_api_key(token)
+
+    client_secret = str(payload.get("client_secret", "") or "").strip()
+    if client_secret:
+        try:
+            encrypted_client_secret, client_secret_iv = encrypt_secret(client_secret)
+        except (RuntimeError, ValueError) as exc:
+            return jsonify({"error": str(exc)}), 503
+        cfg.encrypted_client_secret = encrypted_client_secret
+        cfg.client_secret_iv = client_secret_iv
+        cfg.client_secret_hint = mask_api_key(client_secret)
+
+    cfg.status = "configured"
+    cfg.updated_by_user_id = current_user.id
+
+    db.session.commit()
+    _audit(
+        "bot_config_saved",
+        target_type="bot_config",
+        target_id=str(cfg.id),
+        details={
+            "has_token": bool(cfg.encrypted_token),
+            "has_client_secret": bool(cfg.encrypted_client_secret),
+            "client_id": cfg.client_id,
+            "application_id": cfg.application_id,
+        },
+    )
+    return jsonify(cfg.to_dict())
+
+
+@api_bp.delete("/bot/config/token")
+@login_required
+@owner_required
+def bot_config_clear_token():
+    cfg = DashboardBotCredential.query.order_by(DashboardBotCredential.updated_at.desc()).first()
+    if not cfg:
+        return jsonify({"error": "Bot config not found"}), 404
+
+    cfg.encrypted_token = None
+    cfg.token_iv = None
+    cfg.token_hint = None
+    cfg.status = "configured"
+    cfg.updated_by_user_id = current_user.id
+
+    db.session.commit()
+    _audit(
+        "bot_config_token_cleared",
+        target_type="bot_config",
+        target_id=str(cfg.id),
+        details={"client_id": cfg.client_id},
+    )
+    return jsonify(cfg.to_dict())
+
+
+@api_bp.delete("/bot/config/secrets")
+@login_required
+@owner_required
+def bot_config_clear_secrets():
+    cfg = DashboardBotCredential.query.order_by(DashboardBotCredential.updated_at.desc()).first()
+    if not cfg:
+        return jsonify({"error": "Bot config not found"}), 404
+
+    cfg.encrypted_token = None
+    cfg.token_iv = None
+    cfg.token_hint = None
+    cfg.encrypted_client_secret = None
+    cfg.client_secret_iv = None
+    cfg.client_secret_hint = None
+    cfg.status = "configured"
+    cfg.updated_by_user_id = current_user.id
+
+    db.session.commit()
+    _audit(
+        "bot_config_secrets_cleared",
+        target_type="bot_config",
+        target_id=str(cfg.id),
+        details={"client_id": cfg.client_id},
+    )
+    return jsonify(cfg.to_dict())
+
+
+# ── AI Advisor ──────────────────────────────────────────────────
+
+_ADVISOR_SYSTEM_PROMPT = (
+    "You are an expert Discord server architect and community manager. "
+    "You help server owners design roles, channels, moderation strategies, "
+    "onboarding flows, support ticket systems, and community engagement plans. "
+    "Be concise, practical, and specific. Format responses with clear sections "
+    "when explaining multi-step plans. Avoid unnecessary filler text."
+)
+
+
+@api_bp.post("/ai/advisor")
+@login_required
+def ai_advisor_chat():
+    credential = UserAIProviderCredential.query.filter_by(user_id=current_user.id).first()
+    if not credential or credential.status != "active":
+        return jsonify({
+            "ok": False,
+            "error": "AI provider not configured. Go to Settings → AI Provider to set one up.",
+        }), 400
+
+    data = request.get_json() or {}
+    message = str(data.get("message") or "").strip()
+    if not message:
+        return jsonify({"ok": False, "error": "message is required"}), 400
+
+    mode = str(data.get("mode") or "ask").strip()
+    guild_id = data.get("guild_id")
+
+    # Rate-limit check
+    usage = current_user.ai_provider_usage
+    if usage:
+        now = datetime.now(timezone.utc)
+        window_start = usage.current_hour_started_at
+        if window_start and window_start.tzinfo is None:
+            window_start = window_start.replace(tzinfo=timezone.utc)
+        if window_start and window_start + timedelta(hours=1) > now:
+            limit = credential.usage_limit_requests_per_hour or 100
+            if usage.requests_this_hour >= limit:
+                return jsonify({
+                    "ok": False,
+                    "error": f"Hourly limit of {limit} requests reached. Try again later.",
+                }), 429
+
+    # Decrypt API key
+    try:
+        plain_api_key = decrypt_secret(credential.encrypted_api_key, credential.api_key_iv)
+    except Exception:
+        return jsonify({"ok": False, "error": "Could not decrypt API key. Re-save your provider settings."}), 503
+
+    # Build optional guild context prefix
+    context_prefix = ""
+    if guild_id:
+        guild = db.session.get(Guild, int(guild_id))
+        if guild:
+            context_prefix = f"Context: I am working on a Discord server called '{guild.name}'. "
+
+    full_prompt = context_prefix + message
+    if mode == "interview":
+        full_prompt = (
+            "Please ask me a series of clarifying questions (one at a time) to "
+            "help me design my Discord server. Start with the first question now. " + full_prompt
+        )
+
+    result = invoke_ai_provider(
+        provider=credential.provider,
+        api_key=plain_api_key,
+        model=credential.model,
+        base_url=credential.base_url,
+        prompt=full_prompt,
+        system_prompt=_ADVISOR_SYSTEM_PROMPT,
+        max_tokens=800,
+        timeout=30,
+    )
+
+    # Record usage regardless of success
+    _record_ai_usage(
+        user=current_user,
+        command="ai_advisor",
+        success=result.get("ok", False),
+        token_count=result.get("prompt_tokens", 0) + result.get("completion_tokens", 0),
+        error=result.get("error") if not result.get("ok") else None,
+    )
+
+    if not result.get("ok"):
+        return jsonify({"ok": False, "error": result.get("error", "AI provider error")}), 502
+
+    return jsonify({
+        "ok": True,
+        "response": result["text"],
+        "model": result["model"],
+        "endpoint": result["endpoint"],
+        "mode": mode,
+    })
+
+
+def _record_ai_usage(
+    *,
+    user: User,
+    command: str,
+    success: bool,
+    token_count: int = 0,
+    error: str | None = None,
+) -> None:
+    """Update the user's AI usage counters in-place and commit."""
+    now = datetime.now(timezone.utc)
+    usage = UserAIProviderUsageStat.query.filter_by(user_id=user.id).first()
+    if not usage:
+        usage = UserAIProviderUsageStat(user_id=user.id)
+        db.session.add(usage)
+
+    window_start = usage.current_hour_started_at
+    if window_start and window_start.tzinfo is None:
+        window_start = window_start.replace(tzinfo=timezone.utc)
+    if not window_start or window_start + timedelta(hours=1) <= now:
+        usage.current_hour_started_at = now.replace(minute=0, second=0, microsecond=0)
+        usage.requests_this_hour = 0
+        usage.tokens_this_hour = 0
+
+    usage.requests_this_hour = (usage.requests_this_hour or 0) + 1
+    usage.tokens_this_hour = (usage.tokens_this_hour or 0) + token_count
+    usage.lifetime_requests = (usage.lifetime_requests or 0) + 1
+    usage.lifetime_tokens = (usage.lifetime_tokens or 0) + token_count
+    usage.last_used_at = now
+    usage.last_command = command
+    usage.last_error = error
+    db.session.commit()
+
+
+# ── User AI provider ─────────────────────────────────────────────
 
 @api_bp.get("/user/ai-provider")
 @login_required
@@ -572,7 +1138,7 @@ def guilds():
 @login_required
 @guild_access_required
 def guild_detail(guild_id: int):
-    guild = Guild.query.get_or_404(guild_id)
+    guild = db.get_or_404(Guild, guild_id)
     data = guild.to_dict()
     data["channel_count"] = guild.channel_count
     data["role_count"] = guild.role_count
@@ -619,7 +1185,7 @@ def _settings_dict(s: GuildSettings) -> dict:
 @login_required
 @guild_access_required
 def guild_settings_get(guild_id: int):
-    guild = Guild.query.get_or_404(guild_id)
+    guild = db.get_or_404(Guild, guild_id)
     return jsonify(_settings_dict(guild.settings or GuildSettings()))
 
 
@@ -627,7 +1193,7 @@ def guild_settings_get(guild_id: int):
 @login_required
 @guild_manage_required
 def guild_settings_update(guild_id: int):
-    guild = Guild.query.get_or_404(guild_id)
+    guild = db.get_or_404(Guild, guild_id)
     data = request.get_json() or {}
 
     if not guild.settings:
@@ -659,13 +1225,79 @@ def guild_settings_update(guild_id: int):
     return jsonify({"ok": True, "updated": list(changed.keys())})
 
 
+# ── Phase 26: XP Leaderboard ─────────────────────────────────────
+
+@api_bp.get("/guilds/<int:guild_id>/leveling/leaderboard")
+@login_required
+@guild_access_required
+def guild_xp_leaderboard(guild_id: int):
+    """Return the top XP earners for a guild, derived from BotEvent records."""
+    db.get_or_404(Guild, guild_id)
+    limit = min(int(request.args.get("limit", 50)), 200)
+
+    # Supported event types the bot may emit
+    xp_event_types = {"xp_gain", "xp_update", "level_up", "xp"}
+
+    events = (
+        BotEvent.query
+        .filter(
+            BotEvent.guild_id == guild_id,
+            BotEvent.event_type.in_(list(xp_event_types)),
+        )
+        .order_by(BotEvent.created_at.asc())
+        .all()
+    )
+
+    # Aggregate per member — for xp_update/level_up we trust total_xp as the
+    # authoritative cumulative value; for xp_gain we sum incrementally.
+    totals: dict[str, dict] = {}   # member_id -> {total_xp, level, username}
+
+    for ev in events:
+        payload = ev.payload or {}
+        member_id = str(payload.get("member_id") or payload.get("user_id") or "")
+        if not member_id:
+            continue
+        username = payload.get("username") or payload.get("member_name") or member_id
+        level = int(payload.get("level") or 0)
+
+        if ev.event_type in ("xp_update", "level_up") and payload.get("total_xp") is not None:
+            # Authoritative snapshot — overwrite running total
+            totals[member_id] = {
+                "member_id": member_id,
+                "username": username,
+                "total_xp": int(payload["total_xp"]),
+                "level": level,
+            }
+        else:
+            # Incremental gain
+            xp_delta = int(payload.get("xp") or payload.get("xp_gained") or 0)
+            if member_id not in totals:
+                totals[member_id] = {
+                    "member_id": member_id,
+                    "username": username,
+                    "total_xp": 0,
+                    "level": level,
+                }
+            totals[member_id]["total_xp"] += xp_delta
+            if level > totals[member_id]["level"]:
+                totals[member_id]["level"] = level
+            if username != member_id:
+                totals[member_id]["username"] = username
+
+    ranked = sorted(totals.values(), key=lambda x: x["total_xp"], reverse=True)[:limit]
+    for i, entry in enumerate(ranked, 1):
+        entry["rank"] = i
+
+    return jsonify({"total": len(ranked), "leaderboard": ranked})
+
+
 # ── Guild commands ───────────────────────────────────────────────
 
 @api_bp.get("/guilds/<int:guild_id>/commands")
 @login_required
 @guild_access_required
 def guild_commands(guild_id: int):
-    Guild.query.get_or_404(guild_id)
+    db.get_or_404(Guild, guild_id)
     cmds = GuildCommand.query.filter_by(guild_id=guild_id).order_by(GuildCommand.command_name).all()
     return jsonify([{
         "id": c.id,
@@ -673,6 +1305,8 @@ def guild_commands(guild_id: int):
         "cog": c.cog,
         "is_enabled": c.is_enabled,
         "cooldown_seconds": c.cooldown_seconds,
+        "allowed_roles": c.allowed_roles or [],
+        "disabled_channels": c.disabled_channels or [],
     } for c in cmds])
 
 
@@ -680,7 +1314,7 @@ def guild_commands(guild_id: int):
 @login_required
 @guild_manage_required
 def guild_command_update(guild_id: int, cmd_name: str):
-    guild = Guild.query.get_or_404(guild_id)
+    guild = db.get_or_404(Guild, guild_id)
     cmd = GuildCommand.query.filter_by(guild_id=guild_id, command_name=cmd_name).first()
     if not cmd:
         cmd = GuildCommand(guild_id=guild_id, command_name=cmd_name)
@@ -691,6 +1325,12 @@ def guild_command_update(guild_id: int, cmd_name: str):
         cmd.is_enabled = bool(data["is_enabled"])
     if "cooldown_seconds" in data:
         cmd.cooldown_seconds = int(data["cooldown_seconds"])
+    if "allowed_roles" in data:
+        roles = data["allowed_roles"]
+        cmd.allowed_roles = [str(r).strip() for r in roles if str(r).strip()] if isinstance(roles, list) else []
+    if "disabled_channels" in data:
+        chans = data["disabled_channels"]
+        cmd.disabled_channels = [str(c).strip() for c in chans if str(c).strip()] if isinstance(chans, list) else []
 
     db.session.commit()
     _audit(f"command_{'enable' if cmd.is_enabled else 'disable'}:{cmd_name}", guild_id=guild_id)
@@ -699,6 +1339,8 @@ def guild_command_update(guild_id: int, cmd_name: str):
         "command": cmd_name,
         "enabled": cmd.is_enabled,
         "cooldown": cmd.cooldown_seconds,
+        "allowed_roles": cmd.allowed_roles,
+        "disabled_channels": cmd.disabled_channels,
     })
     return jsonify({"ok": True, "command": cmd_name, "enabled": cmd.is_enabled})
 
@@ -709,7 +1351,7 @@ def guild_command_update(guild_id: int, cmd_name: str):
 @login_required
 @guild_access_required
 def guild_moderation(guild_id: int):
-    Guild.query.get_or_404(guild_id)
+    db.get_or_404(Guild, guild_id)
     page = int(request.args.get("page", 1))
     per_page = min(int(request.args.get("per_page", 25)), 100)
     action_filter = request.args.get("action")
@@ -743,7 +1385,7 @@ def guild_moderation_action(guild_id: int):
     if not getattr(current_user, "discord_id", None):
         return jsonify({"error": "A Discord-linked account is required for moderation actions"}), 400
 
-    guild = Guild.query.get_or_404(guild_id)
+    guild = db.get_or_404(Guild, guild_id)
     data = request.get_json(silent=True) or {}
     action = str(data.get("action", "ban")).lower()
     user_id = str(data.get("user_id", ""))
@@ -781,14 +1423,166 @@ def guild_moderation_action(guild_id: int):
     return jsonify(result), status
 
 
+# ── Phase 24: Risk profile + Appeals ─────────────────────────────
+
+@api_bp.get("/guilds/<int:guild_id>/members/<string:discord_id>/risk-profile")
+@login_required
+@guild_access_required
+def guild_member_risk_profile(guild_id: int, discord_id: str):
+    """Aggregate moderation cases for a Discord member and return a risk profile."""
+    db.get_or_404(Guild, guild_id)
+
+    now = datetime.now(timezone.utc)
+    cutoff_30d = now - timedelta(days=30)
+
+    cases_all = ModerationCase.query.filter_by(guild_id=guild_id, target_id=discord_id).all()
+    cases_recent = [c for c in cases_all if c.created_at and c.created_at >= cutoff_30d]
+    open_cases = [c for c in cases_all if c.is_active]
+
+    # Action weights for risk score
+    weights = {"global_ban": 10, "ban": 8, "kick": 5, "mute": 3, "warn": 1, "unban": -2, "unmute": -1}
+    score = sum(weights.get(c.action, 1) for c in cases_all)
+    score = max(0, min(score, 100))
+
+    # Tier thresholds
+    if score >= 20:
+        tier = "critical"
+    elif score >= 10:
+        tier = "high"
+    elif score >= 4:
+        tier = "guarded"
+    else:
+        tier = "low"
+
+    # Action breakdown
+    breakdown: dict[str, int] = {}
+    for c in cases_all:
+        breakdown[c.action] = breakdown.get(c.action, 0) + 1
+
+    # Count open appeal tickets linked to this discord_id
+    open_appeals = Ticket.query.filter(
+        Ticket.guild_id == guild_id,
+        Ticket.status == "open",
+        Ticket.subject.ilike(f"%appeal%{discord_id}%"),
+    ).count()
+    # Fallback: check opener_id
+    if open_appeals == 0:
+        open_appeals = Ticket.query.filter(
+            Ticket.guild_id == guild_id,
+            Ticket.status == "open",
+            Ticket.opener_id == discord_id,
+            Ticket.subject.ilike("%appeal%"),
+        ).count()
+
+    return jsonify({
+        "member_id": discord_id,
+        "risk_score": score,
+        "risk_tier": tier,
+        "case_count_total": len(cases_all),
+        "case_count_recent_30d": len(cases_recent),
+        "open_case_count": len(open_cases),
+        "open_appeal_count": open_appeals,
+        "action_breakdown": [{"action": k, "count": v} for k, v in sorted(breakdown.items())],
+    })
+
+
+@api_bp.get("/guilds/<int:guild_id>/appeals")
+@login_required
+@guild_access_required
+def guild_appeals_list(guild_id: int):
+    """List appeal tickets for a guild, optionally filtered by member discord_id."""
+    db.get_or_404(Guild, guild_id)
+    member_id = request.args.get("member_id")
+    page = int(request.args.get("page", 1))
+    per_page = min(int(request.args.get("per_page", 25)), 100)
+
+    q = Ticket.query.filter_by(guild_id=guild_id).filter(
+        Ticket.subject.ilike("%appeal%")
+    )
+    if member_id:
+        q = q.filter(
+            db.or_(
+                Ticket.opener_id == member_id,
+                Ticket.subject.ilike(f"%{member_id}%"),
+            )
+        )
+
+    total = q.count()
+    tickets = q.order_by(Ticket.created_at.desc()).paginate(
+        page=page, per_page=per_page, error_out=False
+    )
+    items = [_serialize_ticket_for_dashboard(t) for t in tickets.items]
+    return jsonify({"total": total, "page": page, "per_page": per_page, "tickets": items})
+
+
+@api_bp.post("/guilds/<int:guild_id>/appeals")
+@login_required
+@guild_access_required
+def guild_appeals_create(guild_id: int):
+    """Open an appeal ticket linked to a moderation case."""
+    guild = db.get_or_404(Guild, guild_id)
+    data = request.get_json(silent=True) or {}
+
+    member_id = str(data.get("member_id", "")).strip()
+    member_name = str(data.get("member_name", member_id)).strip()
+    case_number = data.get("case_number")
+    reason = str(data.get("reason", "Appeal request")).strip()
+    priority = str(data.get("priority", "normal")).strip()
+
+    if not member_id:
+        return jsonify({"error": "member_id is required"}), 400
+    if priority not in ("low", "normal", "high", "urgent"):
+        priority = "normal"
+
+    subject = f"Appeal – Case #{case_number} – {member_id}" if case_number else f"Appeal – {member_name}"
+
+    ticket_num = Ticket.query.filter_by(guild_id=guild_id).count() + 1
+    ticket = Ticket(
+        guild_id=guild_id,
+        ticket_number=ticket_num,
+        opener_id=member_id,
+        opener_name=member_name,
+        subject=subject,
+        status="open",
+        priority=priority,
+    )
+    db.session.add(ticket)
+    db.session.flush()
+
+    # Add opening message
+    msg = TicketMessage(
+        ticket_id=ticket.id,
+        author_id=member_id,
+        author_name=member_name,
+        content=reason,
+        is_staff=False,
+    )
+    db.session.add(msg)
+    ticket.message_count = 1
+    db.session.commit()
+
+    _audit("appeal_ticket_created", guild_id=guild_id, target_type="ticket", target_id=str(ticket.id),
+           details={"case_number": case_number, "member_id": member_id})
+    _notify_admins(
+        "ticket_open",
+        f"Appeal ticket #{ticket_num} opened",
+        body=f"{member_name} appealed case #{case_number} in {guild.name}",
+        link=f"/app/tickets/{ticket.id}",
+        guild_id=guild_id,
+    )
+
+    return jsonify({"ok": True, "ticket": _serialize_ticket_for_dashboard(ticket)}), 201
+
+
 @api_bp.get("/moderation/global-bans")
 @login_required
 def get_global_bans():
     """List global bans stored in the hub."""
     cases = ModerationCase.query.filter_by(action="global_ban").order_by(
         ModerationCase.created_at.desc()
-    ).limit(100).all()
-    return jsonify([c.to_dict() for c in cases])
+    ).limit(200).all()
+    items = [c.to_dict() for c in cases]
+    return jsonify({"total": len(items), "cases": items})
 
 
 @api_bp.post("/moderation/global-bans")
@@ -797,7 +1591,7 @@ def create_global_ban():
     """Create a cross-server ban via the Dissident bot backend."""
     data = request.get_json(silent=True) or {}
     user_id = str(data.get("user_id", ""))
-    username = data.get("username", "")
+    username = data.get("user_name") or data.get("username", "")
     reason = data.get("reason", "")
     evidence = data.get("evidence", "")
     source_guild_id = data.get("source_guild_id")
@@ -806,7 +1600,7 @@ def create_global_ban():
     if not user_id:
         return jsonify({"error": "user_id is required"}), 400
 
-    guild = Guild.query.get(source_guild_id) if source_guild_id else None
+    guild = db.session.get(Guild, source_guild_id) if source_guild_id else None
     source_guild_discord_id = guild.discord_id if guild else None
 
     json_payload = {
@@ -861,7 +1655,7 @@ def moderation_recent():
 @login_required
 @guild_access_required
 def guild_tickets(guild_id: int):
-    Guild.query.get_or_404(guild_id)
+    db.get_or_404(Guild, guild_id)
     page = int(request.args.get("page", 1))
     per_page = min(int(request.args.get("per_page", 25)), 100)
     status = request.args.get("status")
@@ -884,6 +1678,41 @@ def guild_tickets(guild_id: int):
     })
 
 
+@api_bp.patch("/guilds/<int:guild_id>/members/<int:member_id>")
+@login_required
+@guild_access_required
+def guild_member_update(guild_id: int, member_id: int):
+    """Update can_manage permission for a hub member in this guild."""
+    m = GuildMember.query.filter_by(id=member_id, guild_id=guild_id).first_or_404()
+    data = request.get_json(silent=True) or {}
+    if "can_manage" in data:
+        m.can_manage = bool(data["can_manage"])
+    db.session.commit()
+    return jsonify({"ok": True, "id": m.id, "can_manage": m.can_manage})
+
+
+@api_bp.get("/guilds/<int:guild_id>/members")
+@login_required
+@guild_access_required
+def guild_members_list(guild_id: int):
+    """Return hub users who have access to manage this guild."""
+    db.get_or_404(Guild, guild_id)
+    members = GuildMember.query.filter_by(guild_id=guild_id).all()
+    result = []
+    for m in members:
+        u = m.user
+        result.append({
+            "id": m.id,
+            "user_id": m.user_id,
+            "username": u.username if u else "—",
+            "discord_id": u.discord_id if u else None,
+            "is_admin": u.is_admin if u else False,
+            "can_manage": m.can_manage,
+            "added_at": m.added_at.isoformat() if m.added_at else None,
+        })
+    return jsonify({"total": len(result), "members": result})
+
+
 @api_bp.get("/tickets/recent")
 @login_required
 def tickets_recent():
@@ -900,11 +1729,41 @@ def tickets_recent():
     return jsonify([{**t.to_dict(), "guild_name": t.guild.name} for t in tickets])
 
 
+@api_bp.post("/tickets/<int:ticket_id>/reply")
+@login_required
+def ticket_reply(ticket_id: int):
+    """Add a staff reply message to a ticket transcript."""
+    ticket = db.get_or_404(Ticket, ticket_id)
+    guild = db.session.get(Guild, ticket.guild_id)
+    if guild and not current_user.can_manage(guild):
+        return jsonify({"error": "Forbidden"}), 403
+    data = request.get_json(silent=True) or {}
+    content = (data.get("content") or "").strip()
+    if not content:
+        return jsonify({"error": "content is required"}), 400
+    msg = TicketMessage(
+        ticket_id=ticket_id,
+        author_name=current_user.username,
+        content=content,
+        is_staff=True,
+    )
+    db.session.add(msg)
+    ticket.updated_at = datetime.now(timezone.utc)
+    db.session.commit()
+    return jsonify({
+        "id": msg.id,
+        "author_name": msg.author_name,
+        "content": msg.content,
+        "is_staff": msg.is_staff,
+        "created_at": msg.created_at.isoformat(),
+    }), 201
+
+
 @api_bp.get("/tickets/<int:ticket_id>/messages")
 @login_required
 def ticket_messages(ticket_id: int):
-    ticket = Ticket.query.get_or_404(ticket_id)
-    guild = Guild.query.get(ticket.guild_id)
+    ticket = db.get_or_404(Ticket, ticket_id)
+    guild = db.session.get(Guild, ticket.guild_id)
     if guild and not current_user.can_manage(guild):
         return jsonify({"error": "Forbidden"}), 403
     msgs = ticket.messages.order_by(TicketMessage.created_at.asc()).all()
@@ -917,6 +1776,24 @@ def ticket_messages(ticket_id: int):
     } for m in msgs])
 
 
+@api_bp.get("/tickets/<int:ticket_id>")
+@login_required
+def ticket_detail(ticket_id: int):
+    """Return metadata for a single ticket."""
+    ticket = db.get_or_404(Ticket, ticket_id)
+    guild = db.session.get(Guild, ticket.guild_id)
+    if guild and not current_user.can_manage(guild):
+        return jsonify({"error": "Forbidden"}), 403
+    data = ticket.to_dict()
+    data["guild_name"] = guild.name if guild else None
+    data["opener_id"] = ticket.opener_id
+    data["opener_name"] = ticket.opener_name
+    data["closed_by"] = ticket.closed_by
+    data["closed_reason"] = ticket.closed_reason
+    data["closed_at"] = ticket.closed_at.isoformat() if ticket.closed_at else None
+    return jsonify(data)
+
+
 
 
 @api_bp.post("/tickets/<int:ticket_id>/close")
@@ -926,8 +1803,8 @@ def ticket_close(ticket_id: int):
 
 
 def _ticket_set_status(ticket_id: int, status: str, reason: str | None):
-    ticket = Ticket.query.get_or_404(ticket_id)
-    guild = Guild.query.get(ticket.guild_id)
+    ticket = db.get_or_404(Ticket, ticket_id)
+    guild = db.session.get(Guild, ticket.guild_id)
     if guild and not current_user.can_manage(guild):
         return jsonify({"error": "Forbidden"}), 403
 
@@ -966,8 +1843,8 @@ def ticket_set_status(ticket_id: int):
 @api_bp.post("/tickets/<int:ticket_id>/assign")
 @login_required
 def ticket_assign(ticket_id: int):
-    ticket = Ticket.query.get_or_404(ticket_id)
-    guild = Guild.query.get(ticket.guild_id)
+    ticket = db.get_or_404(Ticket, ticket_id)
+    guild = db.session.get(Guild, ticket.guild_id)
     if guild and not current_user.can_manage(guild):
         return jsonify({"error": "Forbidden"}), 403
 
@@ -986,6 +1863,556 @@ def ticket_assign(ticket_id: int):
         details={"assigned_to": ticket.assigned_to},
     )
     return jsonify({"ok": True, "assigned_to": ticket.assigned_to})
+
+
+@api_bp.get("/tickets/<int:ticket_id>/transcript")
+@login_required
+def ticket_transcript(ticket_id: int):
+    """Return a plain-text transcript of all messages in a ticket."""
+    ticket = db.get_or_404(Ticket, ticket_id)
+    guild = db.session.get(Guild, ticket.guild_id)
+    if guild and not current_user.can_manage(guild):
+        abort(403)
+
+    messages = (
+        TicketMessage.query
+        .filter_by(ticket_id=ticket_id)
+        .order_by(TicketMessage.created_at.asc())
+        .all()
+    )
+
+    lines: list[str] = [
+        f"=== Ticket #{ticket.ticket_number}: {ticket.subject or 'No subject'} ===",
+        f"Opened by: {ticket.opener_name or ticket.opener_id}",
+        f"Status: {ticket.status}",
+        f"Priority: {ticket.priority}",
+        f"Opened: {ticket.created_at.strftime('%Y-%m-%d %H:%M UTC')}",
+        "" ,
+        "─" * 60,
+        "",
+    ]
+    for msg in messages:
+        prefix = "[STAFF] " if msg.is_staff else ""
+        ts = msg.created_at.strftime("%Y-%m-%d %H:%M UTC")
+        lines.append(f"[{ts}] {prefix}{msg.author_name or msg.author_id}")
+        lines.append(msg.content)
+        lines.append("")
+
+    if not messages:
+        lines.append("(no messages)")
+
+    filename = f"ticket-{ticket.ticket_number}-transcript.txt"
+    text = "\n".join(lines)
+    return Response(
+        text,
+        mimetype="text/plain",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+# ── Analytics ────────────────────────────────────────────────────
+
+@api_bp.get("/analytics/summary")
+@login_required
+def analytics_summary():
+    """Return analytics for the requested range with zero-filled daily timelines."""
+    range_param = request.args.get("range", "7d")
+    days_map = {"7d": 7, "30d": 30, "90d": 90}
+    days = days_map.get(range_param, 7)
+    now = datetime.now(timezone.utc)
+    since = now - timedelta(days=days)
+
+    # Build day labels for the full range (oldest → newest)
+    from datetime import date as _date
+    day_labels: list[_date] = [
+        (_date.today() - timedelta(days=days - 1 - i)) for i in range(days)
+    ]
+
+    def _fmt(d: _date) -> str:
+        return d.strftime("%b %d")
+
+    # ── Guild visibility filter ──────────────────────────────────
+    if current_user.is_admin:
+        guild_filter = None
+    else:
+        managed_ids = [
+            m.guild_id for m in GuildMember.query.filter_by(user_id=current_user.id).all()
+        ]
+        owned_ids = [
+            g.id for g in Guild.query.filter_by(
+                owner_discord_id=current_user.discord_id, is_active=True
+            ).all()
+        ]
+        guild_filter = list(set(managed_ids + owned_ids))
+
+    def _mod_q():
+        q = ModerationCase.query.filter(ModerationCase.created_at >= since)
+        if guild_filter is not None:
+            q = q.filter(ModerationCase.guild_id.in_(guild_filter))
+        return q
+
+    def _ticket_q():
+        q = Ticket.query.filter(Ticket.created_at >= since)
+        if guild_filter is not None:
+            q = q.filter(Ticket.guild_id.in_(guild_filter))
+        return q
+
+    def _event_q(event_type: str):
+        q = BotEvent.query.filter(
+            BotEvent.event_type == event_type,
+            BotEvent.created_at >= since,
+        )
+        if guild_filter is not None:
+            q = q.filter(
+                db.or_(BotEvent.guild_id.in_(guild_filter), BotEvent.guild_id.is_(None))
+            )
+        return q
+
+    # ── Moderation actions by type ───────────────────────────────
+    action_rows = (
+        _mod_q()
+        .with_entities(ModerationCase.action, sa_func.count(ModerationCase.id).label("n"))
+        .group_by(ModerationCase.action)
+        .order_by(sa_func.count(ModerationCase.id).desc())
+        .all()
+    )
+    action_counts = [{"action": (row.action or "unknown").title(), "count": row.n} for row in action_rows]
+
+    # ── Moderation timeline (zero-filled) ────────────────────────
+    trunc_day = sa_func.date_trunc("day", ModerationCase.created_at)
+    mod_day_rows = (
+        _mod_q()
+        .with_entities(trunc_day.label("day"), sa_func.count(ModerationCase.id).label("n"))
+        .group_by("day")
+        .order_by("day")
+        .all()
+    )
+    mod_day_map: dict[_date, int] = {}
+    for row in mod_day_rows:
+        if row.day:
+            d = row.day.date() if hasattr(row.day, "date") else row.day
+            mod_day_map[d] = row.n
+    action_timeline = [{"date": _fmt(d), "count": mod_day_map.get(d, 0)} for d in day_labels]
+
+    # ── Ticket timeline (zero-filled) ────────────────────────────
+    trunc_day_t = sa_func.date_trunc("day", Ticket.created_at)
+    ticket_day_rows = (
+        _ticket_q()
+        .with_entities(trunc_day_t.label("day"), sa_func.count(Ticket.id).label("n"))
+        .group_by("day")
+        .order_by("day")
+        .all()
+    )
+    ticket_day_map: dict[_date, int] = {}
+    for row in ticket_day_rows:
+        if row.day:
+            d = row.day.date() if hasattr(row.day, "date") else row.day
+            ticket_day_map[d] = row.n
+    ticket_timeline = [{"date": _fmt(d), "count": ticket_day_map.get(d, 0)} for d in day_labels]
+
+    # ── Guild join/leave timeline (zero-filled) ──────────────────
+    def _event_day_map(event_type: str) -> dict[_date, int]:
+        trunc_d = sa_func.date_trunc("day", BotEvent.created_at)
+        rows = (
+            _event_q(event_type)
+            .with_entities(trunc_d.label("day"), sa_func.count(BotEvent.id).label("n"))
+            .group_by("day")
+            .order_by("day")
+            .all()
+        )
+        result: dict[_date, int] = {}
+        for row in rows:
+            if row.day:
+                d = row.day.date() if hasattr(row.day, "date") else row.day
+                result[d] = row.n
+        return result
+
+    join_map = _event_day_map("guild_join")
+    leave_map = _event_day_map("guild_leave")
+    server_timeline = [
+        {
+            "date": _fmt(d),
+            "joins": join_map.get(d, 0),
+            "leaves": leave_map.get(d, 0),
+        }
+        for d in day_labels
+    ]
+
+    # ── Ticket status and priority counts ────────────────────────
+    status_rows = (
+        _ticket_q()
+        .with_entities(Ticket.status, sa_func.count(Ticket.id).label("n"))
+        .group_by(Ticket.status)
+        .all()
+    )
+    ticket_status_counts = [{"status": (row.status or "unknown").capitalize(), "count": row.n} for row in status_rows]
+
+    priority_rows = (
+        _ticket_q()
+        .with_entities(Ticket.priority, sa_func.count(Ticket.id).label("n"))
+        .group_by(Ticket.priority)
+        .all()
+    )
+    ticket_priority_counts = [{"priority": (row.priority or "normal").capitalize(), "count": row.n} for row in priority_rows]
+
+    # ── Top guilds by mod case activity in range ─────────────────
+    top_guild_rows = (
+        _mod_q()
+        .with_entities(ModerationCase.guild_id, sa_func.count(ModerationCase.id).label("n"))
+        .group_by(ModerationCase.guild_id)
+        .order_by(sa_func.count(ModerationCase.id).desc())
+        .limit(5)
+        .all()
+    )
+    top_guilds = []
+    for row in top_guild_rows:
+        g = db.session.get(Guild, row.guild_id) if row.guild_id else None
+        top_guilds.append({
+            "id": row.guild_id,
+            "name": g.name if g else "Unknown",
+            "count": row.n,
+        })
+
+    # ── Commands timeline from BotEvent (event_type="command_use") ──
+    cmd_day_rows = (
+        _event_q("command_use")
+        .with_entities(
+            sa_func.date_trunc("day", BotEvent.created_at).label("day"),
+            sa_func.count(BotEvent.id).label("n"),
+        )
+        .group_by("day")
+        .order_by("day")
+        .all()
+    )
+    cmd_day_map: dict[_date, int] = {}
+    for row in cmd_day_rows:
+        if row.day:
+            d = row.day.date() if hasattr(row.day, "date") else row.day
+            cmd_day_map[d] = row.n
+    commands_timeline = [{"date": _fmt(d), "count": cmd_day_map.get(d, 0)} for d in day_labels]
+
+    # ── Top commands by usage count ──────────────────────────────
+    # Fetch raw payloads; count by command name in Python to avoid GROUP BY issues
+    cmd_events = (
+        _event_q("command_use")
+        .with_entities(BotEvent.payload)
+        .all()
+    )
+    cmd_name_counts: dict[str, int] = {}
+    for row in cmd_events:
+        raw_payload = row.payload
+        if isinstance(raw_payload, str):
+            try:
+                raw_payload = json.loads(raw_payload)
+            except Exception:
+                raw_payload = {}
+        name = (raw_payload or {}).get("command_name") or (raw_payload or {}).get("command") or "unknown"
+        cmd_name_counts[name] = cmd_name_counts.get(name, 0) + 1
+    top_commands = sorted(
+        [{"command": k, "count": v} for k, v in cmd_name_counts.items()],
+        key=lambda x: x["count"],
+        reverse=True,
+    )[:10]
+
+    # ── Top moderators by case count (use moderator_name) ────────
+    top_mod_rows = (
+        _mod_q()
+        .with_entities(
+            ModerationCase.moderator_name,
+            ModerationCase.moderator_id,
+            sa_func.count(ModerationCase.id).label("n"),
+        )
+        .group_by(ModerationCase.moderator_name, ModerationCase.moderator_id)
+        .order_by(sa_func.count(ModerationCase.id).desc())
+        .limit(10)
+        .all()
+    )
+    top_moderators = [
+        {
+            "moderator": row.moderator_name or row.moderator_id or "system",
+            "count": row.n,
+        }
+        for row in top_mod_rows
+    ]
+
+    # ── Ticket resolution metrics ─────────────────────────────────
+    closed_tickets_in_range = (
+        _ticket_q()
+        .filter(
+            Ticket.status.in_(["closed", "resolved"]),
+            Ticket.closed_at.isnot(None),
+        )
+        .with_entities(Ticket.created_at, Ticket.closed_at)
+        .all()
+    )
+    resolution_secs = [
+        (r.closed_at - r.created_at).total_seconds()
+        for r in closed_tickets_in_range
+        if r.closed_at and r.created_at and r.closed_at > r.created_at
+    ]
+    avg_ticket_resolution_hours: float | None = (
+        round(sum(resolution_secs) / len(resolution_secs) / 3600, 1)
+        if resolution_secs else None
+    )
+    tickets_in_range_total = _ticket_q().count()
+    ticket_resolution_rate: float | None = (
+        round(len(closed_tickets_in_range) / tickets_in_range_total * 100, 1)
+        if tickets_in_range_total > 0 else None
+    )
+
+    # ── Period-over-period comparison (previous same-length window) ──
+    prev_since = since - timedelta(days=days)
+
+    def _prev_mod_q():
+        q = ModerationCase.query.filter(
+            ModerationCase.created_at >= prev_since,
+            ModerationCase.created_at < since,
+        )
+        if guild_filter is not None:
+            q = q.filter(ModerationCase.guild_id.in_(guild_filter))
+        return q
+
+    def _prev_ticket_q():
+        q = Ticket.query.filter(
+            Ticket.created_at >= prev_since,
+            Ticket.created_at < since,
+        )
+        if guild_filter is not None:
+            q = q.filter(Ticket.guild_id.in_(guild_filter))
+        return q
+
+    prev_cmd_q = BotEvent.query.filter(
+        BotEvent.event_type == "command_use",
+        BotEvent.created_at >= prev_since,
+        BotEvent.created_at < since,
+    )
+    if guild_filter is not None:
+        prev_cmd_q = prev_cmd_q.filter(
+            db.or_(BotEvent.guild_id.in_(guild_filter), BotEvent.guild_id.is_(None))
+        )
+
+    prev_period = {
+        "mod_count": _prev_mod_q().count(),
+        "ticket_count": _prev_ticket_q().count(),
+        "command_count": prev_cmd_q.count(),
+    }
+
+    # ── Hourly command activity (0–23) ───────────────────────────
+    hourly_rows = (
+        _event_q("command_use")
+        .with_entities(
+            sa_func.date_part("hour", BotEvent.created_at).label("hour"),
+            sa_func.count(BotEvent.id).label("n"),
+        )
+        .group_by("hour")
+        .order_by("hour")
+        .all()
+    )
+    hourly_map: dict[int, int] = {int(row.hour): row.n for row in hourly_rows}
+    hourly_command_activity = [{"hour": h, "count": hourly_map.get(h, 0)} for h in range(24)]
+
+    # ── Multi-action daily timeline (top ≤5 action types) ────────
+    top_action_names = [row["action"].lower() for row in action_counts[:5]]
+    if top_action_names:
+        ma_rows = (
+            _mod_q()
+            .with_entities(
+                sa_func.date_trunc("day", ModerationCase.created_at).label("day"),
+                ModerationCase.action.label("action"),
+                sa_func.count(ModerationCase.id).label("n"),
+            )
+            .filter(ModerationCase.action.in_(top_action_names))
+            .group_by("day", ModerationCase.action)
+            .order_by("day")
+            .all()
+        )
+        ma_map: dict = {}
+        for row in ma_rows:
+            if row.day:
+                d = row.day.date() if hasattr(row.day, "date") else row.day
+                if d not in ma_map:
+                    ma_map[d] = {}
+                ma_map[d][row.action] = row.n
+        multi_action_timeline = [
+            {"date": _fmt(d), **{a: ma_map.get(d, {}).get(a, 0) for a in top_action_names}}
+            for d in day_labels
+        ]
+    else:
+        multi_action_timeline = [{"date": _fmt(d)} for d in day_labels]
+
+    # ── Totals (all-time, scoped to visible guilds) ───────────────
+    total_mod_q = ModerationCase.query
+    total_ticket_q = Ticket.query
+    if guild_filter is not None:
+        total_mod_q = total_mod_q.filter(ModerationCase.guild_id.in_(guild_filter))
+        total_ticket_q = total_ticket_q.filter(Ticket.guild_id.in_(guild_filter))
+
+    server_q = Guild.query.filter_by(is_active=True)
+    if guild_filter is not None:
+        server_q = server_q.filter(Guild.id.in_(guild_filter))
+
+    totals = {
+        "servers": server_q.count(),
+        "members": int(server_q.with_entities(sa_func.coalesce(sa_func.sum(Guild.member_count), 0)).scalar() or 0),
+        "mod_cases_all_time": total_mod_q.count(),
+        "tickets_all_time": total_ticket_q.count(),
+        "tickets_open": total_ticket_q.filter(Ticket.status == "open").count(),
+    }
+
+    # ── Bot state from Redis (written every 2s by the live bot) ──
+    bot = get_bot_state()
+    health = bot.get("health") or {}
+
+    # ── Guild member breakdown ─────────────────────────────────────
+    # Primary: Redis guild list (always live, bot writes member_count every 2s)
+    redis_guilds = bot.get("guilds", [])
+    if redis_guilds:
+        guilds_by_members = sorted(
+            [
+                {
+                    "name": g.get("name", "Unknown"),
+                    "members": g.get("member_count", 0),
+                    "id": g.get("id", ""),
+                }
+                for g in redis_guilds
+                if g.get("member_count", 0) > 0
+            ],
+            key=lambda x: x["members"],
+            reverse=True,
+        )[:10]
+    else:
+        # Fallback to DB when Redis bot state is unavailable
+        guilds_by_members = [
+            {"name": g.name, "members": g.member_count or 0, "id": str(g.id)}
+            for g in server_q.order_by(Guild.member_count.desc()).limit(10).all()
+            if (g.member_count or 0) > 0
+        ]
+
+    # ── Use live Redis counts for totals (more accurate than DB aggregates) ──
+    live_servers = bot.get("guild_count", 0)
+    live_members = bot.get("member_count", 0)
+
+    # Fill totals — prefer Redis live counts for servers/members
+    totals["servers"] = live_servers or totals["servers"]
+    totals["members"] = live_members or totals["members"]
+
+    bot_health = {
+        "online": bot.get("online", False),
+        "uptime": bot.get("uptime", "offline"),
+        "uptime_seconds": bot.get("uptime_seconds", 0),
+        "latency_ms": bot.get("latency_ms", 0),
+        "commands_today": bot.get("commands_today", 0),
+        "cog_count": bot.get("cog_count", 0),
+        "version": bot.get("version", "unknown"),
+        "guild_count": bot.get("guild_count", 0),
+        "member_count": bot.get("member_count", 0),
+        "cpu_percent": health.get("cpu_percent", 0),
+        "memory_percent": health.get("memory_percent", 0),
+        "memory_mb": health.get("memory_mb", 0),
+    }
+
+    return jsonify({
+        "range": range_param,
+        "days": days,
+        "since": since.isoformat(),
+        "totals": totals,
+        "bot_health": bot_health,
+        "guilds_by_members": guilds_by_members,
+        "action_counts": action_counts,
+        "action_timeline": action_timeline,
+        "ticket_timeline": ticket_timeline,
+        "server_timeline": server_timeline,
+        "ticket_status_counts": ticket_status_counts,
+        "ticket_priority_counts": ticket_priority_counts,
+        "top_guilds": top_guilds,
+        "commands_timeline": commands_timeline,
+        "top_commands": top_commands,
+        "top_moderators": top_moderators,
+        # ── New analytics fields ──────────────────────────────────
+        "avg_ticket_resolution_hours": avg_ticket_resolution_hours,
+        "ticket_resolution_rate": ticket_resolution_rate,
+        "prev_period": prev_period,
+        "hourly_command_activity": hourly_command_activity,
+        "multi_action_timeline": multi_action_timeline,
+        "top_action_names": top_action_names,
+    })
+
+
+# ── Phase 28: Cross-guild member history ──────────────────────────
+
+@api_bp.get("/members/<string:discord_id>/history")
+@login_required
+def member_cross_guild_history(discord_id: str):
+    """Aggregate moderation cases and tickets for a Discord user across all guilds."""
+    discord_id = discord_id.strip()
+    if not discord_id:
+        return jsonify({"error": "discord_id is required"}), 400
+
+    # Restrict to guilds the current user can see
+    if current_user.is_admin:
+        visible_guild_ids = None
+    else:
+        managed = [m.guild_id for m in GuildMember.query.filter_by(user_id=current_user.id).all()]
+        owned = [
+            g.id for g in Guild.query.filter_by(
+                owner_discord_id=current_user.discord_id, is_active=True
+            ).all()
+        ]
+        visible_guild_ids = list(set(managed + owned))
+
+    # Mod cases
+    case_q = ModerationCase.query.filter(ModerationCase.target_id == discord_id)
+    if visible_guild_ids is not None:
+        case_q = case_q.filter(ModerationCase.guild_id.in_(visible_guild_ids))
+    cases = case_q.order_by(ModerationCase.created_at.desc()).limit(100).all()
+
+    # Tickets (opened by this member)
+    ticket_q = Ticket.query.filter(Ticket.opener_id == discord_id)
+    if visible_guild_ids is not None:
+        ticket_q = ticket_q.filter(Ticket.guild_id.in_(visible_guild_ids))
+    tickets = ticket_q.order_by(Ticket.created_at.desc()).limit(50).all()
+
+    # Summary
+    action_tally: dict[str, int] = {}
+    for c in cases:
+        action_tally[c.action] = action_tally.get(c.action, 0) + 1
+
+    first_seen = cases[-1].created_at.isoformat() if cases else None
+    last_seen = cases[0].created_at.isoformat() if cases else None
+
+    return jsonify({
+        "discord_id": discord_id,
+        "case_count": len(cases),
+        "ticket_count": len(tickets),
+        "action_tally": [{"action": k, "count": v} for k, v in sorted(action_tally.items(), key=lambda x: x[1], reverse=True)],
+        "first_seen": first_seen,
+        "last_seen": last_seen,
+        "cases": [
+            {
+                "id": c.id,
+                "case_number": c.case_number,
+                "action": c.action,
+                "reason": c.reason,
+                "moderator_name": c.moderator_name,
+                "guild_name": c.guild.name if c.guild else None,
+                "created_at": c.created_at.isoformat(),
+            }
+            for c in cases
+        ],
+        "tickets": [
+            {
+                "id": t.id,
+                "ticket_number": t.ticket_number,
+                "subject": t.subject,
+                "status": t.status,
+                "priority": t.priority,
+                "guild_name": t.guild.name if t.guild else None,
+                "created_at": t.created_at.isoformat(),
+            }
+            for t in tickets
+        ],
+    })
+
 
 # ── Webhook (bot → hub) ──────────────────────────────────────────
 
@@ -1060,8 +2487,12 @@ def _handle_guild_join(payload: dict):
         guild.icon = payload.get("icon", guild.icon)
         guild.member_count = payload.get("member_count", guild.member_count)
         guild.channel_count = payload.get("channel_count", guild.channel_count)
+        guild.role_count = payload.get("role_count", guild.role_count)
         guild.owner_discord_id = str(payload.get("owner_id", "") or "") or guild.owner_discord_id
         guild.is_active = True
+
+    # Always update last_sync timestamp so the dashboard shows when data was last refreshed.
+    guild.last_sync = datetime.now(timezone.utc)
 
     # Only notify on genuine new guild join, not heartbeat re-syncs
     if is_new:
@@ -1072,6 +2503,13 @@ def _handle_guild_join(payload: dict):
             f"/servers/{guild.id}" if guild.id else "",
             guild_id=guild.id,
         )
+        push_live_event(
+            "guild_join",
+            f"Bot joined {guild.name}",
+            body=f"{payload.get('member_count', 0)} members",
+            severity="info",
+            guild_id=guild.id,
+        )
 
 
 def _handle_guild_leave(payload: dict):
@@ -1080,6 +2518,12 @@ def _handle_guild_leave(payload: dict):
     if guild:
         guild.is_active = False
         _notify_admins("guild_leave", f"Bot left {guild.name}", guild_id=guild.id)
+        push_live_event(
+            "guild_leave",
+            f"Bot left {guild.name}",
+            severity="warning",
+            guild_id=guild.id,
+        )
 
 
 def _handle_mod_action(payload: dict, guild: Guild | None):
@@ -1098,6 +2542,15 @@ def _handle_mod_action(payload: dict, guild: Guild | None):
         duration=payload.get("duration"),
     )
     db.session.add(case)
+    action = (payload.get("action") or "action").capitalize()
+    target = payload.get("target_name") or payload.get("target_id") or "?"
+    push_live_event(
+        "mod_action",
+        f"{action} – {target}",
+        body=f"In {guild.name}" + (f": {payload['reason']}" if payload.get("reason") else ""),
+        severity="warning",
+        guild_id=guild.id,
+    )
 
 
 def _handle_ticket_open(payload: dict, guild: Guild | None):
@@ -1114,6 +2567,14 @@ def _handle_ticket_open(payload: dict, guild: Guild | None):
         priority=payload.get("priority", "normal"),
     )
     db.session.add(ticket)
+    opener = payload.get("opener_name") or payload.get("opener_id") or "?"
+    push_live_event(
+        "ticket_open",
+        f"Ticket opened by {opener}",
+        body=f"In {guild.name}" + (f" · {payload['subject']}" if payload.get("subject") else ""),
+        severity="info",
+        guild_id=guild.id,
+    )
 
 
 def _handle_ticket_close(payload: dict, guild: Guild | None):
@@ -1126,6 +2587,14 @@ def _handle_ticket_close(payload: dict, guild: Guild | None):
         ticket.closed_by = payload.get("closed_by")
         ticket.closed_reason = payload.get("reason")
         ticket.closed_at = datetime.now(timezone.utc)
+        closed_by = payload.get("closed_by") or "staff"
+        push_live_event(
+            "ticket_close",
+            f"Ticket closed by {closed_by}",
+            body=f"In {guild.name}" + (f": {payload['reason']}" if payload.get("reason") else ""),
+            severity="info",
+            guild_id=guild.id,
+        )
 
 
 def _handle_ticket_message(payload: dict, guild: Guild | None):
@@ -1159,6 +2628,54 @@ def notifications():
         "unread": unread,
         "notifications": [n.to_dict() for n in notifs],
     })
+
+
+# ── Phase 31: Notification preferences ───────────────────────────
+
+@api_bp.get("/notifications/preferences")
+@login_required
+def notification_prefs_get():
+    """Return the current user's notification preferences, creating defaults if needed."""
+    prefs = UserNotificationPrefs.query.filter_by(user_id=current_user.id).first()
+    if not prefs:
+        prefs = UserNotificationPrefs(user_id=current_user.id)
+        db.session.add(prefs)
+        db.session.commit()
+    return jsonify(prefs.to_dict())
+
+
+@api_bp.patch("/notifications/preferences")
+@login_required
+def notification_prefs_patch():
+    """Update notification preference flags for the current user."""
+    data = request.get_json(silent=True) or {}
+    prefs = UserNotificationPrefs.query.filter_by(user_id=current_user.id).first()
+    if not prefs:
+        prefs = UserNotificationPrefs(user_id=current_user.id)
+        db.session.add(prefs)
+
+    bool_fields = {
+        "notify_ticket_open", "notify_ticket_close", "notify_mod_action",
+        "notify_guild_join", "notify_guild_leave", "notify_bot_offline", "mute_all",
+    }
+    changed = {}
+    for field in bool_fields:
+        if field in data:
+            val = bool(data[field])
+            setattr(prefs, field, val)
+            changed[field] = val
+
+    db.session.commit()
+    _audit("notification_prefs_update", details=changed)
+    return jsonify({"ok": True, "prefs": prefs.to_dict()})
+
+
+@api_bp.get("/notifications/unread-count")
+@login_required
+def notifications_unread_count():
+    """Lightweight endpoint used by the nav badge — no full notification list."""
+    unread = Notification.query.filter_by(user_id=current_user.id, is_read=False).count()
+    return jsonify({"unread": unread})
 
 
 @api_bp.post("/notifications/read-all")
@@ -1199,7 +2716,7 @@ def notifications_clear_duplicates():
 @api_bp.post("/notifications/<int:notif_id>/read")
 @login_required
 def notification_read(notif_id: int):
-    notif = Notification.query.get_or_404(notif_id)
+    notif = db.get_or_404(Notification, notif_id)
     if notif.user_id != current_user.id:
         return jsonify({"error": "Forbidden"}), 403
     notif.is_read = True
@@ -1211,12 +2728,13 @@ def notification_read(notif_id: int):
 
 @api_bp.get("/events")
 @login_required
+@limiter.exempt
 def sse_events():
     """Server-Sent Events — real-time bot state + notifications."""
     def generate():
         import time
         pubsub = redis_client.pubsub()
-        pubsub.subscribe("hub:notifications", "hub:bot_events")
+        pubsub.subscribe("hub:notifications", "hub:bot_events", "hub:live_events")
         try:
             # Send initial state
             bot = get_bot_state()
@@ -1269,7 +2787,7 @@ def users():
 @login_required
 @admin_required
 def user_update(user_id: int):
-    user = User.query.get_or_404(user_id)
+    user = db.get_or_404(User, user_id)
     data = request.get_json() or {}
 
     if user.is_owner and not current_user.is_owner:
@@ -1292,6 +2810,22 @@ def user_update(user_id: int):
     db.session.commit()
     _audit("user_update", target_type="user", target_id=str(user_id), details=data)
     return jsonify({"ok": True, "is_owner": user.is_owner, "is_admin": user.is_admin, "is_active": user.is_active})
+
+
+@api_bp.delete("/users/<int:user_id>")
+@login_required
+@admin_required
+def user_delete(user_id: int):
+    """Permanently delete a hub user account (admin only, cannot delete owners)."""
+    user = db.get_or_404(User, user_id)
+    if user.is_owner:
+        return jsonify({"error": "Cannot delete an owner account"}), 403
+    if user.id == current_user.id:
+        return jsonify({"error": "Cannot delete your own account"}), 403
+    _audit("user_delete", target_type="user", target_id=str(user_id), details={"username": user.username})
+    db.session.delete(user)
+    db.session.commit()
+    return jsonify({"ok": True})
 
 
 # ── Audit log ────────────────────────────────────────────────────
@@ -1321,3 +2855,188 @@ def admin_action(action: str):
     push_bot_command(action)
     _audit(f"admin_action:{action}")
     return jsonify({"ok": True, "action": action})
+
+
+# ── Admin guild sync (trigger bot to re-emit all guild_join events) ──────────
+
+@api_bp.post("/admin/sync-guilds")
+@login_required
+@admin_required
+def admin_sync_guilds():
+    """Trigger a guild sync via the bot's internal HTTP endpoint.
+
+    Requires ``BOT_INTERNAL_URL`` env var pointing at the bot service (e.g.
+    ``https://bot-service.up.railway.app``).  The call is authenticated with
+    ``BOT_INTERNAL_API_KEY`` / ``WEBHOOK_SECRET``.
+
+    Falls back to reading from Redis bot state when the bot URL is not set.
+    """
+    import requests as _req  # local import keeps startup fast
+
+    bot_url = os.environ.get("BOT_INTERNAL_URL", "").rstrip("/")
+    api_key = os.environ.get("BOT_INTERNAL_API_KEY") or os.environ.get("WEBHOOK_SECRET", "")
+
+    if bot_url:
+        try:
+            resp = _req.post(
+                f"{bot_url}/internal/sync-guilds",
+                headers={"Authorization": f"Bearer {api_key}"},
+                timeout=20,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            _audit("admin_sync_guilds", details={"via": "bot_internal_api", "guilds": data.get("guilds")})
+            return jsonify({"ok": True, "guilds": data.get("guilds", 0),
+                            "message": "Bot is syncing guilds to hub now. Refresh in a few seconds."})
+        except Exception as exc:  # noqa: BLE001
+            current_app.logger.error("admin_sync_guilds: bot call failed: %s", exc)
+            return jsonify({"ok": False, "message": f"Bot sync failed: {exc}"}), 502
+
+    # Fallback: try to sync from Redis bot state
+    from dashboard.services.bot_state import get_bot_state
+
+    bot_state = get_bot_state()
+    raw_guilds = bot_state.get("guilds", [])
+
+    if not raw_guilds:
+        return jsonify({
+            "ok": False,
+            "message": (
+                "BOT_INTERNAL_URL is not set and no guilds found in bot state. "
+                "Set BOT_INTERNAL_URL on the hub service pointing to the bot, "
+                "or redeploy the bot — it will auto-sync guilds on startup."
+            ),
+            "synced": 0,
+        }), 422
+
+    synced = 0
+    for g in raw_guilds:
+        try:
+            _handle_guild_join({
+                "guild_id": g.get("id"),
+                "name": g.get("name", "Unknown"),
+                "icon": g.get("icon"),
+                "owner_id": g.get("owner_id") or g.get("ownerId"),
+                "member_count": g.get("member_count") or g.get("memberCount", 0),
+                "channel_count": g.get("channel_count") or g.get("channelCount", 0),
+            })
+            synced += 1
+        except Exception as exc:  # noqa: BLE001
+            current_app.logger.warning("admin_sync_guilds: failed to sync guild %s: %s", g.get("id"), exc)
+
+    db.session.commit()
+    _audit("admin_sync_guilds", details={"via": "redis_state", "synced": synced, "total": len(raw_guilds)})
+    return jsonify({"ok": True, "synced": synced, "total": len(raw_guilds)})
+
+
+# ── Phase 16: Ticket priority ─────────────────────────────────────────────────
+
+@api_bp.route("/tickets/<int:ticket_id>/priority", methods=["PATCH"])
+@login_required
+def ticket_set_priority(ticket_id: int):
+    """Update the priority of a ticket (low / normal / high / urgent)."""
+    ticket = db.get_or_404(Ticket, ticket_id)
+    guild = db.session.get(Guild, ticket.guild_id)
+    if guild and not current_user.can_manage(guild):
+        return jsonify({"error": "Forbidden"}), 403
+    data = request.get_json(silent=True) or {}
+    priority = str(data.get("priority", "")).strip().lower()
+    if priority not in {"low", "normal", "high", "urgent"}:
+        return jsonify({"error": "Invalid priority. Use: low, normal, high, urgent"}), 400
+    ticket.priority = priority
+    ticket.updated_at = datetime.now(timezone.utc)
+    db.session.commit()
+    _audit(
+        "ticket_priority_update",
+        guild_id=ticket.guild_id,
+        target_type="ticket",
+        target_id=str(ticket_id),
+        details={"priority": priority},
+    )
+    return jsonify({"ok": True, "priority": ticket.priority})
+
+
+# ── Phase 17: Notification delete ─────────────────────────────────────────────
+
+@api_bp.route("/notifications/<int:notif_id>", methods=["DELETE"])
+@login_required
+def notification_delete(notif_id: int):
+    """Delete a single notification belonging to the current user."""
+    notif = db.get_or_404(Notification, notif_id)
+    if notif.user_id != current_user.id:
+        return jsonify({"error": "Forbidden"}), 403
+    db.session.delete(notif)
+    db.session.commit()
+    return jsonify({"ok": True})
+
+
+# ── Phase 18: Tickets bulk close / assign ────────────────────────────────────
+
+@api_bp.post("/guilds/<int:guild_id>/tickets/bulk")
+@login_required
+@guild_access_required
+def guild_tickets_bulk(guild_id: int):
+    """Bulk-close or bulk-assign tickets within a guild."""
+    data = request.get_json(silent=True) or {}
+    action = str(data.get("action", "")).strip().lower()
+    raw_ids = data.get("ticket_ids") or []
+    try:
+        ticket_ids = [int(i) for i in raw_ids]
+    except (ValueError, TypeError):
+        return jsonify({"error": "ticket_ids must be a list of integers"}), 400
+
+    if action not in {"close", "assign"}:
+        return jsonify({"error": "action must be 'close' or 'assign'"}), 400
+    if not ticket_ids:
+        return jsonify({"error": "ticket_ids is required"}), 400
+    if len(ticket_ids) > 100:
+        return jsonify({"error": "Cannot bulk-update more than 100 tickets at once"}), 400
+
+    tickets = Ticket.query.filter(
+        Ticket.id.in_(ticket_ids),
+        Ticket.guild_id == guild_id,
+    ).all()
+
+    now = datetime.now(timezone.utc)
+    assigned_to = str(data.get("assigned_to") or "").strip() or None
+    updated = 0
+    for ticket in tickets:
+        if action == "close":
+            ticket.status = "closed"
+            ticket.closed_by = current_user.username
+            ticket.closed_at = now
+            ticket.updated_at = now
+        else:  # assign
+            ticket.assigned_to = assigned_to
+            ticket.updated_at = now
+        updated += 1
+
+    db.session.commit()
+    _audit(
+        f"ticket_bulk_{action}",
+        guild_id=guild_id,
+        details={"count": updated, "ticket_ids": ticket_ids},
+    )
+    return jsonify({"ok": True, "updated": updated})
+
+
+# ── Phase 19: Moderation case reason / notes update ──────────────────────────
+
+@api_bp.route("/guilds/<int:guild_id>/moderation/<int:case_id>", methods=["PATCH"])
+@login_required
+@guild_access_required
+def guild_moderation_case_update(guild_id: int, case_id: int):
+    """Update the reason or notes on a moderation case."""
+    case = ModerationCase.query.filter_by(id=case_id, guild_id=guild_id).first_or_404()
+    data = request.get_json(silent=True) or {}
+    if "reason" in data:
+        case.reason = str(data["reason"]).strip() or None
+    db.session.commit()
+    _audit(
+        "mod_case_update",
+        guild_id=guild_id,
+        target_type="mod_case",
+        target_id=str(case_id),
+        details={"reason": case.reason},
+    )
+    return jsonify({"ok": True, "id": case.id, "reason": case.reason})

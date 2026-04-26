@@ -15,39 +15,19 @@ export default function CICDDashboardPage() {
   const queryClient = useQueryClient();
   const [selectedPipeline, setSelectedPipeline] = useState<string>('');
 
-  // Fetch status
-  const { data: status, isLoading } = useQuery({
-    queryKey: ['cicd', 'status'],
-    queryFn: async () => {
-      const response = await api.cicd.getStatus();
-      return response.data;
-    },
-  });
-
   // Fetch pipelines
-  const { data: pipelines } = useQuery({
+  const { data: pipelines, isLoading } = useQuery({
     queryKey: ['cicd', 'pipelines'],
     queryFn: async () => {
-      const response = await api.cicd.getPipelines();
-      return response.data as Pipeline[];
+      const response = await api.pipeline.list();
+      return (response.data.data ?? response.data ?? []) as Pipeline[];
     },
-  });
-
-  // Fetch runs for selected pipeline
-  const { data: runs } = useQuery({
-    queryKey: ['cicd', 'runs', selectedPipeline],
-    queryFn: async () => {
-      if (!selectedPipeline) return [];
-      const response = await api.cicd.getPipelineRuns(selectedPipeline, 10);
-      return response.data as PipelineRun[];
-    },
-    enabled: !!selectedPipeline,
   });
 
   // Trigger pipeline
   const triggerMutation = useMutation({
     mutationFn: (id: string) =>
-      api.cicd.triggerPipeline(id, { type: 'manual', actor: 'user', branch: 'main' }),
+      api.cicd.trigger(id, { type: 'manual', actor: 'user', branch: 'main' }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['cicd'] }),
   });
 
@@ -59,14 +39,6 @@ export default function CICDDashboardPage() {
       <div>
         <h1 className="text-2xl font-bold text-white">CI/CD Pipelines</h1>
         <p className="text-slate-400 mt-1">Manage GitHub Actions & GitLab CI pipelines</p>
-      </div>
-
-      {/* Stats */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard title="Pipelines" value={status?.totalPipelines || 0} />
-        <StatCard title="Success Rate" value={`${(status?.successRate || 0).toFixed(0)}%`} color="green" />
-        <StatCard title="Active Runs" value={status?.activeRuns || 0} color="cyan" />
-        <StatCard title="Avg Duration" value={`${Math.round(status?.avgDuration || 0)}s`} />
       </div>
 
       {/* Pipelines List */}
@@ -114,39 +86,6 @@ export default function CICDDashboardPage() {
           <p className="text-slate-400 text-center py-8">No pipelines configured</p>
         )}
       </div>
-
-      {/* Recent Runs */}
-      {selectedPipeline && runs && (
-        <div className="glass-card p-6">
-          <h3 className="text-lg font-semibold text-white mb-4">Recent Runs</h3>
-          <div className="space-y-2">
-            {runs.map((run) => (
-              <div key={run.id} className="flex items-center justify-between p-3 rounded-lg bg-white/5">
-                <div className="flex items-center gap-3">
-                  <div className={cn('w-2 h-2 rounded-full', {
-                    'bg-green-400': run.status === 'success',
-                    'bg-red-400': run.status === 'failed',
-                    'bg-blue-400 animate-pulse': run.status === 'running',
-                    'bg-yellow-400': run.status === 'pending',
-                  })} />
-                  <div>
-                    <p className="font-medium text-white">Run #{run.runNumber}</p>
-                    <p className="text-xs text-slate-400">{run.trigger.branch} • {new Date(run.startedAt).toLocaleString()}</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-4">
-                  {run.testResults && (
-                    <span className="text-sm text-slate-300">
-                      ✅ {run.testResults.passed}/{run.testResults.total} tests
-                    </span>
-                  )}
-                  <span className="text-sm text-slate-400">{run.duration ? `${Math.round(run.duration / 1000)}s` : '—'}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 }

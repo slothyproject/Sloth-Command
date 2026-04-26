@@ -44,14 +44,17 @@ export interface DeploymentPipeline {
   id: string;
   repositoryId: string;
   serviceId: string;
-  commit: {
+  commit: string | {
     sha: string;
     message: string;
     author: string;
     timestamp: string;
   };
+  commitMessage?: string;
+  commitSha?: string;
   branch: string;
-  status: 'pending' | 'building' | 'testing' | 'deploying' | 'completed' | 'failed' | 'cancelled';
+  author?: string;
+  status: 'pending' | 'building' | 'testing' | 'deploying' | 'completed' | 'failed' | 'cancelled' | 'running' | 'success';
   stage: 'build' | 'test' | 'deploy' | 'cleanup' | 'completed';
   progress: number;
   stages: PipelineStage[];
@@ -60,13 +63,26 @@ export interface DeploymentPipeline {
   completedAt?: string;
   duration?: number;
   triggeredBy: 'webhook' | 'manual' | 'schedule';
+  triggerType?: 'manual' | 'webhook' | 'schedule';
   approvedBy?: string;
   approvedAt?: string;
   rollbackAvailable: boolean;
+  pipelineId?: string;
   rollbackTo?: string;
+  service?: {
+    id: string;
+    name: string;
+    type: string;
+  };
+  runs?: Array<{
+    id: string;
+    status: 'pending' | 'building' | 'testing' | 'deploying' | 'completed' | 'failed' | 'cancelled' | 'running' | 'success';
+    stages?: PipelineStage[];
+  }>;
 }
 
 export interface PipelineStage {
+  id: string;
   name: string;
   status: 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
   startedAt?: string;
@@ -222,11 +238,11 @@ export function usePipelines() {
 }
 
 // Get pipeline by ID
-export function usePipeline(id: string) {
+export function usePipeline(id: string | null | undefined) {
   return useQuery({
-    queryKey: pipelineKeys.detail(id),
+    queryKey: pipelineKeys.detail(id ?? ''),
     queryFn: async () => {
-      const response = await api.pipeline?.get?.(id) || { data: null };
+      const response = await api.pipeline?.get?.(id!) || { data: null };
       return response.data as DeploymentPipeline;
     },
     enabled: !!id,
@@ -241,11 +257,11 @@ export function usePipeline(id: string) {
 }
 
 // Get pipeline logs
-export function usePipelineLogs(id: string, enabled: boolean = true) {
+export function usePipelineLogs(id: string | null | undefined, enabled: boolean = true) {
   return useQuery({
-    queryKey: pipelineKeys.logs(id),
+    queryKey: pipelineKeys.logs(id ?? ''),
     queryFn: async () => {
-      const response = await api.pipeline?.getLogs?.(id) || { data: [] };
+      const response = await api.pipeline?.getLogs?.(id!) || { data: [] };
       return response.data as BuildLog[];
     },
     enabled: !!id && enabled,
@@ -271,24 +287,30 @@ export function useServicePipelines(serviceId: string) {
 
 export function useTriggerPipeline() {
   const queryClient = useQueryClient();
-  
+
   return useMutation({
     mutationFn: async ({
       serviceId,
+      repositoryId,
       branch,
       commitSha,
+      commit,
     }: {
-      serviceId: string;
+      serviceId?: string;
+      repositoryId?: string;
       branch?: string;
       commitSha?: string;
+      commit?: string;
     }) => {
-      const response = await api.pipeline?.trigger?.(serviceId, { branch, commitSha }) ||
-        api.services.deploy(serviceId);
+      const id = serviceId || repositoryId!;
+      const response = await api.pipeline?.trigger?.(id, { branch, commitSha: commitSha || commit }) ||
+        api.services.deploy(id);
       return response?.data;
     },
-    onSuccess: (_, { serviceId }) => {
+    onSuccess: (_, { serviceId, repositoryId }) => {
+      const id = serviceId || repositoryId!;
       queryClient.invalidateQueries({ queryKey: pipelineKeys.lists() });
-      queryClient.invalidateQueries({ queryKey: pipelineKeys.service(serviceId) });
+      queryClient.invalidateQueries({ queryKey: pipelineKeys.service(id) });
       queryClient.invalidateQueries({ queryKey: ['services'] });
     },
   });
@@ -296,12 +318,12 @@ export function useTriggerPipeline() {
 
 export function useCancelPipeline() {
   const queryClient = useQueryClient();
-  
+
   return useMutation({
-    mutationFn: async (pipelineId: string) => {
+    mutationFn: async ({ pipelineId, runId, reason }: { pipelineId: string; runId?: string; reason?: string }) => {
       await api.pipeline?.cancel?.(pipelineId);
     },
-    onSuccess: (_, pipelineId) => {
+    onSuccess: (_, { pipelineId }) => {
       queryClient.invalidateQueries({ queryKey: pipelineKeys.detail(pipelineId) });
     },
   });
@@ -309,13 +331,13 @@ export function useCancelPipeline() {
 
 export function useApprovePipeline() {
   const queryClient = useQueryClient();
-  
+
   return useMutation({
-    mutationFn: async (pipelineId: string) => {
+    mutationFn: async ({ pipelineId, runId }: { pipelineId: string; runId?: string }) => {
       const response = await api.pipeline?.approve?.(pipelineId);
       return response?.data;
     },
-    onSuccess: (_, pipelineId) => {
+    onSuccess: (_, { pipelineId }) => {
       queryClient.invalidateQueries({ queryKey: pipelineKeys.detail(pipelineId) });
     },
   });
@@ -323,10 +345,10 @@ export function useApprovePipeline() {
 
 export function useRollbackPipeline() {
   const queryClient = useQueryClient();
-  
+
   return useMutation({
-    mutationFn: async ({ pipelineId, toPipelineId }: { pipelineId: string; toPipelineId: string }) => {
-      const response = await api.pipeline?.rollback?.(pipelineId, { toPipelineId });
+    mutationFn: async ({ pipelineId, targetRunId, toPipelineId }: { pipelineId: string; targetRunId?: string; toPipelineId?: string }) => {
+      const response = await api.pipeline?.rollback?.(pipelineId, { toPipelineId: targetRunId || toPipelineId });
       return response?.data;
     },
     onSuccess: (_, { pipelineId }) => {

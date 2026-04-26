@@ -105,6 +105,13 @@ import type {
   LogFilters,
   AutoResponse,
   ProcessResult,
+  // Dashboard types
+  Ticket,
+  TicketComment,
+  ModerationCase,
+  AnalyticsOverview,
+  DashboardUser,
+  Settings,
 } from '@/app/types';
 
 // API base URL
@@ -874,6 +881,100 @@ export const api = {
   },
 
   // ============================================================================
+  // TICKETS API
+  // ============================================================================
+
+  tickets: {
+    list: (params?: {
+      status?: string;
+      priority?: string;
+      assignedTo?: string;
+      limit?: number;
+      offset?: number;
+    }) => apiClient.get('/tickets', { params }),
+    get: (id: string) => apiClient.get(`/tickets/${id}`),
+    create: (data: Partial<Ticket>) => apiClient.post('/tickets', data),
+    update: (id: string, data: Partial<Ticket>) =>
+      apiClient.patch(`/tickets/${id}`, data),
+    delete: (id: string) => apiClient.delete(`/tickets/${id}`),
+    assign: (id: string, assignedTo: string) =>
+      apiClient.post(`/tickets/${id}/assign`, { assignedTo }),
+    comment: (id: string, content: string) =>
+      apiClient.post(`/tickets/${id}/comments`, { content }),
+  },
+
+  // ============================================================================
+  // MODERATION API
+  // ============================================================================
+
+  moderation: {
+    cases: (params?: {
+      action?: string;
+      status?: string;
+      moderator?: string;
+      limit?: number;
+      offset?: number;
+    }) => apiClient.get('/moderation/cases', { params }),
+    getCase: (id: string) => apiClient.get(`/moderation/cases/${id}`),
+    createCase: (data: Partial<ModerationCase>) =>
+      apiClient.post('/moderation/cases', data),
+    updateCase: (id: string, data: Partial<ModerationCase>) =>
+      apiClient.patch(`/moderation/cases/${id}`, data),
+    resolveCase: (id: string) =>
+      apiClient.post(`/moderation/cases/${id}/resolve`),
+    appealCase: (id: string, reason: string) =>
+      apiClient.post(`/moderation/cases/${id}/appeal`, { reason }),
+  },
+
+  // ============================================================================
+  // ANALYTICS API
+  // ============================================================================
+
+  analytics: {
+    overview: (params?: { range?: '24h' | '7d' | '30d' | '90d' }) =>
+      apiClient.get('/analytics/overview', { params }),
+    messages: (params?: { range?: string }) =>
+      apiClient.get('/analytics/messages', { params }),
+    users: (params?: { range?: string }) =>
+      apiClient.get('/analytics/users', { params }),
+    commands: (params?: { range?: string }) =>
+      apiClient.get('/analytics/commands', { params }),
+    tickets: (params?: { range?: string }) =>
+      apiClient.get('/analytics/tickets', { params }),
+  },
+
+  // ============================================================================
+  // USERS API
+  // ============================================================================
+
+  users: {
+    list: (params?: {
+      role?: string;
+      status?: string;
+      limit?: number;
+      offset?: number;
+    }) => apiClient.get('/users', { params }),
+    get: (id: string) => apiClient.get(`/users/${id}`),
+    update: (id: string, data: Partial<DashboardUser>) =>
+      apiClient.patch(`/users/${id}`, data),
+    updateRole: (id: string, role: string) =>
+      apiClient.patch(`/users/${id}/role`, { role }),
+    updateStatus: (id: string, status: string) =>
+      apiClient.patch(`/users/${id}/status`, { status }),
+    delete: (id: string) => apiClient.delete(`/users/${id}`),
+  },
+
+  // ============================================================================
+  // SETTINGS API
+  // ============================================================================
+
+  settings: {
+    get: () => apiClient.get('/settings'),
+    update: (data: Partial<Settings>) => apiClient.patch('/settings', data),
+    reset: () => apiClient.post('/settings/reset'),
+  },
+
+  // ============================================================================
   // AUTH API
   // ============================================================================
 
@@ -919,5 +1020,6 @@ export type {
   CloudProvider, CloudConnection, CloudResource, ResourceType, CostData,
   K8sCluster, K8sNode, K8sWorkload, K8sPod, HelmRelease,
   CICDProvider, Pipeline, PipelineRun, BuildAnalytics,
-  ModerationRule, ModerationLog, GuildAnalytics, Product, Order, UserPoints, AutoResponder
+  ModerationRule, ModerationLog, GuildAnalytics, Product, Order, UserPoints, AutoResponder,
+  Ticket, TicketComment, ModerationCase, AnalyticsOverview, DashboardUser, Settings
 };

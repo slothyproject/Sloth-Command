@@ -19,9 +19,9 @@ Write-Host "Generated JWT Secret: $($jwtSecret.Substring(0,16))..." -ForegroundC
 
 # Your Discord credentials (from your existing tokens)
 $discordClientId = "1493639167526174830"
-$discordClientSecret = "9NzuUZN8sDXsZ3xrG5tWcl_ufVTY-6F8"
-$discordBotToken = "MTQ5MzYzOTE2NzUyNjE3NDgzMA.G01Mjj.R7mgmGzGSEUEpN90oAaq5bA16-CwHYVuXIRjHw"
-$railwayToken = "28e52518-445f-499f-a406-daeeb7149f2b"
+$discordClientSecret = "REPLACE_WITH_DISCORD_CLIENT_SECRET"
+$discordBotToken = "REPLACE_WITH_DISCORD_BOT_TOKEN"
+$railwayToken = "REPLACE_WITH_RAILWAY_TOKEN"
 
 Write-Host ""
 Write-Host "Step 1: Preparing Backend Repository..." -ForegroundColor Cyan
@@ -113,3 +113,5 @@ Write-Host ""
 Write-Host "Press Enter to open Railway dashboard..."
 Read-Host
 Start-Process "https://railway.com/project/resplendent-fulfillment"
+
+

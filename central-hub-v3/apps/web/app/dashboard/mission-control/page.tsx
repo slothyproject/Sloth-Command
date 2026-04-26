@@ -81,10 +81,10 @@ export default function MissionControlPage() {
     return services.map(service => {
       const serviceIssues = issues?.filter(i => i.serviceId === service.id && i.status === 'open') || [];
       const hasCritical = serviceIssues.some(i => i.severity === 'critical');
-      const hasWarning = serviceIssues.some(i => i.severity === 'warning');
+      const hasWarning = serviceIssues.some(i => i.severity === 'high' || i.severity === 'medium');
       
       let status: ServiceHealth['status'] = 'healthy';
-      if (service.status === 'offline') status = 'offline';
+      if (service.status === 'unhealthy' || service.status === 'crashed') status = 'critical';
       else if (hasCritical) status = 'critical';
       else if (hasWarning || service.status === 'degraded') status = 'warning';
       

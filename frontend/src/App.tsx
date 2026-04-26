@@ -1,5 +1,6 @@
-import { Suspense, lazy, useEffect } from "react";
-import { Navigate, Route, Routes, useLocation } from "react-router-dom";
+import { Suspense, lazy, useEffect, useRef } from "react";
+import { Navigate, Route, Routes } from "react-router-dom";
+import { Toaster } from "sonner";
 
 import { AppShell } from "./components/layout/app-shell";
 import { useAuthStore } from "./store/authStore";
@@ -7,7 +8,7 @@ import type { CurrentUser } from "./store/authStore";
 import { getJson } from "./lib/api";
 
 // Lazy load pages
-const DashboardPage = lazy(() => import("./pages/dashboard").then((m) => ({ default: m.default })));
+const DashboardPage = lazy(() => import("./pages/DashboardPage").then((m) => ({ default: m.DashboardPage })));
 const LoginPage = lazy(() => import("./pages/LoginPage").then((m) => ({ default: m.LoginPage })));
 const ModerationPage = lazy(() => import("./pages/ModerationPage").then((m) => ({ default: m.ModerationPage })));
 const TicketsPage = lazy(() => import("./pages/TicketsPage").then((m) => ({ default: m.TicketsPage })));
@@ -19,12 +20,25 @@ const LogsPage = lazy(() => import("./pages/LogsPage").then((m) => ({ default: m
 const UsersPage = lazy(() => import("./pages/UsersPage").then((m) => ({ default: m.UsersPage })));
 const SettingsPage = lazy(() => import("./pages/SettingsPage").then((m) => ({ default: m.SettingsPage })));
 const ServerDetailPage = lazy(() => import("./pages/ServerDetailPage").then((m) => ({ default: m.ServerDetailPage })));
+const NotificationsPage = lazy(() => import("./pages/NotificationsPage").then((m) => ({ default: m.NotificationsPage })));
+const BotHealthPage = lazy(() => import("./pages/BotHealthPage").then((m) => ({ default: m.BotHealthPage })));
+const ServerLayout = lazy(() => import("./components/layout/ServerLayout").then((m) => ({ default: m.ServerLayout })));
+const CommandsPage = lazy(() => import("./pages/server/CommandsPage").then((m) => ({ default: m.CommandsPage })));
+const AutomodPage = lazy(() => import("./pages/server/AutomodPage").then((m) => ({ default: m.AutomodPage })));
+const WelcomePage = lazy(() => import("./pages/server/WelcomePage").then((m) => ({ default: m.WelcomePage })));
+const LevelingPage = lazy(() => import("./pages/server/LevelingPage").then((m) => ({ default: m.LevelingPage })));
+const TicketConfigPage = lazy(() => import("./pages/server/TicketConfigPage").then((m) => ({ default: m.TicketConfigPage })));
+const AntinukePage = lazy(() => import("./pages/server/AntinukePage").then((m) => ({ default: m.AntinukePage })));
 
 function SessionBootstrap() {
-  const location = useLocation();
   const { status, setAnonymous, setAuthenticated, setLoading } = useAuthStore();
+  // Only bootstrap once — never re-fetch on navigation to avoid spinner flash.
+  const initialized = useRef(false);
 
   useEffect(() => {
+    if (initialized.current) return;
+    initialized.current = true;
+
     let active = true;
 
     async function loadSession() {
@@ -46,7 +60,7 @@ function SessionBootstrap() {
     return () => {
       active = false;
     };
-  }, [location.pathname, setAnonymous, setAuthenticated, setLoading]);
+  }, [setAnonymous, setAuthenticated, setLoading]);
 
   if (status === "loading") {
     return <div className="grid min-h-screen place-items-center bg-void text-text-1 font-mono text-sm">Synchronising guardian access…</div>;
@@ -61,7 +75,15 @@ function SessionBootstrap() {
         <Route element={<Protected><AppShell /></Protected>}>
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/servers" element={<ServersPage />} />
-                    <Route path="/servers/:guildId" element={<ServerDetailPage />} />
+          <Route path="/servers/:guildId" element={<ServerLayout />}>
+            <Route index element={<ServerDetailPage />} />
+            <Route path="commands" element={<CommandsPage />} />
+            <Route path="automod" element={<AutomodPage />} />
+            <Route path="welcome" element={<WelcomePage />} />
+            <Route path="leveling" element={<LevelingPage />} />
+            <Route path="tickets-config" element={<TicketConfigPage />} />
+            <Route path="antinuke" element={<AntinukePage />} />
+          </Route>
           <Route path="/moderation" element={<ModerationPage />} />
           <Route path="/tickets" element={<TicketsPage />} />
           <Route path="/tickets/:ticketId" element={<TicketDetailPage />} />
@@ -70,6 +92,8 @@ function SessionBootstrap() {
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/logs" element={<LogsPage />} />
           <Route path="/users" element={<UsersPage />} />
+          <Route path="/notifications" element={<NotificationsPage />} />
+          <Route path="/bot-health" element={<BotHealthPage />} />
         </Route>
         
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
@@ -89,5 +113,10 @@ function Protected({ children }: { children: JSX.Element }) {
 }
 
 export function App() {
-  return <SessionBootstrap />;
+  return (
+    <>
+      <SessionBootstrap />
+      <Toaster position="top-right" richColors closeButton />
+    </>
+  );
 }

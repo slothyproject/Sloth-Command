@@ -42,7 +42,7 @@ In `central-hub-api` → **Variables** tab, ensure you have:
 
 ```
 DATABASE_URL=postgresql://postgres:... (your database URL)
-JWT_SECRET=21f9e23281fd19b2341c187b2cdfd9bcfb97fed19821348d08a150fb2c330b40deec74a14b0f0ed7021e6a29970a372535d7fff9e689d5ec3a908c2183b61364
+JWT_SECRET=REPLACE_WITH_JWT_SECRET
 DEFAULT_PASSWORD=central-hub-2025
 PORT=3001
 ```

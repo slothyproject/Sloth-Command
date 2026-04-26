@@ -1,12 +1,12 @@
 ﻿import React, { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Search, Plus, Server, Users, Crown, Shield, ExternalLink, ChevronRight } from 'lucide-react'
+import { Search, Plus, Server, Users, Crown, Shield, ExternalLink, ChevronRight, RefreshCw } from 'lucide-react'
 import { useAccessibleGuilds } from '@/lib/permissions'
 import { getRoleLabel, getRoleBadgeClass } from '@/lib/permissions'
 import { useAuthStore } from '@/store/authStore'
 import type { UserGuild } from '@/store/authStore'
 import { cn } from '@/lib/cn'
-import { getJson } from '@/lib/api'
+import { getJson, postJson } from '@/lib/api'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const _env = ((import.meta as unknown) as Record<string, unknown>).env as Record<string, string> | undefined
@@ -57,7 +57,7 @@ function GuildCard({ guild }: { guild: UserGuild }) {
               {guild.member_count?.toLocaleString() ?? '—'} members
             </span>
             <span className={cn('flex items-center gap-1 font-medium', guild.is_active ? 'text-lime' : 'text-text-3')}>
-              <span className={cn('w-1.5 h-1.5 rounded-full', guild.is_active ? 'bg-lime' : 'bg-text-3')} />
+              <span className={cn('w-1.5 h-1.5 rounded-full', guild.is_active ? 'bg-lime animate-pulse' : 'bg-text-3')} />
               {guild.is_active ? 'Bot Active' : 'Bot Offline'}
             </span>
           </div>
@@ -83,6 +83,8 @@ export function ServersPage() {
   const guilds = useAccessibleGuilds()
   const [query, setQuery] = useState('')
   const [botInviteUrl, setBotInviteUrl] = useState(DEFAULT_BOT_INVITE_URL)
+  const [syncing, setSyncing] = useState(false)
+  const [syncResult, setSyncResult] = useState<string | null>(null)
 
   useEffect(() => {
     getJson<{ url?: string }>('/api/bot/invite')
@@ -95,6 +97,20 @@ export function ServersPage() {
         // Keep the frontend fallback when the API is unavailable.
       })
   }, [])
+
+  async function handleSyncGuilds() {
+    setSyncing(true)
+    setSyncResult(null)
+    try {
+      const res = await postJson<{ ok: boolean; synced: number; total: number }>('/api/admin/sync-guilds')
+      setSyncResult(`Synced ${res.synced} of ${res.total} guild(s) — refresh the page to see updates.`)
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Sync failed'
+      setSyncResult(`Error: ${msg}`)
+    } finally {
+      setSyncing(false)
+    }
+  }
 
   const filtered = guilds.filter((g) =>
     g.name.toLowerCase().includes(query.toLowerCase())
@@ -124,7 +140,29 @@ export function ServersPage() {
           <Plus className="w-4 h-4" />
           Add Server
         </a>
+        {user?.is_admin && (
+          <button
+            onClick={handleSyncGuilds}
+            disabled={syncing}
+            className="flex items-center gap-2 px-4 py-2 bg-lime/10 hover:bg-lime/20 border border-lime/30 hover:border-lime/60 text-lime text-sm font-medium rounded-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <RefreshCw className={cn('w-4 h-4', syncing && 'animate-spin')} />
+            {syncing ? 'Syncing…' : 'Sync Guilds'}
+          </button>
+        )}
       </div>
+
+      {/* Sync result feedback */}
+      {syncResult && (
+        <div className={cn(
+          'px-4 py-2.5 rounded-lg text-sm border',
+          syncResult.startsWith('Error')
+            ? 'bg-red/10 border-red/30 text-red-400'
+            : 'bg-lime/10 border-lime/30 text-lime'
+        )}>
+          {syncResult}
+        </div>
+      )}
 
       {/* Search */}
       <div className="relative max-w-md">

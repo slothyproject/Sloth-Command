@@ -1,8 +1,10 @@
-import { BarChart3, LayoutDashboard, ScrollText, Server, Settings, ShieldAlert, Ticket, Users, WandSparkles } from "lucide-react";
+import { BarChart3, Bell, LayoutDashboard, ScrollText, Server, Settings, ShieldAlert, Ticket, Users, WandSparkles } from "lucide-react";
 import { NavLink } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 
 import { cn } from "../../lib/cn";
 import { formatNumber } from "../../lib/format";
+import { getJson } from "../../lib/api";
 import { useShellOverviewQuery } from "../../lib/overview";
 import { useAuthStore } from "../../store/authStore";
 
@@ -11,10 +13,11 @@ const baseLinks = [
   { to: "/servers", label: "Servers", icon: Server },
   { to: "/moderation", label: "Moderation", icon: ShieldAlert },
   { to: "/tickets", label: "Tickets", icon: Ticket },
+  { to: "/notifications", label: "Notifications", icon: Bell, badge: true },
   { to: "/analytics", label: "Analytics", icon: BarChart3 },
   { to: "/ai-advisor", label: "AI Advisor", icon: WandSparkles },
   { to: "/settings", label: "Settings", icon: Settings },
-];
+] as const;
 
 export function Sidebar() {
   const user = useAuthStore((state) => state.user);
@@ -22,6 +25,14 @@ export function Sidebar() {
   const links = user?.is_admin
     ? [...baseLinks, { to: "/logs", label: "Logs", icon: ScrollText }, { to: "/users", label: "Users", icon: Users }]
     : baseLinks;
+
+  const unreadQuery = useQuery({
+    queryKey: ["notif-unread-sidebar"],
+    queryFn: () => getJson<{ count: number }>("/api/notifications/unread-count"),
+    refetchInterval: 30_000,
+    retry: false,
+  });
+  const unreadCount = unreadQuery.data?.count ?? 0;
 
   return (
     <aside className="dashboard-sidebar relative z-[1] hidden w-80 shrink-0 border-r border-line bg-[rgba(13,21,32,0.85)] px-5 py-6 backdrop-blur-chrome lg:block">
@@ -53,6 +64,7 @@ export function Sidebar() {
       <nav className="space-y-2">
         {links.map((link) => {
           const Icon = link.icon;
+          const showBadge = 'badge' in link && link.badge && unreadCount > 0;
           return (
             <NavLink
               key={link.to}
@@ -66,6 +78,11 @@ export function Sidebar() {
             >
               <Icon className="h-4 w-4" />
               <span>{link.label}</span>
+              {showBadge && (
+                <span className="ml-auto min-w-[18px] rounded-full bg-cyan px-1.5 py-0.5 text-center font-mono text-[10px] font-bold text-black">
+                  {unreadCount > 99 ? "99+" : unreadCount}
+                </span>
+              )}
             </NavLink>
           );
         })}

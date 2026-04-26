@@ -7,11 +7,15 @@
 
 import { useState, useEffect } from 'react';
 import { useThemeStore } from '@/app/stores/theme-store';
+import { useSettings, useUpdateSettings } from '@/app/hooks/use-settings';
+import { Loading, SectionError } from '@/app/components/ui';
 import { cn } from '@/app/lib/utils';
 
 export default function SettingsPage() {
   const { theme, setTheme } = useThemeStore();
   const [activeSection, setActiveSection] = useState('general');
+  const { data: settings, isLoading, isError, refetch } = useSettings();
+  const updateSettings = useUpdateSettings();
 
   const shortcuts = [
     { key: '⌘ K', action: 'Open Command Palette', description: 'Search services and commands' },
@@ -23,6 +27,40 @@ export default function SettingsPage() {
     { key: '⌘ D', action: 'Deploy Service', description: 'Deploy selected service' },
     { key: '⌘ R', action: 'Restart Service', description: 'Restart selected service' },
   ];
+
+  if (isLoading) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold text-white">Settings</h1>
+          <p className="text-slate-400 mt-1">Loading settings...</p>
+        </div>
+        <Loading.Skeleton className="h-8 w-48" />
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+          <Loading.Card rows={6} />
+          <div className="lg:col-span-3 space-y-6">
+            <Loading.Form fields={5} />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold text-white">Settings</h1>
+          <p className="text-slate-400 mt-1">Manage your preferences and keyboard shortcuts</p>
+        </div>
+        <SectionError
+          title="Failed to load settings"
+          message="There was an error loading your settings. Please try again."
+          onRetry={() => refetch()}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -74,7 +112,7 @@ export default function SettingsPage() {
                     <p className="font-medium text-white">Auto-sync with Railway</p>
                     <p className="text-sm text-slate-400">Automatically sync services every 5 minutes</p>
                   </div>
-                  <Toggle defaultChecked={true} />
+                  <SettingsToggle field="autoSync" defaultChecked={true} />
                 </div>
 
                 {/* Auto-refresh */}
@@ -83,7 +121,7 @@ export default function SettingsPage() {
                     <p className="font-medium text-white">Auto-refresh metrics</p>
                     <p className="text-sm text-slate-400">Update service metrics every 30 seconds</p>
                   </div>
-                  <Toggle defaultChecked={true} />
+                  <SettingsToggle field="autoRefreshMetrics" defaultChecked={true} />
                 </div>
 
                 {/* Desktop notifications */}
@@ -92,7 +130,7 @@ export default function SettingsPage() {
                     <p className="font-medium text-white">Desktop notifications</p>
                     <p className="text-sm text-slate-400">Show notifications for important events</p>
                   </div>
-                  <Toggle defaultChecked={true} />
+                  <SettingsToggle field="desktopNotifications" defaultChecked={true} />
                 </div>
               </div>
             </div>
@@ -132,7 +170,7 @@ export default function SettingsPage() {
                     <p className="font-medium text-white">Compact mode</p>
                     <p className="text-sm text-slate-400">Reduce padding and spacing</p>
                   </div>
-                  <Toggle defaultChecked={false} />
+                  <SettingsToggle field="compactMode" defaultChecked={false} />
                 </div>
               </div>
             </div>
@@ -171,7 +209,7 @@ export default function SettingsPage() {
                     <p className="font-medium text-white">Deployment notifications</p>
                     <p className="text-sm text-slate-400">Notify when deployments complete or fail</p>
                   </div>
-                  <Toggle defaultChecked={true} />
+                  <SettingsToggle field="deploymentNotifications" defaultChecked={true} />
                 </div>
 
                 <div className="flex items-center justify-between">
@@ -179,7 +217,7 @@ export default function SettingsPage() {
                     <p className="font-medium text-white">Health alerts</p>
                     <p className="text-sm text-slate-400">Notify when services become unhealthy</p>
                   </div>
-                  <Toggle defaultChecked={true} />
+                  <SettingsToggle field="healthAlerts" defaultChecked={true} />
                 </div>
 
                 <div className="flex items-center justify-between">
@@ -187,7 +225,7 @@ export default function SettingsPage() {
                     <p className="font-medium text-white">AI recommendations</p>
                     <p className="text-sm text-slate-400">Notify when new recommendations are available</p>
                   </div>
-                  <Toggle defaultChecked={true} />
+                  <SettingsToggle field="aiRecommendations" defaultChecked={true} />
                 </div>
               </div>
             </div>
@@ -242,7 +280,39 @@ export default function SettingsPage() {
   );
 }
 
-// Toggle Component
+// Wired toggle component
+function SettingsToggle({
+  field,
+  defaultChecked = false,
+}: {
+  field: keyof import('@/app/types').Settings;
+  defaultChecked?: boolean;
+}) {
+  const { data: settings } = useSettings();
+  const update = useUpdateSettings();
+  const checked = settings ? !!settings[field] : defaultChecked;
+
+  return (
+    <button
+      onClick={() => update.mutate({ [field]: !checked } as Partial<import('@/app/types').Settings>)}
+      disabled={update.isPending}
+      className={cn(
+        'w-12 h-6 rounded-full transition-colors relative',
+        checked ? 'bg-cyan-500' : 'bg-slate-700',
+        update.isPending && 'opacity-60'
+      )}
+    >
+      <div
+        className={cn(
+          'absolute top-1 w-4 h-4 rounded-full bg-white transition-transform',
+          checked ? 'translate-x-7' : 'translate-x-1'
+        )}
+      />
+    </button>
+  );
+}
+
+// Legacy Toggle (for non-settings sections)
 function Toggle({ defaultChecked = false }: { defaultChecked?: boolean }) {
   const [checked, setChecked] = useState(defaultChecked);
 

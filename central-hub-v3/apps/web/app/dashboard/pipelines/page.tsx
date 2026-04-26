@@ -154,7 +154,7 @@ export default function PipelinesPage() {
     usePipeline(selectedPipeline);
   const { data: pipelineLogs, isLoading: isLoadingLogs } = usePipelineLogs(
     selectedPipeline,
-    selectedPipelineData?.runs?.[0]?.id
+    !!selectedPipeline
   );
   const { data: repositories } = useRepositories();
   const { data: branches } = useRepositoryBranches(selectedRepo);
@@ -246,7 +246,7 @@ export default function PipelinesPage() {
     }
   };
 
-  const filteredPipelines = pipelines?.filter((pipeline: PipelineRun) => {
+  const filteredPipelines = pipelines?.filter((pipeline) => {
     if (activeTab === "all") return true;
     if (activeTab === "running") return pipeline.status === "running";
     if (activeTab === "success") return pipeline.status === "success";
@@ -255,11 +255,11 @@ export default function PipelinesPage() {
   });
 
   const runningCount =
-    pipelines?.filter((p: PipelineRun) => p.status === "running").length || 0;
+    pipelines?.filter((p) => p.status === "running").length || 0;
   const successCount =
-    pipelines?.filter((p: PipelineRun) => p.status === "success").length || 0;
+    pipelines?.filter((p) => p.status === "success").length || 0;
   const failedCount =
-    pipelines?.filter((p: PipelineRun) => p.status === "failed").length || 0;
+    pipelines?.filter((p) => p.status === "failed").length || 0;
 
   return (
     <div className="space-y-6">
@@ -419,7 +419,7 @@ export default function PipelinesPage() {
                       </td>
                     </tr>
                   ) : (
-                    filteredPipelines?.map((run: PipelineRun) => (
+                    filteredPipelines?.map((run) => (
                       <tr
                         key={run.id}
                         className="border-b border-gray-800 hover:bg-[#1f232b]"
@@ -449,10 +449,10 @@ export default function PipelinesPage() {
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-2">
                             <div className="flex h-6 w-6 items-center justify-center rounded bg-blue-500/20 text-xs text-blue-400">
-                              {run.service.type.slice(0, 2).toUpperCase()}
+                              {run.service?.type.slice(0, 2).toUpperCase()}
                             </div>
                             <span className="text-sm font-medium text-white">
-                              {run.service.name}
+                              {run.service?.name}
                             </span>
                           </div>
                         </td>
@@ -464,13 +464,13 @@ export default function PipelinesPage() {
                             </div>
                             <div className="flex items-center gap-1 text-xs text-gray-500">
                               <GitCommit className="h-3 w-3" />
-                              {run.commit.slice(0, 7)}
+                              {typeof run.commit === 'string' ? run.commit.slice(0, 7) : run.commit.sha.slice(0, 7)}
                             </div>
                           </div>
                         </td>
                         <td className="px-4 py-3">
                           <p className="max-w-xs truncate text-sm text-gray-300">
-                            {run.commitMessage}
+                            {run.commitMessage || (typeof run.commit !== 'string' && run.commit.message) || ''}
                           </p>
                         </td>
                         <td className="px-4 py-3">
@@ -547,7 +547,7 @@ export default function PipelinesPage() {
                               </DropdownMenuTrigger>
                               <DropdownMenuContent className="border-gray-800 bg-[#1a1d24]">
                                 <DropdownMenuItem
-                                  onClick={() => setSelectedPipeline(run.pipelineId)}
+                                  onClick={() => run.pipelineId && setSelectedPipeline(run.pipelineId)}
                                   className="text-gray-300 focus:bg-[#2a2e3a] focus:text-white"
                                 >
                                   <Eye className="mr-2 h-4 w-4" />
@@ -603,7 +603,7 @@ export default function PipelinesPage() {
                   Pipeline: {selectedPipelineData.name}
                 </h3>
                 <p className="text-sm text-gray-400">
-                  {selectedPipelineData.service.name} • Run #{selectedPipelineData.runs?.[0]?.id?.slice(-6)}
+                  {selectedPipelineData.service?.name} • Run #{selectedPipelineData.runs?.[0]?.id?.slice(-6)}
                 </p>
               </div>
             </div>
@@ -873,9 +873,9 @@ export default function PipelinesPage() {
           <div className="py-4">
             <div className="max-h-64 space-y-2 overflow-y-auto">
               {selectedPipelineData?.runs
-                ?.filter((r: PipelineRun) => r.status === "success")
+                ?.filter((r) => r.status === "success")
                 .slice(0, 10)
-                .map((run: PipelineRun) => (
+                .map((run) => (
                   <div
                     key={run.id}
                     className="flex cursor-pointer items-center justify-between rounded-lg border border-gray-800 bg-[#14161c] p-3 hover:border-gray-700"
@@ -888,7 +888,7 @@ export default function PipelinesPage() {
                           Run #{run.id.slice(-6)}
                         </p>
                         <p className="text-xs text-gray-500">
-                          {run.commit.slice(0, 7)} • {run.commitMessage}
+                          {typeof run.commit === 'string' ? run.commit.slice(0, 7) : run.commit.sha.slice(0, 7)} • {run.commitMessage || (typeof run.commit !== 'string' ? run.commit.message : '')}
                         </p>
                       </div>
                     </div>

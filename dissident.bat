@@ -77,9 +77,9 @@ echo https://railway.app/project/resplendent-fulfillment/service/dissident-api-b
 echo.
 echo Set these variables:
 echo   DISCORD_CLIENT_ID=1493639167526174830
-echo   DISCORD_CLIENT_SECRET=9NzuUZN8sDXsZ3xrG5tWcl_ufVTY-6F8
-echo   DISCORD_BOT_TOKEN=MTQ5MzYzOTE2NzUyNjE3NDgzMA.G01Mjj.R7mgmGzGSEUEpN90oAaq5bA16-CwHYVuXIRjHw
-echo   JWT_SECRET=MgpyVa9e01DlHZzKYFrJWsEjMJPlKbJvzDREw3LTRzEwVboZBBiPyHqCWw8GyuKX
+echo   DISCORD_CLIENT_SECRET=REPLACE_WITH_DISCORD_CLIENT_SECRET
+echo   DISCORD_BOT_TOKEN=REPLACE_WITH_DISCORD_BOT_TOKEN
+echo   JWT_SECRET=REPLACE_WITH_JWT_SECRET
 echo   FRONTEND_URL=https://dissident-website-production.up.railway.app
 echo   NODE_ENV=production
 echo   PORT=3000
@@ -147,3 +147,5 @@ echo All components deployed successfully!
 echo ================================================
 pause
 goto :EOF
+
+

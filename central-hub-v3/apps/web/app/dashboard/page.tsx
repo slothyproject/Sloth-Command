@@ -8,7 +8,7 @@
 import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
 import { api } from '@/app/lib/api-client';
-import type { Service, AIInsight, Deployment, AgentPlan, TaskStatus } from '@/app/types';
+import type { Service, AIInsight, Deployment, AgentPlan } from '@/app/types';
 import { cn } from '@/app/lib/utils';
 
 export default function DashboardPage() {
@@ -49,8 +49,8 @@ export default function DashboardPage() {
   const { data: activePlans, isLoading: isPlansLoading } = useQuery({
     queryKey: ['agents', 'plans', 'active'],
     queryFn: async () => {
-      const response = await api.agents.getActivePlans();
-      return response.data as AgentPlan[];
+      const response = await api.agents.getPlans();
+      return (response.data.data ?? response.data ?? []) as AgentPlan[];
     },
   });
 
@@ -62,7 +62,7 @@ export default function DashboardPage() {
       if (services) {
         for (const service of services.slice(0, 3)) {
           try {
-            const response = await api.deployments.list(service.id);
+            const response = await api.deployments.getHistory(service.id, 3);
             if (response.data?.data) {
               allDeployments.push(...response.data.data.slice(0, 3));
             }
@@ -401,7 +401,7 @@ function ActivityItem({
 }
 
 function AgentPlanCard({ plan }: { plan: AgentPlan }) {
-  const completedSteps = plan.steps.filter((s) => s.status === TaskStatus.COMPLETED).length;
+  const completedSteps = plan.steps.filter((s) => s.status === 'completed').length;
   const progress = plan.steps.length > 0 ? (completedSteps / plan.steps.length) * 100 : 0;
 
   const statusColors: Record<string, string> = {

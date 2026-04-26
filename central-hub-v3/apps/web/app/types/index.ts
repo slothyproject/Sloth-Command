@@ -201,6 +201,10 @@ export interface AgentPlan {
     priority: number;
     requiresApproval: boolean;
   };
+  result?: {
+    success: boolean;
+    message: string;
+  };
   createdAt: string;
   startedAt?: string;
   completedAt?: string;
@@ -218,6 +222,13 @@ export interface AgentResponse {
   agentType: AgentType;
   status: TaskStatus;
   summary: string;
+  plan?: {
+    goal: string;
+    steps?: { id: string; description: string }[];
+    requiresApproval?: boolean;
+  };
+  response?: string;
+  suggestedActions?: string[];
 }
 
 // ============================================================================
@@ -1416,4 +1427,112 @@ export interface ProcessResult {
   messageDeleted: boolean;
   userNotified: boolean;
   modsNotified: boolean;
+}
+
+// ============================================================================
+// TICKET TYPES
+// ============================================================================
+
+export type TicketStatus = 'open' | 'in_progress' | 'resolved' | 'closed';
+export type TicketPriority = 'low' | 'medium' | 'high' | 'urgent';
+
+export interface Ticket {
+  id: string;
+  number: string;
+  subject: string;
+  status: TicketStatus;
+  priority: TicketPriority;
+  assignedTo: string;
+  createdBy?: string;
+  createdAt: string;
+  updatedAt?: string;
+  description?: string;
+  comments?: TicketComment[];
+}
+
+export interface TicketComment {
+  id: string;
+  ticketId: string;
+  author: string;
+  content: string;
+  createdAt: string;
+}
+
+// ============================================================================
+// MODERATION CASE TYPES
+// ============================================================================
+
+export type ModerationCaseStatus = 'open' | 'resolved' | 'appealed';
+export type ModerationCaseAction = 'warn' | 'kick' | 'ban' | 'mute';
+
+export interface ModerationCase {
+  id: string;
+  caseNumber: string;
+  action: ModerationCaseAction;
+  target: string;
+  moderator: string;
+  reason: string;
+  duration?: string;
+  createdAt: string;
+  status: ModerationCaseStatus;
+}
+
+// ============================================================================
+// ANALYTICS TYPES
+// ============================================================================
+
+export interface AnalyticsOverview {
+  messages: number;
+  users: number;
+  moderationEvents: number;
+  ticketsResolved: number;
+  messagesOverTime: Array<{
+    time: string;
+    messages: number;
+    users: number;
+  }>;
+  activityHeatmap: Array<{
+    hour: string;
+    score: number;
+  }>;
+  topCommands: Array<{
+    command: string;
+    count: number;
+  }>;
+  ticketResolutionRate: Array<{
+    period: string;
+    created: number;
+    resolved: number;
+  }>;
+}
+
+// ============================================================================
+// USER TYPES (Dashboard)
+// ============================================================================
+
+export type DashboardUserRole = 'user' | 'admin' | 'moderator';
+export type DashboardUserStatus = 'active' | 'inactive' | 'banned';
+
+export interface DashboardUser {
+  id: string;
+  username: string;
+  email: string;
+  role: DashboardUserRole;
+  lastSeen: string;
+  status: DashboardUserStatus;
+}
+
+// ============================================================================
+// SETTINGS TYPES
+// ============================================================================
+
+export interface Settings {
+  autoSync: boolean;
+  autoRefreshMetrics: boolean;
+  desktopNotifications: boolean;
+  theme: 'light' | 'dark' | 'system';
+  compactMode: boolean;
+  deploymentNotifications: boolean;
+  healthAlerts: boolean;
+  aiRecommendations: boolean;
 }

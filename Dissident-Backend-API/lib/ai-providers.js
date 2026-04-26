@@ -89,6 +89,56 @@ async function invokeGemini(config, prompt) {
   return normalizeAIResponse(text, usage, response.data);
 }
 
+async function invokeOllama(config, prompt) {
+  const rawBase = String(config.baseUrl || 'http://localhost:11434').replace(/\/$/, '');
+  // Strip trailing /v1 so we can append paths predictably
+  const baseWithoutV1 = rawBase.replace(/\/v1$/, '');
+
+  const openaiUrl = `${baseWithoutV1}/v1/chat/completions`;
+  const nativeUrl = `${baseWithoutV1}/api/chat`;
+  const headers = { 'Content-Type': 'application/json' };
+  const apiKey = String(config.apiKey || '').trim();
+  if (apiKey) {
+    headers['Authorization'] = `Bearer ${apiKey}`;
+  }
+
+  // Try OpenAI-compatible endpoint first (Ollama >=0.1.24 + cloud)
+  try {
+    const response = await axios.post(
+      openaiUrl,
+      {
+        model: config.model,
+        messages: [{ role: 'user', content: prompt }],
+        max_tokens: 400,
+        temperature: 0.7,
+        stream: false,
+      },
+      { headers, timeout: config.timeout || 25000 }
+    );
+    const text = response.data?.choices?.[0]?.message?.content || '';
+    return normalizeAIResponse(text, response.data?.usage, response.data);
+  } catch (openaiErr) {
+    // Fall back to native Ollama /api/chat
+    try {
+      const nativeResponse = await axios.post(
+        nativeUrl,
+        {
+          model: config.model,
+          messages: [{ role: 'user', content: prompt }],
+          stream: false,
+        },
+        { headers, timeout: config.timeout || 25000 }
+      );
+      const text = nativeResponse.data?.message?.content || '';
+      return normalizeAIResponse(text, {}, nativeResponse.data);
+    } catch (nativeErr) {
+      // Surface the more informative error
+      const err = nativeErr.response ? nativeErr : openaiErr;
+      throw err;
+    }
+  }
+}
+
 async function invokeAIProvider(config, prompt) {
   const provider = normalizeProviderName(config.provider);
   if (!prompt || !String(prompt).trim()) {
@@ -103,6 +153,8 @@ async function invokeAIProvider(config, prompt) {
       return invokeAnthropic(config, prompt);
     case 'gemini':
       return invokeGemini(config, prompt);
+    case 'ollama':
+      return invokeOllama(config, prompt);
     default:
       throw new Error(`Unsupported AI provider: ${provider}`);
   }

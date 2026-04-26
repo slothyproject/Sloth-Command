@@ -12,9 +12,9 @@ Write-Host "Generated JWT Secret: $($jwtSecret.Substring(0,16))..." -ForegroundC
 
 # Your credentials
 $discordClientId = "1493639167526174830"
-$discordClientSecret = "9NzuUZN8sDXsZ3xrG5tWcl_ufVTY-6F8"
-$discordBotToken = "MTQ5MzYzOTE2NzUyNjE3NDgzMA.G01Mjj.R7mgmGzGSEUEpN90oAaq5bA16-CwHYVuXIRjHw"
-$railwayToken = "28e52518-445f-499f-a406-daeeb7149f2b"
+$discordClientSecret = "REPLACE_WITH_DISCORD_CLIENT_SECRET"
+$discordBotToken = "REPLACE_WITH_DISCORD_BOT_TOKEN"
+$railwayToken = "REPLACE_WITH_RAILWAY_TOKEN"
 
 Write-Host ""
 Write-Host "Step 1: Preparing Backend..." -ForegroundColor Cyan
@@ -77,3 +77,5 @@ Write-Host "5. Click 'Deploy' → 'Redeploy'" -ForegroundColor White
 Write-Host ""
 Read-Host "Press Enter to open Railway"
 Start-Process "https://railway.com/dashboard"
+
+

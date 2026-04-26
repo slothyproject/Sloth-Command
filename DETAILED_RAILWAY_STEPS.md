@@ -87,7 +87,7 @@ Click **"Add"**
 ### Variable 2: DISCORD_CLIENT_SECRET
 ```
 Key: DISCORD_CLIENT_SECRET
-Value: 9NzuUZN8sDXsZ3xrG5tWcl_ufVTY-6F8
+Value: REPLACE_WITH_DISCORD_CLIENT_SECRET
 ```
 (Copy from your tokens.env line 3)
 Click **"Add"**
@@ -103,7 +103,7 @@ Click **"Add"**
 ### Variable 4: JWT_SECRET
 ```
 Key: JWT_SECRET
-Value: MgpyVa9e01DlHZzKYFrJWsEjMJPlKbJvzDREw3LTRzEwVboZBBiPyHqCWw8GyuKX
+Value: REPLACE_WITH_JWT_SECRET
 ```
 (Copy from your tokens.env line 5)
 Click **"Add"**
@@ -118,7 +118,7 @@ Click **"Add"**
 ### Variable 6: DISCORD_BOT_TOKEN
 ```
 Key: DISCORD_BOT_TOKEN
-Value: MTQ5MzYzOTE2NzUyNjE3NDgzMA.G01Mjj.R7mgmGzGSEUEpN90oAaq5bA16-CwHYVuXIRjHw
+Value: REPLACE_WITH_DISCORD_BOT_TOKEN
 ```
 (Copy from your tokens.env line 2 - the long token)
 Click **"Add"**
@@ -287,11 +287,11 @@ From `E:\Projects God Tier\Dissident-Website\tokens.env`:
 
 | Variable | Value |
 |----------|-------|
-| Railway Token | 28e52518-445f-499f-a406-daeeb7149f2b |
-| Discord Token | MTQ5MzYzOTE2NzUyNjE3NDgzMA.G01Mjj.R7mgmGzGSEUEpN90oAaq5bA16-CwHYVuXIRjHw |
-| Client Secret | 9NzuUZN8sDXsZ3xrG5tWcl_ufVTY-6F8 |
+| Railway Token | REPLACE_WITH_RAILWAY_TOKEN |
+| Discord Token | REPLACE_WITH_DISCORD_BOT_TOKEN |
+| Client Secret | REPLACE_WITH_DISCORD_CLIENT_SECRET |
 | Client ID | 1493639167526174830 |
-| JWT Secret | MgpyVa9e01DlHZzKYFrJWsEjMJPlKbJvzDREw3LTRzEwVboZBBiPyHqCWw8GyuKX |
+| JWT Secret | REPLACE_WITH_JWT_SECRET |
 
 ---
 
@@ -310,3 +310,5 @@ In Railway dashboard → Click your service → Click "Deploy" tab → View logs
 - "Invalid OAuth2 redirect_uri" = Discord redirect doesn't match
 - "Build failed" = Check Dockerfile path in settings
 - "Service not starting" = Check environment variables are all set
+
+

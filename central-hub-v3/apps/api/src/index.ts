@@ -11,6 +11,7 @@ import crypto from 'crypto';
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
+import { Client, GatewayIntentBits } from 'discord.js';
 
 // Import routes
 import aiRoutes from './routes/ai';
@@ -35,7 +36,7 @@ import { getProviderStatus } from './services/llm-router';
 import { initializeNeo4j, closeNeo4j } from './services/knowledge-graph';
 import { auditLog, getAuditLogs } from './services/audit-log';
 import { encrypt, decrypt, maskSecret, isEncryptionConfigured } from './services/encryption';
-import { discordClientMiddleware } from './middleware/discord-client';
+import { discordClientMiddleware, registerDiscordClient } from './middleware/discord-client';
 
 // Import scheduler
 import monitoringScheduler from './scheduler/monitoring';
@@ -46,7 +47,65 @@ dotenv.config();
 const app = express();
 const prisma = new PrismaClient();
 const PORT = process.env.PORT || 3001;
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
+if (!process.env.JWT_SECRET) {
+  throw new Error('JWT_SECRET environment variable is required');
+}
+const JWT_SECRET: string = process.env.JWT_SECRET;
+
+let discordClient: Client | null = null;
+
+async function initializeDiscordClient(): Promise<void> {
+  let token = process.env.DISCORD_TOKEN || process.env.DISCORD_BOT_TOKEN;
+  let tokenSource = 'environment';
+
+  if (!token) {
+    try {
+      const bot = await prisma.discordBot.findFirst({
+        where: {
+          token: {
+            not: '',
+          },
+        },
+        orderBy: {
+          updatedAt: 'desc',
+        },
+      });
+
+      if (bot?.token) {
+        token = bot.token;
+        tokenSource = `database bot ${bot.name}`;
+      }
+    } catch (error) {
+      console.error('⚠️  Failed to load Discord token from database:', error instanceof Error ? error.message : error);
+    }
+  }
+
+  if (!token) {
+    console.warn('⚠️  Discord bot token missing (set DISCORD_TOKEN/DISCORD_BOT_TOKEN or configure a bot in database)');
+    return;
+  }
+
+  try {
+    const client = new Client({
+      intents: [GatewayIntentBits.Guilds],
+    });
+
+    client.once('ready', () => {
+      console.log(`✅ Discord client connected as ${client.user?.tag || 'unknown-bot'}`);
+    });
+
+    client.on('error', (error) => {
+      console.error('❌ Discord client runtime error:', error);
+    });
+
+    console.log(`🔐 Initializing Discord client using token from ${tokenSource}`);
+    await client.login(token);
+    registerDiscordClient(client);
+    discordClient = client;
+  } catch (error) {
+    console.error('❌ Failed to initialize Discord client:', error instanceof Error ? error.message : error);
+  }
+}
 
 // Database initialization with direct SQL
 async function initializeDatabase(): Promise<boolean> {
@@ -722,6 +781,9 @@ app.listen(PORT, async () => {
     
     // Start monitoring scheduler
     monitoringScheduler.startScheduler();
+
+    // Initialize shared Discord client for guild setup operations
+    await initializeDiscordClient();
     
     console.log('✅ Server fully initialized and ready');
     console.log('✅ AI-powered monitoring active');
@@ -747,6 +809,7 @@ app.listen(PORT, async () => {
 // Graceful shutdown
 process.on('SIGTERM', async () => {
   console.log('SIGTERM received, shutting down gracefully');
+  try { discordClient?.destroy(); } catch {}
   monitoringScheduler.stopScheduler();
   await closeQueues();
   await closeNeo4j();
@@ -767,6 +830,7 @@ process.on('uncaughtException', async (error) => {
   }
   
   console.error('Uncaught Exception:', error);
+  try { discordClient?.destroy(); } catch {}
   try { monitoringScheduler.stopScheduler(); } catch {}
   try { await closeQueues(); } catch {}
   try { await closeNeo4j(); } catch {}
@@ -774,6 +838,4 @@ process.on('uncaughtException', async (error) => {
   try { await prisma.$disconnect(); } catch {}
   process.exit(1);
 });
-
-export { registerDiscordClient } from './middleware/discord-client';
 export default app;
