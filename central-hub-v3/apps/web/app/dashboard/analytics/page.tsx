@@ -5,7 +5,9 @@ import {
   LineChart, Line, BarChart, Bar, AreaChart, Area,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend
 } from 'recharts';
+import { useAnalyticsOverview } from '@/app/hooks/use-analytics';
 import { MetricCard } from '@/app/components/ui';
+import { Loading, SectionError } from '@/app/components/ui';
 import { cn } from '@/app/lib/utils';
 
 type TimeRange = '24h' | '7d' | '30d' | '90d';
@@ -13,50 +15,55 @@ type TimeRange = '24h' | '7d' | '30d' | '90d';
 export default function AnalyticsPage() {
   const [timeRange, setTimeRange] = useState<TimeRange>('7d');
 
-  const messagesData = [
-    { time: 'Mon', messages: 420, users: 120 },
-    { time: 'Tue', messages: 580, users: 145 },
-    { time: 'Wed', messages: 390, users: 110 },
-    { time: 'Thu', messages: 720, users: 190 },
-    { time: 'Fri', messages: 650, users: 170 },
-    { time: 'Sat', messages: 340, users: 95 },
-    { time: 'Sun', messages: 280, users: 80 },
-  ];
+  const { data, isLoading, isError, refetch } = useAnalyticsOverview(timeRange);
 
-  const commandsData = [
-    { command: '/deploy', count: 84 },
-    { command: '/status', count: 62 },
-    { command: '/logs', count: 45 },
-    { command: '/restart', count: 30 },
-    { command: '/backup', count: 22 },
-    { command: '/alert', count: 18 },
-  ];
-
-  const ticketResolutionData = [
-    { period: 'Week 1', created: 12, resolved: 10 },
-    { period: 'Week 2', created: 18, resolved: 15 },
-    { period: 'Week 3', created: 14, resolved: 16 },
-    { period: 'Week 4', created: 10, resolved: 12 },
-  ];
-
-  const activityHeatmap = [
-    { hour: '00:00', score: 12 },
-    { hour: '04:00', score: 5 },
-    { hour: '08:00', score: 45 },
-    { hour: '12:00', score: 78 },
-    { hour: '16:00', score: 92 },
-    { hour: '20:00', score: 65 },
-  ];
+  const messagesData = data?.messagesOverTime ?? [];
+  const commandsData = data?.topCommands ?? [];
+  const ticketResolutionData = data?.ticketResolutionRate ?? [];
+  const activityHeatmap = data?.activityHeatmap ?? [];
 
   const stats = {
-    messages: '3.4K',
-    users: '1.2K',
-    moderationEvents: '28',
-    ticketsResolved: '53',
+    messages: data?.messages ? data.messages.toLocaleString() : '—',
+    users: data?.users ? data.users.toLocaleString() : '—',
+    moderationEvents: data?.moderationEvents ? data.moderationEvents.toLocaleString() : '—',
+    ticketsResolved: data?.ticketsResolved ? data.ticketsResolved.toLocaleString() : '—',
   };
 
-  const totalMessages = messagesData.reduce((sum, d) => sum + d.messages, 0);
-  const totalUsers = messagesData.reduce((sum, d) => sum + d.users, 0);
+  if (isLoading) {
+    return (
+      <div className="space-y-6">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold text-white">Analytics</h1>
+            <p className="text-slate-400 mt-1">Loading analytics...</p>
+          </div>
+        </div>
+        <Loading.StatsGrid count={4} />
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <Loading.Chart height={250} />
+          <Loading.Chart height={250} />
+          <Loading.Chart height={250} />
+          <Loading.Chart height={250} />
+        </div>
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold text-white">Analytics</h1>
+          <p className="text-slate-400 mt-1">Platform metrics, trends, and performance insights</p>
+        </div>
+        <SectionError
+          title="Failed to load analytics"
+          message="There was an error loading the analytics data. Please try again."
+          onRetry={() => refetch()}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

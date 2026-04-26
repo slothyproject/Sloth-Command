@@ -30,14 +30,14 @@ export default function GitIntegrationPage() {
   const [selectedService, setSelectedService] = useState<string>('');
   const [provider, setProvider] = useState<'github' | 'gitlab' | 'bitbucket'>('github');
   
-  const { toast } = useToast();
+  const { success: showSuccess, error: showError } = useToast();
   const { data: repositories, isLoading } = useRepositories();
   const { data: services } = useServices();
   const connectRepo = useConnectRepository();
   const disconnectRepo = useDisconnectRepository();
   const updateWebhook = useUpdateWebhook();
   const testWebhook = useTestWebhook();
-  
+
   const handleConnect = async (repoUrl: string, serviceId: string) => {
     try {
       await connectRepo.mutateAsync({
@@ -45,41 +45,41 @@ export default function GitIntegrationPage() {
         provider,
         serviceId,
       });
-      
-      toast.success('Repository connected!', 'Webhook configured for auto-deployment');
+
+      showSuccess('Repository connected!', 'Webhook configured for auto-deployment');
       setShowConnectModal(false);
-    } catch (error) {
-      toast.error('Connection failed', error instanceof Error ? error.message : 'Unknown error');
+    } catch (err) {
+      showError('Connection failed', err instanceof Error ? err.message : 'Unknown error');
     }
   };
-  
+
   const handleDisconnect = async (repoId: string) => {
     if (!confirm('Disconnect this repository? Auto-deployment will stop.')) return;
-    
+
     try {
       await disconnectRepo.mutateAsync(repoId);
-      toast.success('Repository disconnected');
-    } catch (error) {
-      toast.error('Disconnect failed');
+      showSuccess('Repository disconnected');
+    } catch {
+      showError('Disconnect failed');
     }
   };
-  
+
   const handleTestWebhook = async (repoId: string) => {
     try {
       await testWebhook.mutateAsync(repoId);
-      toast.success('Webhook test sent', 'Check deployment logs for results');
-    } catch (error) {
-      toast.error('Test failed');
+      showSuccess('Webhook test sent', 'Check deployment logs for results');
+    } catch {
+      showError('Test failed');
     }
   };
-  
+
   const handleUpdateWebhook = async (repoId: string, config: WebhookConfig) => {
     try {
       await updateWebhook.mutateAsync({ repoId, config });
-      toast.success('Webhook updated');
+      showSuccess('Webhook updated');
       setShowWebhookModal(false);
     } catch (error) {
-      toast.error('Update failed');
+      showError('Update failed');
     }
   };
   
@@ -537,7 +537,7 @@ function WebhookConfigModal({ repo, onSave, onClose, isSaving }: {
             <label className="block text-sm text-slate-400 mb-1">Target Environment</label>
             <select
               value={config.targetEnvironment}
-              onChange={(e) => setConfig({ ...config, targetEnvironment: e.target.value })}
+              onChange={(e) => setConfig({ ...config, targetEnvironment: e.target.value as 'production' | 'staging' | 'development' })}
               className="w-full px-4 py-2 rounded-lg bg-slate-900/50 border border-white/10 text-white focus:outline-none focus:border-cyan-500"
             >
               <option value="production">Production</option>

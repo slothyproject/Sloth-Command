@@ -1,53 +1,40 @@
 'use client';
 
 import React, { useState, useMemo } from 'react';
+import { useUsers, useUpdateUserRole, useUpdateUserStatus } from '@/app/hooks/use-users';
 import { DataTable, type Column } from '@/app/components/ui';
 import { MetricCard } from '@/app/components/ui';
 import { StatusBadge } from '@/app/components/ui';
-
-interface UserItem {
-  id: string;
-  username: string;
-  email: string;
-  role: 'user' | 'admin' | 'moderator';
-  lastSeen: string;
-  status: 'active' | 'inactive' | 'banned';
-}
-
-const mockUsers: UserItem[] = [
-  { id: '1', username: 'alice', email: 'alice@example.com', role: 'admin', lastSeen: '2026-04-26T08:00:00Z', status: 'active' },
-  { id: '2', username: 'bob', email: 'bob@example.com', role: 'moderator', lastSeen: '2026-04-25T20:30:00Z', status: 'active' },
-  { id: '3', username: 'charlie', email: 'charlie@example.com', role: 'user', lastSeen: '2026-04-24T14:15:00Z', status: 'active' },
-  { id: '4', username: 'dave', email: 'dave@example.com', role: 'user', lastSeen: '2026-04-20T10:00:00Z', status: 'inactive' },
-  { id: '5', username: 'eve', email: 'eve@example.com', role: 'user', lastSeen: '2026-04-22T18:45:00Z', status: 'banned' },
-  { id: '6', username: 'frank', email: 'frank@example.com', role: 'user', lastSeen: '2026-04-26T07:00:00Z', status: 'active' },
-  { id: '7', username: 'grace', email: 'grace@example.com', role: 'moderator', lastSeen: '2026-04-26T06:30:00Z', status: 'active' },
-  { id: '8', username: 'heidi', email: 'heidi@example.com', role: 'user', lastSeen: '2026-04-26T05:00:00Z', status: 'active' },
-];
+import { Loading, SectionError } from '@/app/components/ui';
+import type { DashboardUser } from '@/app/types';
 
 export default function UsersPage() {
   const [roleFilter, setRoleFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editRole, setEditRole] = useState('');
-  const [users, setUsers] = useState<UserItem[]>([...mockUsers]);
 
-  const toggleStatus = (id: string) => {
-    setUsers((prev) =>
-      prev.map((u) => {
-        if (u.id !== id) return u;
-        const next = u.status === 'active' ? 'inactive' : u.status === 'inactive' ? 'active' : 'active';
-        return { ...u, status: next };
-      })
-    );
-  };
+  const { data: users = [], isLoading, isError, refetch } = useUsers({
+    ...(roleFilter ? { role: roleFilter } : {}),
+    ...(statusFilter ? { status: statusFilter } : {}),
+  });
 
-  const saveRole = (id: string) => {
-    setUsers((prev) => prev.map((u) => (u.id === id ? { ...u, role: editRole as UserItem['role'] } : u)));
+  const updateRole = useUpdateUserRole();
+  const updateStatus = useUpdateUserStatus();
+
+  const handleSaveRole = (id: string) => {
+    if (editRole) {
+      updateRole.mutate({ id, role: editRole });
+    }
     setEditingId(null);
   };
 
-  const columns: Column<UserItem>[] = [
+  const handleToggleStatus = (u: DashboardUser) => {
+    const next = u.status === 'active' ? 'inactive' : u.status === 'inactive' ? 'active' : 'active';
+    updateStatus.mutate({ id: u.id, status: next });
+  };
+
+  const columns: Column<DashboardUser>[] = [
     { key: 'username', title: 'Username', sortable: true },
     { key: 'email', title: 'Email', sortable: true },
     {
@@ -93,7 +80,7 @@ export default function UsersPage() {
       render: (row) =>
         editingId === row.id ? (
           <button
-            onClick={() => saveRole(row.id)}
+            onClick={() => handleSaveRole(row.id)}
             className="text-xs text-cyan-400 hover:text-cyan-300"
           >
             Save
@@ -111,7 +98,7 @@ export default function UsersPage() {
               Edit Role
             </button>
             <button
-              onClick={(e) => { e.stopPropagation(); toggleStatus(row.id); }}
+              onClick={(e) => { e.stopPropagation(); handleToggleStatus(row); }}
               className="text-xs text-slate-400 hover:text-white"
             >
               {row.status === 'active' ? 'Ban' : 'Activate'}
@@ -131,8 +118,37 @@ export default function UsersPage() {
   const stats = {
     total: users.length,
     activeThisWeek: users.filter((u) => new Date(u.lastSeen) > new Date(Date.now() - 7 * 86400000)).length,
-    newThisMonth: users.filter((u) => true).length,
+    newThisMonth: users.filter(() => true).length,
   };
+
+  if (isLoading) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold text-white">Users</h1>
+          <p className="text-slate-400 mt-1">Loading users...</p>
+        </div>
+        <Loading.StatsGrid count={3} />
+        <Loading.Table rows={6} columns={6} />
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold text-white">Users</h1>
+          <p className="text-slate-400 mt-1">Manage community members, roles, and status</p>
+        </div>
+        <SectionError
+          title="Failed to load users"
+          message="There was an error loading the users. Please try again."
+          onRetry={() => refetch()}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

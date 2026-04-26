@@ -1,8 +1,10 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
+import { useAIChat } from '@/app/hooks/use-ai';
 import { MetricCard } from '@/app/components/ui';
 import { CardSkeleton } from '@/app/components/ui';
+import { SectionError } from '@/app/components/ui';
 import { cn } from '@/app/lib/utils';
 
 interface ChatMessage {
@@ -20,32 +22,22 @@ const suggestions = [
   'Incident analysis',
 ];
 
-const mockResponses: Record<string, string> = {
-  'optimize pricing': 'To optimize pricing, consider switching to annual plans for a 20% discount and review under-utilized services.',
-  'security review': 'Your security posture looks solid. Consider enabling 2FA for all admin accounts and rotating API keys quarterly.',
-  'scale recommendations': 'Based on current traffic patterns, scale the API service to 3 replicas during peak hours (12:00–18:00 UTC).',
-  'cost forecast': 'Projected spend for next month is ~$340. You can reduce this by enabling spot instances for non-critical workloads.',
-  'incident analysis': 'There were 2 minor incidents this week. Root causes were connection pool exhaustion and a bad deploy. Both resolved within 15 minutes.',
-};
-
-function getMockReply(prompt: string): string {
-  const key = Object.keys(mockResponses).find((k) => prompt.toLowerCase().includes(k));
-  return key ? mockResponses[key] : "I'm Sloth Lee AI Advisor. Here's what I found: your infrastructure is stable. Monitor CPU usage on the API service; it peaked at 78% yesterday.";
-}
-
 export default function AiAdvisorPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const aiChat = useAIChat();
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
   }, [messages]);
 
-  const send = (text?: string) => {
+  const send = async (text?: string) => {
     const prompt = text ?? input;
     if (!prompt.trim()) return;
+    setError(null);
     const userMsg: ChatMessage = {
       id: `u-${Date.now()}`,
       role: 'user',
@@ -55,16 +47,28 @@ export default function AiAdvisorPage() {
     setMessages((prev) => [...prev, userMsg]);
     setInput('');
     setLoading(true);
-    setTimeout(() => {
+
+    try {
+      const result = await aiChat.mutateAsync(prompt);
       const assistantMsg: ChatMessage = {
         id: `a-${Date.now()}`,
         role: 'assistant',
-        content: getMockReply(prompt),
+        content: result.response ?? "I'm Sloth Lee AI Advisor. Let me analyze that for you.",
         timestamp: new Date().toISOString(),
       };
       setMessages((prev) => [...prev, assistantMsg]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Something went wrong');
+      const assistantMsg: ChatMessage = {
+        id: `a-${Date.now()}`,
+        role: 'assistant',
+        content: 'Sorry, I encountered an error processing your request. Please try again.',
+        timestamp: new Date().toISOString(),
+      };
+      setMessages((prev) => [...prev, assistantMsg]);
+    } finally {
       setLoading(false);
-    }, 1200);
+    }
   };
 
   const copy = (text: string) => {

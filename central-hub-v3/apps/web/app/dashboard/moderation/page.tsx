@@ -1,35 +1,13 @@
 'use client';
 
 import React, { useState, useMemo } from 'react';
+import { useModerationCases } from '@/app/hooks/use-moderation';
 import { DataTable, type Column } from '@/app/components/ui';
 import { MetricCard } from '@/app/components/ui';
 import { StatusBadge } from '@/app/components/ui';
+import { Loading, SectionError } from '@/app/components/ui';
 import { cn } from '@/app/lib/utils';
-
-// ── Types ──
-
-interface ModerationCase {
-  id: string;
-  caseNumber: string;
-  action: 'warn' | 'kick' | 'ban' | 'mute';
-  target: string;
-  moderator: string;
-  reason: string;
-  duration?: string;
-  createdAt: string;
-  status: 'open' | 'resolved' | 'appealed';
-}
-
-// ── Mock Data ──
-
-const mockCases: ModerationCase[] = [
-  { id: '1', caseNumber: 'MOD-001', action: 'warn', target: 'user_1', moderator: 'ModA', reason: 'Spam in general channel', duration: '—', createdAt: '2026-04-25T10:00:00Z', status: 'resolved' },
-  { id: '2', caseNumber: 'MOD-002', action: 'mute', target: 'user_2', moderator: 'ModB', reason: 'Excessive caps', duration: '1h', createdAt: '2026-04-24T14:30:00Z', status: 'open' },
-  { id: '3', caseNumber: 'MOD-003', action: 'kick', target: 'user_3', moderator: 'ModA', reason: 'Inappropriate nickname', duration: '—', createdAt: '2026-04-23T09:15:00Z', status: 'resolved' },
-  { id: '4', caseNumber: 'MOD-004', action: 'ban', target: 'user_4', moderator: 'ModC', reason: 'Harassment', duration: 'Permanent', createdAt: '2026-04-25T08:00:00Z', status: 'open' },
-  { id: '5', caseNumber: 'MOD-005', action: 'warn', target: 'user_5', moderator: 'ModB', reason: 'Off-topic promotion', duration: '—', createdAt: '2026-04-22T11:20:00Z', status: 'appealed' },
-  { id: '6', caseNumber: 'MOD-006', action: 'mute', target: 'user_6', moderator: 'ModA', reason: 'Repeated posting of invite links', duration: '24h', createdAt: '2026-04-21T16:45:00Z', status: 'resolved' },
-];
+import type { ModerationCase } from '@/app/types';
 
 // ── Page ──
 
@@ -37,6 +15,11 @@ export default function ModerationPage() {
   const [actionFilter, setActionFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [dateSort, setDateSort] = useState('newest');
+
+  const { data: cases = [], isLoading, isError, refetch } = useModerationCases({
+    ...(actionFilter ? { action: actionFilter } : {}),
+    ...(statusFilter ? { status: statusFilter } : {}),
+  });
 
   const columns: Column<ModerationCase>[] = [
     { key: 'caseNumber', title: 'Case #', sortable: true },
@@ -79,20 +62,48 @@ export default function ModerationPage() {
   ];
 
   const filteredData = useMemo(() => {
-    let data = [...mockCases];
-    if (actionFilter) data = data.filter((c) => c.action === actionFilter);
-    if (statusFilter) data = data.filter((c) => c.status === statusFilter);
+    let data = [...cases];
+    // client-side sort
     data.sort((a, b) => {
       const ad = new Date(a.createdAt).getTime();
       const bd = new Date(b.createdAt).getTime();
       return dateSort === 'newest' ? bd - ad : ad - bd;
     });
     return data;
-  }, [actionFilter, statusFilter, dateSort]);
+  }, [cases, dateSort]);
 
-  const total = mockCases.length;
-  const open = mockCases.filter((c) => c.status === 'open').length;
-  const thisWeek = mockCases.filter((c) => new Date(c.createdAt) > new Date(Date.now() - 7 * 86400000)).length;
+  const total = cases.length;
+  const open = cases.filter((c) => c.status === 'open').length;
+  const thisWeek = cases.filter((c) => new Date(c.createdAt) > new Date(Date.now() - 7 * 86400000)).length;
+
+  if (isLoading) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold text-white">Moderation</h1>
+          <p className="text-slate-400 mt-1">Loading moderation cases...</p>
+        </div>
+        <Loading.StatsGrid count={3} />
+        <Loading.Table rows={5} columns={8} />
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold text-white">Moderation</h1>
+          <p className="text-slate-400 mt-1">Review moderation cases, actions, and appeals</p>
+        </div>
+        <SectionError
+          title="Failed to load moderation cases"
+          message="There was an error loading the moderation cases. Please try again."
+          onRetry={() => refetch()}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

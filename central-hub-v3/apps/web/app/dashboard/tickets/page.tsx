@@ -2,35 +2,13 @@
 
 import React, { useState, useMemo } from 'react';
 import Link from 'next/link';
+import { useTickets } from '@/app/hooks/use-tickets';
 import { DataTable, type Column } from '@/app/components/ui';
 import { MetricCard } from '@/app/components/ui';
 import { StatusBadge } from '@/app/components/ui';
+import { Loading, SectionError } from '@/app/components/ui';
 import { cn } from '@/app/lib/utils';
-
-// ── Types ──
-
-interface Ticket {
-  id: string;
-  number: string;
-  subject: string;
-  status: 'open' | 'in_progress' | 'resolved' | 'closed';
-  priority: 'low' | 'medium' | 'high' | 'urgent';
-  assignedTo: string;
-  createdAt: string;
-}
-
-// ── Mock Data ──
-
-const mockTickets: Ticket[] = [
-  { id: '1', number: 'TKT-001', subject: 'Login issue with Discord OAuth', status: 'open', priority: 'high', assignedTo: 'Alice', createdAt: '2026-04-25T10:00:00Z' },
-  { id: '2', number: 'TKT-002', subject: 'API rate limiting too aggressive', status: 'in_progress', priority: 'medium', assignedTo: 'Bob', createdAt: '2026-04-24T14:30:00Z' },
-  { id: '3', number: 'TKT-003', subject: 'Dashboard not loading on mobile', status: 'resolved', priority: 'low', assignedTo: 'Charlie', createdAt: '2026-04-23T09:15:00Z' },
-  { id: '4', number: 'TKT-004', subject: 'Database connection timeout', status: 'open', priority: 'urgent', assignedTo: 'Unassigned', createdAt: '2026-04-25T08:00:00Z' },
-  { id: '5', number: 'TKT-005', subject: 'Webhook failing intermittently', status: 'in_progress', priority: 'high', assignedTo: 'Alice', createdAt: '2026-04-22T11:20:00Z' },
-  { id: '6', number: 'TKT-006', subject: 'Update branding colors', status: 'closed', priority: 'low', assignedTo: 'Bob', createdAt: '2026-04-20T16:45:00Z' },
-  { id: '7', number: 'TKT-007', subject: 'Memory leak in worker process', status: 'open', priority: 'urgent', assignedTo: 'Charlie', createdAt: '2026-04-26T07:30:00Z' },
-  { id: '8', number: 'TKT-008', subject: 'Add bulk export feature', status: 'resolved', priority: 'medium', assignedTo: 'Alice', createdAt: '2026-04-21T13:10:00Z' },
-];
+import type { Ticket, TicketStatus, TicketPriority } from '@/app/types';
 
 // ── Page ──
 
@@ -38,6 +16,40 @@ export default function TicketsPage() {
   const [statusFilter, setStatusFilter] = useState('');
   const [priorityFilter, setPriorityFilter] = useState('');
   const [sortPreset, setSortPreset] = useState('newest');
+
+  const { data: tickets = [], isLoading, isError, refetch } = useTickets({
+    ...(statusFilter ? { status: statusFilter } : {}),
+    ...(priorityFilter ? { priority: priorityFilter } : {}),
+  });
+
+  if (isLoading) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold text-white">Tickets</h1>
+          <p className="text-slate-400 mt-1">Loading tickets...</p>
+        </div>
+        <Loading.StatsGrid count={3} />
+        <Loading.Table rows={5} columns={7} />
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold text-white">Tickets</h1>
+          <p className="text-slate-400 mt-1">Manage support tickets and track resolution status</p>
+        </div>
+        <SectionError
+          title="Failed to load tickets"
+          message="There was an error loading the tickets. Please try again."
+          onRetry={() => refetch()}
+        />
+      </div>
+    );
+  }
 
   const columns: Column<Ticket>[] = [
     { key: 'number', title: 'Ticket #', sortable: true },
@@ -101,10 +113,8 @@ export default function TicketsPage() {
   ];
 
   const filteredData = useMemo(() => {
-    let data = [...mockTickets];
-    if (statusFilter) data = data.filter((t) => t.status === statusFilter);
-    if (priorityFilter) data = data.filter((t) => t.priority === priorityFilter);
-
+    let data = [...tickets];
+    // client-side sort
     if (sortPreset === 'urgent') {
       const order: Record<string, number> = { urgent: 0, high: 1, medium: 2, low: 3 };
       data.sort((a, b) => order[a.priority] - order[b.priority]);
@@ -116,11 +126,11 @@ export default function TicketsPage() {
       data = data.filter((t) => t.assignedTo === 'Unassigned');
     }
     return data;
-  }, [statusFilter, priorityFilter, sortPreset]);
+  }, [tickets, sortPreset]);
 
-  const total = mockTickets.length;
-  const open = mockTickets.filter((t) => t.status === 'open').length;
-  const assigned = mockTickets.filter((t) => t.assignedTo !== 'Unassigned').length;
+  const total = tickets.length;
+  const open = tickets.filter((t) => t.status === 'open').length;
+  const assigned = tickets.filter((t) => t.assignedTo !== 'Unassigned').length;
 
   return (
     <div className="space-y-6">
