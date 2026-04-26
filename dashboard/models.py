@@ -519,6 +519,30 @@ class BotEvent(db.Model):
     guild = db.relationship("Guild", foreign_keys=[guild_id])
 
 
+class OwnerIPAllowlist(db.Model):
+    """Owner IP allowlist — prevents login from untrusted IPs."""
+    __tablename__ = "hub_owner_ip_allowlist"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("hub_users.id", ondelete="CASCADE"), nullable=False, index=True)
+    ip_address = db.Column(db.String(45), nullable=False, index=True)
+    description = db.Column(db.String(200), nullable=True)
+    expires_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow)
+
+    user = db.relationship("User", backref=db.backref("ip_allowlist", lazy="dynamic", cascade="all, delete-orphan"))
+
+
+class FailedLoginAttempt(db.Model):
+    """Tracks failed login attempts for brute-force protection."""
+    __tablename__ = "hub_failed_login_attempts"
+
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(80), nullable=False, index=True)
+    ip_address = db.Column(db.String(45), nullable=True)
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow)
+
+
 # ── Audit Log ────────────────────────────────────────────────────
 
 class AuditLog(db.Model):

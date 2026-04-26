@@ -12,9 +12,10 @@ from flask_socketio import SocketIO
 from flask_wtf.csrf import CSRFProtect
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from dashboard.extensions import db, limiter
+from dashboard.extensions import SESSION_CONFIG, db, limiter
 from dashboard.routes.api import api_bp
 from dashboard.routes.ai_advisor import advisor_bp
+from dashboard.routes.ai_operator import operator_bp
 from dashboard.routes.auth import auth_bp
 from dashboard.routes.core import core_bp
 from dashboard.versioning import get_dashboard_version
@@ -53,6 +54,8 @@ def create_app(config: dict | None = None) -> Flask:
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE="Lax",
         WTF_CSRF_TIME_LIMIT=3600,
+        PERMANENT_SESSION_LIFETIME=SESSION_CONFIG["PERMANENT_SESSION_LIFETIME"],
+        MAX_CONTENT_LENGTH=SESSION_CONFIG["MAX_CONTENT_LENGTH"],
     )
     if config:
         app.config.update(config)
@@ -88,7 +91,9 @@ def create_app(config: dict | None = None) -> Flask:
     app.register_blueprint(core_bp)
     app.register_blueprint(api_bp, url_prefix="/api")
     app.register_blueprint(advisor_bp, url_prefix="/api")
+    app.register_blueprint(operator_bp, url_prefix="/api")
     csrf.exempt(advisor_bp)
+    csrf.exempt(operator_bp)
     app.register_blueprint(auth_bp, url_prefix="/auth")
 
     # Exempt API routes from CSRF (they use token auth or are read-only)

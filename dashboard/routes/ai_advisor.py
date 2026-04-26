@@ -230,6 +230,21 @@ def _check_rate_limit(user) -> tuple[bool, str | None]:
 def ai_advisor_chat():
     """Multi-turn advisor chat."""
     credential = _get_credential(current_user)
+
+    # Security: require admin or guild context for execution-heavy advisor calls.
+    data = request.get_json(silent=True) or {}
+    guild_id = data.get("guild_id")
+    if guild_id and not current_user.is_admin:
+        from dashboard.models import Guild, GuildMember
+        try:
+            guild = db.session.get(Guild, int(guild_id))
+            if not guild:
+                return jsonify({"ok": False, "error": "Guild not found"}), 404
+            membership = GuildMember.query.filter_by(user_id=current_user.id, guild_id=guild.id).first()
+            if not membership or not membership.can_manage:
+                return jsonify({"ok": False, "error": "You do not have permission to manage this guild"}), 403
+        except (ValueError, TypeError):
+            return jsonify({"ok": False, "error": "Invalid guild_id"}), 400
     if not credential or credential.status != "active":
         return jsonify({"ok": False, "error": "AI provider not configured. Go to Settings → AI Provider."}), 400
 

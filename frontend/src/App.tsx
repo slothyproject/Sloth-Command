@@ -15,6 +15,7 @@ const TicketsPage = lazy(() => import("./pages/TicketsPage").then((m) => ({ defa
 const AnalyticsPage = lazy(() => import("./pages/AnalyticsPage").then((m) => ({ default: m.AnalyticsPage })));
 const TicketDetailPage = lazy(() => import("./pages/TicketDetailPage").then((m) => ({ default: m.TicketDetailPage })));
 const AiAdvisorPage = lazy(() => import("./pages/AiAdvisorPage").then((m) => ({ default: m.AiAdvisorPage })));
+const AiOperatorPage = lazy(() => import("./pages/AiOperatorPage").then((m) => ({ default: m.AiOperatorPage })));
 const ServersPage = lazy(() => import("./pages/ServersPage").then((m) => ({ default: m.ServersPage })));
 const LogsPage = lazy(() => import("./pages/LogsPage").then((m) => ({ default: m.LogsPage })));
 const UsersPage = lazy(() => import("./pages/UsersPage").then((m) => ({ default: m.UsersPage })));
@@ -89,6 +90,7 @@ function SessionBootstrap() {
           <Route path="/tickets/:ticketId" element={<TicketDetailPage />} />
           <Route path="/analytics" element={<AnalyticsPage />} />
           <Route path="/ai-advisor" element={<AiAdvisorPage />} />
+          <Route path="/ai-operator" element={<AiOperatorPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/logs" element={<LogsPage />} />
           <Route path="/users" element={<UsersPage />} />
