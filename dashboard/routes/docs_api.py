@@ -236,14 +236,15 @@ def _parse_command_markdown(path: Path) -> list[dict]:
     in_table = False
     for line in text.splitlines():
         stripped = line.strip()
-        # Table data row
-        if in_table and stripped.startswith("|`"):
-            parts = stripped.split("|")
-            if len(parts) >= 4:
-                raw_cmd = parts[1].strip().strip("` !")
+        # Table data row  e.g. '| `!warn` | member | manage_messages | Warn a member. |'
+        if in_table and stripped.startswith("|") and "`!" in stripped:
+            parts = [p.strip() for p in stripped.split("|")]
+            if len(parts) >= 5:
+                # parts layout: ['', '!warn', 'member', 'manage_messages', 'Warn a member.', '']
+                raw_cmd = parts[1].strip().strip("!`\"")
                 args_raw = parts[2].strip()
                 perms_raw = parts[3].strip()
-                desc = parts[4].strip() if len(parts) > 4 else ""
+                desc = parts[4].strip()
                 commands.append({
                     "name": raw_cmd,
                     "args": args_raw,
@@ -252,12 +253,12 @@ def _parse_command_markdown(path: Path) -> list[dict]:
                     "example": "",
                 })
             continue
+        # Exit table when we leave table rows
         if in_table and not stripped.startswith("|"):
             in_table = False
-        if stripped.startswith("|`!"):
+        # Table header or separator starts the table block
+        if stripped.startswith("|") and ("---" in stripped or "Command" in stripped or "`!" in stripped):
             in_table = True
-            continue
-        if stripped.startswith("|---"):
             continue
     return commands
 
