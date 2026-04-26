@@ -6,3 +6,53 @@ cogs:
     description: Scaffolds Discord cogs + Factory skill files via !skill create
     enabled: true
     path: bot/cogs/skill_factory_bridge.py
+
+  - name: moderation
+    description: Warn, mute, kick, ban, purge, slowmode, lock, unlock
+    enabled: true
+    path: bot/cogs/moderation.py
+
+  - name: tickets
+    description: Support ticket creation, close, transcripts
+    enabled: true
+    path: bot/cogs/tickets.py
+
+  - name: welcome
+    description: Welcome / farewell messages, auto-role, DMs
+    enabled: true
+    path: bot/cogs/welcome.py
+
+  - name: fun
+    description: Roast, 8ball, roll, coinflip, meme, poll
+    enabled: true
+    path: bot/cogs/fun.py
+
+  - name: economy
+    description: Work, balance, daily, pay, leaderboard, deposit, withdraw
+    enabled: true
+    path: bot/cogs/economy.py
+
+  - name: music
+    description: Voice channel join/leave, stop, pause, resume, volume, queue
+    enabled: true
+    path: bot/cogs/music.py
+
+  - name: logging
+    description: Message edit/delete, role changes, nickname changes
+    enabled: true
+    path: bot/cogs/logging.py
+
+  - name: automod
+    description: Caps spam, repeat spam, invite link detection
+    enabled: true
+    path: bot/cogs/automod.py
+
+  - name: leveling
+    description: XP gain, ranks, level up announcements, leaderboard
+    enabled: true
+    path: bot/cogs/leveling.py
+
+  - name: utility
+    description: Ping, uptime, avatar, userinfo, serverinfo, remind
+    enabled: true
+    path: bot/cogs/utility.py

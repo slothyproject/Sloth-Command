@@ -27,6 +27,7 @@ from dashboard.models import (
     UserAIProviderUsageStat,
 )
 from dashboard.services.ai_provider import invoke_ai_provider
+from dashboard.services.bot_state import push_bot_command
 from dashboard.services.dissident_api import call_dissident_api
 from dashboard.services.encryption import decrypt_secret
 
@@ -58,18 +59,37 @@ _OPERATOR_SYSTEM_PROMPT = (
     "- moderation/ban   { guildId, userId, reason?, duration?, deleteMessages? }\n"
     "- moderation/kick  { guildId, userId, reason? }\n"
     "- moderation/mute  { guildId, userId, reason?, duration }\n"
+    "- moderation/unmute{ guildId, userId, reason? }\n"
     "- moderation/warn  { guildId, userId, reason? }\n"
     "- moderation/unban { guildId, userId, reason? }\n"
-    "- moderation/unmute{ guildId, userId, reason? }\n"
-    "- settings/update  { guildId, key, value }\n"
-    "- role/assign      { guildId, userId, roleName }\n"
-    "- role/remove      { guildId, userId, roleName }\n"
-    "- tickets/open     { guildId, userId, subject, priority?, reason? }\n"
-    "- tickets/close    { guildId, ticketId, reason? }\n"
-    "- welcome/post     { guildId, userId, message? }\n"
-    "- automod/toggle   { guildId, enabled }\n"
-    "- logging/toggle   { guildId, key, enabled }\n"
-    "- massmessage      { guildId, channelId, message }\n\n"
+    "- moderation/purge    { guildId, channelId, limit }\n"
+    "- moderation/slowmode { guildId, channelId, seconds }\n"
+    "- moderation/lock     { guildId, channelId }\n"
+    "- moderation/unlock   { guildId, channelId }\n"
+    "- settings/update     { guildId, key, value }\n"
+    "- role/assign    { guildId, userId, roleId, reason? }\n"
+    "- role/remove    { guildId, userId, roleId, reason? }\n"
+    "- role/create    { guildId, roleName, reason? }\n"
+    "- role/delete    { guildId, roleId, reason? }\n"
+    "- channel/create { guildId, name, type:text|voice, reason? }\n"
+    "- channel/delete { guildId, channelId, reason? }\n"
+    "- channel/rename { guildId, channelId, name, reason? }\n"
+    "- voice/join     { guildId, channelId }\n"
+    "- voice/leave    { guildId }\n"
+    "- voice/move     { guildId, userId, channelId }\n"
+    "- message/send   { guildId, channelId, content }\n"
+    "- message/pin    { guildId, channelId, messageId }\n"
+    "- message/unpin  { guildId, channelId, messageId }\n"
+    "- message/bulk_delete { guildId, channelId, limit }\n"
+    "- tickets/open   { guildId, userId, subject, priority?, reason? }\n"
+    "- tickets/close  { guildId, ticketId, reason? }\n"
+    "- welcome/post   { guildId, userId, message? }\n"
+    "- automod/toggle { guildId, enabled }\n"
+    "- logging/toggle { guildId, key, enabled }\n"
+    "- emoji/remove   { guildId, name, reason? }\n"
+    "- bulk/mute      { guildId, userIds[], reason?, duration? }\n"
+    "- bulk/ban       { guildId, userIds[], reason?, deleteMessages? }\n"
+    "- massmessage    { guildId, channelId, message }\n\n"
     "When the user says something ambiguous, generate a JSON plan and set "
     '"need_confirmation": true. When confident, set it to false.\n\n'
     "Output ONLY valid JSON like this (no markdown, no preamble):\n"
@@ -229,7 +249,98 @@ def _execute_step(op: str, params: dict) -> dict:
         db.session.commit()
         return {"ok": True, "automod_enabled": guild.settings.automod_enabled}
 
+    # ── Voice ─────────────────────────────────
+    if op.startswith("voice/"):
+        action = op.split("/", 1)[1]
+        payload = {"guildId": str(params.get("guildId")), "action": action}
+        if "channelId" in params:
+            payload["channelId"] = str(params.get("channelId"))
+        if "userId" in params:
+            payload["userId"] = str(params.get("userId"))
+        push_bot_command("voice_action", payload)
+        return {"ok": True, "action": action, "queued": True}
+
+    # ── Role ──────────────────────────────────
+    if op.startswith("role/"):
+        action = op.split("/", 1)[1]
+        payload = {"guildId": str(params.get("guildId")), "action": action,
+                   "reason": params.get("reason", "Dashboard action")}
+        if "userId" in params:
+            payload["userId"] = str(params.get("userId"))
+        if "roleId" in params:
+            payload["roleId"] = str(params.get("roleId"))
+        if "roleName" in params:
+            payload["roleName"] = str(params.get("roleName"))
+        push_bot_command("role_action", payload)
+        return {"ok": True, "action": action, "queued": True}
+
+    # ── Channel ───────────────────────────────
+    if op.startswith("channel/"):
+        action = op.split("/", 1)[1]
+        payload = {"guildId": str(params.get("guildId")), "action": action,
+                   "reason": params.get("reason", "Dashboard action")}
+        if "channelId" in params:
+            payload["channelId"] = str(params.get("channelId"))
+        if "name" in params:
+            payload["name"] = str(params.get("name"))
+        if "type" in params:
+            payload["type"] = str(params.get("type"))
+        push_bot_command("channel_action", payload)
+        return {"ok": True, "action": action, "queued": True}
+
+    # ── Message ───────────────────────────────
+    if op.startswith("message/"):
+        action = op.split("/", 1)[1]
+        payload = {"guildId": str(params.get("guildId")), "action": action,
+                   "reason": params.get("reason", "Dashboard action")}
+        if "channelId" in params:
+            payload["channelId"] = str(params.get("channelId"))
+        if "messageId" in params:
+            payload["messageId"] = str(params.get("messageId"))
+        if "content" in params:
+            payload["content"] = str(params.get("content"))
+        if action == "bulk_delete":
+            payload["limit"] = int(params.get("limit", 100))
+        push_bot_command("message_action", payload)
+        return {"ok": True, "action": action, "queued": True}
+
+    # ── Emoji ─────────────────────────────────
+    if op.startswith("emoji/"):
+        action = op.split("/", 1)[1]
+        payload = {"guildId": str(params.get("guildId")), "action": action,
+                   "reason": params.get("reason", "Dashboard action")}
+        if "name" in params:
+            payload["name"] = str(params.get("name"))
+        if "imageUrl" in params:
+            payload["imageUrl"] = str(params.get("imageUrl"))
+        push_bot_command("emoji_action", payload)
+        return {"ok": True, "action": action, "queued": True}
+
+    # ── Bulk ──────────────────────────────────
+    if op.startswith("bulk/"):
+        action = op.split("/", 1)[1]
+        payload = {"guildId": str(params.get("guildId")), "action": action,
+                   "reason": params.get("reason", "No reason provided")}
+        if "userIds" in params:
+            payload["userIds"] = [str(u) for u in params.get("userIds", [])]
+        if "duration" in params:
+            payload["duration"] = int(params["duration"])
+        if "deleteMessages" in params:
+            payload["deleteMessages"] = bool(params["deleteMessages"])
+        push_bot_command("moderation_action", payload)
+        return {"ok": True, "action": action, "queued": True}
+
+    if op == "massmessage":
+        payload = {
+            "guildId": str(params.get("guildId")),
+            "channelId": str(params.get("channelId")),
+            "content": str(params.get("message", "")),
+        }
+        push_bot_command("message_action", {"action": "send", **payload})
+        return {"ok": True, "action": "massmessage", "queued": True}
+
     return {"ok": False, "error": f"Unsupported operation: {op}"}
+
 
 
 # ── Routes ───────────────────────────────────────────────────────
